@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { FIELD_TYPE_LABELS, type Field, type FieldType } from "shared"
 import { getDraft, saveDraft } from "./api.js"
+import { FieldInspector } from "./FieldInspector.js"
 import { FieldPalette } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
 
@@ -22,11 +23,25 @@ function reorder(fields: Field[], sourceIndex: number, targetIndex: number) {
   return next
 }
 
+function createField(type: FieldType): Field {
+  const id = crypto.randomUUID()
+  const label = FIELD_TYPE_LABELS[type]
+  switch (type) {
+    case "text":
+      return { id, type, label, required: false }
+    case "textarea":
+      return { id, type, label }
+    case "dropdown":
+      return { id, type, label }
+  }
+}
+
 // Loads the form's current draft, then lets an admin drag field types from
-// the palette onto the canvas to build it visually (US-2.1), and drag
-// existing fields to reorder them (US-2.2).
+// the palette onto the canvas to build it visually (US-2.1), reorder them
+// (US-2.2), and configure the selected field (US-3.x).
 export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   )
@@ -58,12 +73,9 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   }
 
   function handleDrop(type: FieldType, index: number) {
-    const field: Field = {
-      id: crypto.randomUUID(),
-      type,
-      label: FIELD_TYPE_LABELS[type],
-    }
+    const field = createField(type)
     persist([...fields.slice(0, index), field, ...fields.slice(index)])
+    setSelectedId(field.id)
   }
 
   function handleReorder(fieldId: string, index: number) {
@@ -71,6 +83,12 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     if (sourceIndex === -1) return
     persist(reorder(fields, sourceIndex, index))
   }
+
+  function handleFieldChange(next: Field) {
+    persist(fields.map((field) => (field.id === next.id ? next : field)))
+  }
+
+  const selectedField = fields.find((field) => field.id === selectedId) ?? null
 
   return (
     <main className="form-builder">
@@ -90,9 +108,12 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
           <FieldPalette />
           <FormCanvas
             fields={fields}
+            selectedId={selectedId}
             onDrop={handleDrop}
             onReorder={handleReorder}
+            onSelect={setSelectedId}
           />
+          <FieldInspector field={selectedField} onChange={handleFieldChange} />
         </div>
       )}
     </main>

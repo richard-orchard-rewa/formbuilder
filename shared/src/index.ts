@@ -20,7 +20,10 @@ export type {
 export {
   FieldSchema,
   FieldTypeSchema,
+  TextFieldSchema,
+  TextAreaFieldSchema,
+  DropdownFieldSchema,
   FIELD_TYPES,
   FIELD_TYPE_LABELS,
 } from "./schemas/field.js"
-export type { Field, FieldType } from "./schemas/field.js"
+export type { Field, FieldType, TextField } from "./schemas/field.js"
