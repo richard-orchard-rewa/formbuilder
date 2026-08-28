@@ -54,6 +54,10 @@ export const formVersions = pgTable(
       .notNull()
       .defaultNow(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    // Freeform identifier of who published this version (US-1.4). There's no
+    // auth/user system yet, so this is whatever the caller supplies rather
+    // than a foreign key to a users table.
+    publishedBy: text("published_by"),
   },
   (table) => [
     unique("form_versions_form_id_version_key").on(
