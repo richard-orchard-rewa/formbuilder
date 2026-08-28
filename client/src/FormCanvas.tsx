@@ -4,13 +4,21 @@ import { FIELD_TYPE_DRAG_KEY } from "./dnd.js"
 
 interface FormCanvasProps {
   fields: Field[]
+  selectedId: string | null
   onDrop: (type: FieldType, index: number) => void
+  onSelect: (id: string) => void
 }
 
 // The drop target for the field palette (US-2.1). Tracks where in the
 // field list the cursor currently sits so a field lands exactly at the
-// drop position rather than always at the end.
-export function FormCanvas({ fields, onDrop }: FormCanvasProps) {
+// drop position rather than always at the end. Clicking a field selects
+// it for configuration in the inspector (US-3.1).
+export function FormCanvas({
+  fields,
+  selectedId,
+  onDrop,
+  onSelect,
+}: FormCanvasProps) {
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
 
@@ -71,7 +79,16 @@ export function FormCanvas({ fields, onDrop }: FormCanvasProps) {
         {fields.map((field, index) => (
           <li key={field.id}>
             {dropIndex === index && <DropIndicator />}
-            <div className="form-canvas__field" data-field-item>
+            <div
+              className={
+                "form-canvas__field" +
+                (field.id === selectedId
+                  ? " form-canvas__field--selected"
+                  : "")
+              }
+              data-field-item
+              onClick={() => onSelect(field.id)}
+            >
               <span className="form-canvas__field-type">
                 {FIELD_TYPE_LABELS[field.type]}
               </span>

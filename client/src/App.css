@@ -54,6 +54,12 @@ body {
   margin-bottom: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
+  cursor: pointer;
+}
+
+.form-canvas__field--selected {
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 1px #4a90d9;
 }
 
 .form-canvas__field-type {
@@ -67,4 +73,35 @@ body {
   margin-bottom: 0.5rem;
   border-radius: 2px;
   background: #4a90d9;
+}
+
+.field-inspector {
+  flex: 0 0 14rem;
+}
+
+.field-inspector__empty {
+  color: #888;
+}
+
+.field-inspector__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.field-inspector__field input {
+  padding: 0.375rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.field-inspector__field--checkbox {
+  flex-direction: row;
+  align-items: center;
+}
+
+.field-inspector__field--checkbox input {
+  width: auto;
 }
