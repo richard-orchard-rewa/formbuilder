@@ -6,10 +6,16 @@ import {
   FormListSchema,
   FormSchemaSchema,
   FormSummarySchema,
+  FormVersionHistorySchema,
   FormVersionSchema,
+  PublishFormVersionSchema,
   type FormSchema,
 } from "shared"
-import { FormNotFoundError, NoDraftVersionError } from "./repositories/form-versions.js"
+import {
+  FormNotFoundError,
+  NoDraftVersionError,
+  type FormVersionRow,
+} from "./repositories/form-versions.js"
 import type { FormBuilderService } from "./services/form-builder.js"
 import type { FormVersionsService } from "./services/form-versions.js"
 
@@ -27,6 +33,12 @@ function serializeVersion<
     createdAt: version.createdAt.toISOString(),
     publishedAt: version.publishedAt?.toISOString() ?? null,
   }
+}
+
+// "published" is the DB's name for the single currently-active version; the
+// version-history view (US-1.4) speaks in "active" instead.
+function toHistoryStatus(status: FormVersionRow["status"]) {
+  return status === "published" ? "active" : status
 }
 
 // One plugin per capability (US-0.5): everything the form-builder feature
@@ -71,6 +83,7 @@ export function formBuilderPlugin(
       {
         schema: {
           params: FormParamsSchema,
+          body: PublishFormVersionSchema,
           response: { 200: FormVersionSchema, 409: ErrorResponseSchema },
         },
       },
@@ -78,6 +91,7 @@ export function formBuilderPlugin(
         try {
           const version = await versionsService.publishDraft(
             request.params.formId,
+            request.body.publishedBy,
           )
           return reply.code(200).send(serializeVersion(version))
         } catch (error) {
@@ -105,6 +119,35 @@ export function formBuilderPlugin(
             request.body,
           )
           return reply.code(200).send(serializeVersion(version))
+        } catch (error) {
+          if (error instanceof FormNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.get(
+      "/api/forms/:formId/versions",
+      {
+        schema: {
+          params: FormParamsSchema,
+          response: { 200: FormVersionHistorySchema, 404: ErrorResponseSchema },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const versions = await versionsService.listVersions(
+            request.params.formId,
+          )
+          return versions.map((version) => ({
+            id: version.id,
+            version: version.version,
+            status: toHistoryStatus(version.status),
+            publishedAt: version.publishedAt?.toISOString() ?? null,
+            publishedBy: version.publishedBy,
+          }))
         } catch (error) {
           if (error instanceof FormNotFoundError) {
             return reply.code(404).send({ message: error.message })

@@ -8,6 +8,7 @@ export interface FormVersionRow {
   status: FormVersionStatus
   createdAt: Date
   publishedAt: Date | null
+  publishedBy: string | null
 }
 
 // Thrown when a form has no draft version to publish, either because the
@@ -30,11 +31,16 @@ export interface FormVersionsRepository {
   // Publishes the form's current draft version: locks it as immutable,
   // assigns it the next version number, and supersedes whichever version
   // was previously active so only one stays active per form (US-1.2).
-  publishDraft(formId: string): Promise<FormVersionRow>
+  publishDraft(formId: string, publishedBy?: string | null): Promise<FormVersionRow>
 
   // Applies a schema edit to the form's draft version. If the form has no
   // draft (its active version is published), a new draft is created instead
   // of mutating the published one, so live submissions keep pointing at the
   // exact schema they were captured against (US-1.3).
   editDraft(formId: string, schema: unknown): Promise<FormVersionRow>
+
+  // Lists every version of a form (draft, active, and superseded), most
+  // recently created first, so an admin can track changes over time
+  // (US-1.4).
+  listVersions(formId: string): Promise<FormVersionRow[]>
 }

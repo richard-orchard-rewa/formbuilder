@@ -1,4 +1,4 @@
-import { and, eq, max } from "drizzle-orm"
+import { and, desc, eq, max } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
 import { forms, formVersions } from "../../../db/schema.js"
 import {
@@ -16,12 +16,16 @@ const VERSION_COLUMNS = {
   status: formVersions.status,
   createdAt: formVersions.createdAt,
   publishedAt: formVersions.publishedAt,
+  publishedBy: formVersions.publishedBy,
 }
 
 export class DrizzleFormVersionsRepository implements FormVersionsRepository {
   constructor(private readonly db: Db) {}
 
-  async publishDraft(formId: string): Promise<FormVersionRow> {
+  async publishDraft(
+    formId: string,
+    publishedBy?: string | null,
+  ): Promise<FormVersionRow> {
     return this.db.transaction(async (tx) => {
       const [draft] = await tx
         .select(VERSION_COLUMNS)
@@ -54,7 +58,12 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
 
       const [published] = await tx
         .update(formVersions)
-        .set({ version: nextVersion, status: "published", publishedAt: new Date() })
+        .set({
+          version: nextVersion,
+          status: "published",
+          publishedAt: new Date(),
+          publishedBy: publishedBy ?? null,
+        })
         .where(eq(formVersions.id, draft.id))
         .returning(VERSION_COLUMNS)
 
@@ -96,5 +105,22 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
         .returning(VERSION_COLUMNS)
       return created
     })
+  }
+
+  async listVersions(formId: string): Promise<FormVersionRow[]> {
+    const [form] = await this.db
+      .select({ id: forms.id })
+      .from(forms)
+      .where(eq(forms.id, formId))
+
+    if (!form) {
+      throw new FormNotFoundError(formId)
+    }
+
+    return this.db
+      .select(VERSION_COLUMNS)
+      .from(formVersions)
+      .where(eq(formVersions.formId, formId))
+      .orderBy(desc(formVersions.createdAt))
   }
 }
