@@ -11,6 +11,18 @@ interface FormBuilderProps {
   onBack: () => void
 }
 
+// Moves the field at sourceIndex so it ends up at targetIndex, where
+// targetIndex is expressed in terms of the list *before* the move (as
+// produced by the canvas's drop-position calculation).
+function reorder(fields: Field[], sourceIndex: number, targetIndex: number) {
+  const next = [...fields]
+  const [moved] = next.splice(sourceIndex, 1)
+  const adjustedTarget =
+    targetIndex > sourceIndex ? targetIndex - 1 : targetIndex
+  next.splice(adjustedTarget, 0, moved)
+  return next
+}
+
 function createField(type: FieldType): Field {
   const id = crypto.randomUUID()
   const label = FIELD_TYPE_LABELS[type]
@@ -66,6 +78,12 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     setSelectedId(field.id)
   }
 
+  function handleReorder(fieldId: string, index: number) {
+    const sourceIndex = fields.findIndex((field) => field.id === fieldId)
+    if (sourceIndex === -1) return
+    persist(reorder(fields, sourceIndex, index))
+  }
+
   function handleFieldChange(next: Field) {
     persist(fields.map((field) => (field.id === next.id ? next : field)))
   }
@@ -92,6 +110,7 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
             fields={fields}
             selectedId={selectedId}
             onDrop={handleDrop}
+            onReorder={handleReorder}
             onSelect={setSelectedId}
           />
           <FieldInspector field={selectedField} onChange={handleFieldChange} />
