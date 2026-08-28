@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   unique,
+  uniqueIndex,
   check,
 } from "drizzle-orm/pg-core"
 
@@ -43,7 +44,10 @@ export const formVersions = pgTable(
     // shape (see US-0.3, Zod-to-JSON-Schema) rather than a fixed set of
     // columns per field type.
     schema: jsonb("schema").notNull(),
-    status: text("status", { enum: ["draft", "published"] })
+    // "published" is the single active version used for new submissions;
+    // publishing a draft demotes any previously published version to
+    // "superseded" (US-1.2) so it stays retrievable but not editable.
+    status: text("status", { enum: ["draft", "published", "superseded"] })
       .notNull()
       .default("draft"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -58,8 +62,11 @@ export const formVersions = pgTable(
     ),
     check(
       "form_versions_published_at_matches_status",
-      sql`(${table.status} = 'published') = (${table.publishedAt} is not null)`,
+      sql`(${table.status} = 'draft') = (${table.publishedAt} is null)`,
     ),
+    uniqueIndex("form_versions_one_published_per_form")
+      .on(table.formId)
+      .where(sql`${table.status} = 'published'`),
   ],
 )
 

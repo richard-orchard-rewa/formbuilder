@@ -13,7 +13,9 @@ export function buildApp(deps: AppDeps, logger: Logger) {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
 
-  app.register(formBuilderPlugin(deps.formBuilderService))
+  app.register(
+    formBuilderPlugin(deps.formBuilderService, deps.formVersionsService),
+  )
 
   return app
 }
