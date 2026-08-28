@@ -49,4 +49,10 @@ export interface FormVersionsRepository {
   // the form itself doesn't exist. Lets the builder UI resume editing
   // whatever was last saved (US-2.1).
   getDraft(formId: string): Promise<FormVersionRow | null>
+
+  // Returns the form's currently active (published) version, or null if
+  // nothing has been published yet. Throws if the form itself doesn't
+  // exist. This is what a submission is validated and recorded against
+  // (US-3.5).
+  getActiveVersion(formId: string): Promise<FormVersionRow | null>
 }
