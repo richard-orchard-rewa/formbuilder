@@ -32,7 +32,7 @@ export function formBuilderPlugin(
         },
       },
       async (request, reply) => {
-        const row = await service.createForm(request.body.name)
+        const row = await service.createForm(request.body)
         return reply
           .code(201)
           .send({ ...row, createdAt: row.createdAt.toISOString() })

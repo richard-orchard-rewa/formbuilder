@@ -1,4 +1,4 @@
-import type { FormsRepository } from "../repositories/forms.js"
+import type { CreateFormInput, FormsRepository } from "../repositories/forms.js"
 
 export class FormBuilderService {
   constructor(private readonly repo: FormsRepository) {}
@@ -7,7 +7,7 @@ export class FormBuilderService {
     return this.repo.list()
   }
 
-  createForm(name: string) {
-    return this.repo.create(name)
+  createForm(input: CreateFormInput) {
+    return this.repo.create(input)
   }
 }
