@@ -10,8 +10,21 @@ interface FormBuilderProps {
   onBack: () => void
 }
 
+// Moves the field at sourceIndex so it ends up at targetIndex, where
+// targetIndex is expressed in terms of the list *before* the move (as
+// produced by the canvas's drop-position calculation).
+function reorder(fields: Field[], sourceIndex: number, targetIndex: number) {
+  const next = [...fields]
+  const [moved] = next.splice(sourceIndex, 1)
+  const adjustedTarget =
+    targetIndex > sourceIndex ? targetIndex - 1 : targetIndex
+  next.splice(adjustedTarget, 0, moved)
+  return next
+}
+
 // Loads the form's current draft, then lets an admin drag field types from
-// the palette onto the canvas to build it visually (US-2.1).
+// the palette onto the canvas to build it visually (US-2.1), and drag
+// existing fields to reorder them (US-2.2).
 export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -36,18 +49,27 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     }
   }, [formId])
 
+  function persist(next: Field[]) {
+    setFields(next)
+    setSaveError(null)
+    saveDraft(formId, next).catch(() => {
+      setSaveError("Couldn't save this change — it may not persist.")
+    })
+  }
+
   function handleDrop(type: FieldType, index: number) {
     const field: Field = {
       id: crypto.randomUUID(),
       type,
       label: FIELD_TYPE_LABELS[type],
     }
-    const next = [...fields.slice(0, index), field, ...fields.slice(index)]
-    setFields(next)
-    setSaveError(null)
-    saveDraft(formId, next).catch(() => {
-      setSaveError("Couldn't save this change — it may not persist.")
-    })
+    persist([...fields.slice(0, index), field, ...fields.slice(index)])
+  }
+
+  function handleReorder(fieldId: string, index: number) {
+    const sourceIndex = fields.findIndex((field) => field.id === fieldId)
+    if (sourceIndex === -1) return
+    persist(reorder(fields, sourceIndex, index))
   }
 
   return (
@@ -66,7 +88,11 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
       {status === "ready" && (
         <div className="form-builder__workspace">
           <FieldPalette />
-          <FormCanvas fields={fields} onDrop={handleDrop} />
+          <FormCanvas
+            fields={fields}
+            onDrop={handleDrop}
+            onReorder={handleReorder}
+          />
         </div>
       )}
     </main>
