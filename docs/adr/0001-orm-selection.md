@@ -11,9 +11,13 @@ form-builder needs an ORM and a migration tool to manage the `forms`,
 options are Drizzle and Prisma.
 
 - The project's data contracts are already defined with Zod (US-0.3 wires
-  Zod-to-JSON-Schema conversion for form definitions), and form-builder is
-  slated to be scaffolded into the existing `feedback` monorepo (US-0.5),
-  which already runs Drizzle against Postgres with the same `pg` driver.
+  Zod-to-JSON-Schema conversion for form definitions), and form-builder's
+  own monorepo scaffold (US-0.5) follows the same conventions as the
+  organisation's `feedback` app, which already runs Drizzle against
+  Postgres with the same `pg` driver — see
+  [ADR-0002](0002-monorepo-scaffold.md). form-builder does not depend on or
+  share a database with `feedback`; matching its tooling is for consistency
+  of conventions only.
 - Prisma generates its own client and query language from a separate schema
   DSL (`schema.prisma`), which duplicates the source of truth that Zod
   already provides here and adds a codegen step to every workflow.
@@ -25,15 +29,12 @@ options are Drizzle and Prisma.
 ## Decision
 
 Use **Drizzle ORM** with **drizzle-kit** for schema definition and Postgres
-migrations, matching the tooling already in use in the `feedback` monorepo
-this package will eventually live in.
+migrations, matching the tooling conventions of the `feedback` app.
 
 ## Consequences
 
-- Schema lives in `src/db/schema.ts`; migrations are generated with
-  `npm run db:generate` and applied with `npm run db:migrate`, writing
-  plain SQL files under `src/db/migrations/`.
+- Schema lives in `server/src/db/schema.ts`; migrations are generated with
+  `npm run db:generate -w server` and applied with `npm run db:migrate -w server`,
+  writing plain SQL files under `server/src/db/migrations/`.
 - No generated client/codegen step is required — `drizzle-orm/node-postgres`
   reads the schema module directly.
-- Consistent with the destination monorepo, so folding form-builder into it
-  under US-0.5 will not require a data-layer migration.

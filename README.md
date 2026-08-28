@@ -8,12 +8,22 @@ separate — it does not depend on, share code with, or modify that repo.
 
 ## Getting started
 
+Prerequisites: Node >=22, npm >=10, Docker (for local Postgres).
+
 ```bash
 npm install
 docker compose up -d          # local Postgres on :5432
 cp server/.env.example server/.env
 npm run db:migrate -w server   # apply server/src/db/migrations to DATABASE_URL
 npm run dev                    # server on :3000, client on :5173
+```
+
+Other useful commands, run from the repo root:
+
+```bash
+npm run build      # build shared, then client, then server
+npm run typecheck  # typecheck all three workspaces
+npm run test       # run shared/'s tests (the only workspace with tests so far)
 ```
 
 ## Data layer
@@ -44,5 +54,12 @@ npm run test -w shared
 - `shared/` — Zod schemas and types used by both `client` and `server`.
 - `server/` — Fastify app. Each feature capability is one plugin under
   `server/src/modules/<capability>/` (routes → service → repository), mounted
-  from `server/src/index.ts`.
+  from `server/src/index.ts`. So far: `form-builder`
+  (`GET`/`POST /api/forms`).
 - `client/` — Vite + React app.
+
+## Decisions
+
+Notable decisions and their reasoning are recorded as ADRs in
+[`docs/adr/`](docs/adr/) — start there before assuming a choice (Drizzle,
+the monorepo shape, Zod-to-JSON-Schema) was arbitrary or needs revisiting.
