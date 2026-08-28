@@ -1,7 +1,8 @@
 import { and, eq, max } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
-import { formVersions } from "../../../db/schema.js"
+import { forms, formVersions } from "../../../db/schema.js"
 import {
+  FormNotFoundError,
   NoDraftVersionError,
   type FormVersionRow,
   type FormVersionsRepository,
@@ -58,6 +59,42 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
         .returning(VERSION_COLUMNS)
 
       return published
+    })
+  }
+
+  async editDraft(formId: string, schema: unknown): Promise<FormVersionRow> {
+    return this.db.transaction(async (tx) => {
+      const [draft] = await tx
+        .select(VERSION_COLUMNS)
+        .from(formVersions)
+        .where(
+          and(eq(formVersions.formId, formId), eq(formVersions.status, "draft")),
+        )
+        .for("update")
+
+      if (draft) {
+        const [updated] = await tx
+          .update(formVersions)
+          .set({ schema })
+          .where(eq(formVersions.id, draft.id))
+          .returning(VERSION_COLUMNS)
+        return updated
+      }
+
+      const [form] = await tx
+        .select({ id: forms.id })
+        .from(forms)
+        .where(eq(forms.id, formId))
+
+      if (!form) {
+        throw new FormNotFoundError(formId)
+      }
+
+      const [created] = await tx
+        .insert(formVersions)
+        .values({ formId, version: 0, schema, status: "draft" })
+        .returning(VERSION_COLUMNS)
+      return created
     })
   }
 }

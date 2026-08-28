@@ -6,4 +6,8 @@ export class FormVersionsService {
   publishDraft(formId: string) {
     return this.repo.publishDraft(formId)
   }
+
+  editDraft(formId: string, schema: unknown) {
+    return this.repo.editDraft(formId, schema)
+  }
 }
