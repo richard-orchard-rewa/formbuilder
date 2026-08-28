@@ -105,3 +105,23 @@ body {
 .field-inspector__field--checkbox input {
   width: auto;
 }
+
+.field-inspector__options {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0;
+}
+
+.field-inspector__option {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.field-inspector__option input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.25rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
