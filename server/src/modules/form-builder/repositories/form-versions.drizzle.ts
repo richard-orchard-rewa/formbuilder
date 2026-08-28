@@ -123,4 +123,28 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
       .where(eq(formVersions.formId, formId))
       .orderBy(desc(formVersions.createdAt))
   }
+
+  async getDraft(formId: string): Promise<FormVersionRow | null> {
+    const [draft] = await this.db
+      .select(VERSION_COLUMNS)
+      .from(formVersions)
+      .where(
+        and(eq(formVersions.formId, formId), eq(formVersions.status, "draft")),
+      )
+
+    if (draft) {
+      return draft
+    }
+
+    const [form] = await this.db
+      .select({ id: forms.id })
+      .from(forms)
+      .where(eq(forms.id, formId))
+
+    if (!form) {
+      throw new FormNotFoundError(formId)
+    }
+
+    return null
+  }
 }

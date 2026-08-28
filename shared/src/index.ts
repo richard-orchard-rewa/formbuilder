@@ -17,3 +17,10 @@ export type {
   PublishFormVersion,
   FormVersionSummary,
 } from "./schemas/form-version.js"
+export {
+  FieldSchema,
+  FieldTypeSchema,
+  FIELD_TYPES,
+  FIELD_TYPE_LABELS,
+} from "./schemas/field.js"
+export type { Field, FieldType } from "./schemas/field.js"

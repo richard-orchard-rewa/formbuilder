@@ -43,4 +43,10 @@ export interface FormVersionsRepository {
   // recently created first, so an admin can track changes over time
   // (US-1.4).
   listVersions(formId: string): Promise<FormVersionRow[]>
+
+  // Returns the form's current draft, or null if the form exists but has no
+  // draft (its active version is published and untouched since). Throws if
+  // the form itself doesn't exist. Lets the builder UI resume editing
+  // whatever was last saved (US-2.1).
+  getDraft(formId: string): Promise<FormVersionRow | null>
 }
