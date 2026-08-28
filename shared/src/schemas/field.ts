@@ -39,10 +39,24 @@ export const TextAreaFieldSchema = z.object({
   label: z.string(),
 })
 
+// US-3.3: a dropdown field with an admin-defined list of options.
+export const DropdownOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+})
+
+export type DropdownOption = z.infer<typeof DropdownOptionSchema>
+
 export const DropdownFieldSchema = z.object({
   id: z.string(),
   type: z.literal("dropdown"),
   label: z.string(),
+  required: z.boolean().default(false),
+  options: z.array(DropdownOptionSchema).default([]),
+  // Must match one of `options`' values, enforced where options are edited
+  // rather than in this shape (a value can be added and made default in
+  // the same edit).
+  defaultValue: z.string().optional(),
 })
 
 export const FieldSchema = z.discriminatedUnion("type", [
