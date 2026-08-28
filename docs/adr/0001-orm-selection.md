@@ -1,0 +1,39 @@
+# ADR-0001: ORM and migration tooling for the Postgres data layer
+
+## Status
+
+Accepted
+
+## Context
+
+form-builder needs an ORM and a migration tool to manage the `forms`,
+`form_versions`, and `submissions` tables in Postgres. The two realistic
+options are Drizzle and Prisma.
+
+- The project's data contracts are already defined with Zod (US-0.3 wires
+  Zod-to-JSON-Schema conversion for form definitions), and form-builder is
+  slated to be scaffolded into the existing `feedback` monorepo (US-0.5),
+  which already runs Drizzle against Postgres with the same `pg` driver.
+- Prisma generates its own client and query language from a separate schema
+  DSL (`schema.prisma`), which duplicates the source of truth that Zod
+  already provides here and adds a codegen step to every workflow.
+- Drizzle's schema is plain TypeScript, queries are (mostly) plain SQL
+  through a thin builder, and `drizzle-kit` diffs the TypeScript schema
+  against the database to generate plain `.sql` migration files that are
+  reviewable and reversible without a proprietary format.
+
+## Decision
+
+Use **Drizzle ORM** with **drizzle-kit** for schema definition and Postgres
+migrations, matching the tooling already in use in the `feedback` monorepo
+this package will eventually live in.
+
+## Consequences
+
+- Schema lives in `src/db/schema.ts`; migrations are generated with
+  `npm run db:generate` and applied with `npm run db:migrate`, writing
+  plain SQL files under `src/db/migrations/`.
+- No generated client/codegen step is required — `drizzle-orm/node-postgres`
+  reads the schema module directly.
+- Consistent with the destination monorepo, so folding form-builder into it
+  under US-0.5 will not require a data-layer migration.
