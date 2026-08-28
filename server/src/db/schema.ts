@@ -16,6 +16,10 @@ import {
 export const forms = pgTable("forms", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  description: text("description"),
+  // The stable, human-readable identifier consuming apps use to request this
+  // form (as opposed to `id`, which is an implementation detail).
+  slug: text("slug").notNull().unique(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

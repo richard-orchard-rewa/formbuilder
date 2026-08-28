@@ -8,6 +8,13 @@
       "when": 1787900717686,
       "tag": "0000_perpetual_mojo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787902822991,
+      "tag": "0001_dapper_fallen_one",
+      "breakpoints": true
     }
   ]
 }
