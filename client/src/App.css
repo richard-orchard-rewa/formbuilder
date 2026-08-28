@@ -1,0 +1,70 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+}
+
+.form-builder__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.form-builder__workspace {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.field-palette {
+  flex: 0 0 12rem;
+}
+
+.field-palette__item {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f9f9f9;
+  cursor: grab;
+  list-style: none;
+}
+
+.form-canvas {
+  flex: 1;
+  min-height: 12rem;
+  border: 2px dashed #ccc;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.form-canvas__empty {
+  color: #888;
+}
+
+.form-canvas__fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.form-canvas__field {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.form-canvas__field-type {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #888;
+}
+
+.form-canvas__drop-indicator {
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 2px;
+  background: #4a90d9;
+}

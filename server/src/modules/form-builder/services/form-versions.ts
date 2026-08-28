@@ -14,4 +14,8 @@ export class FormVersionsService {
   editDraft(formId: string, schema: unknown) {
     return this.repo.editDraft(formId, schema)
   }
+
+  getDraft(formId: string) {
+    return this.repo.getDraft(formId)
+  }
 }

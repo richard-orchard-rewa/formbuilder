@@ -1,9 +1,9 @@
 import { z } from "zod"
+import { FieldSchema } from "./field.js"
 
-// The field/layout definition. Loosely typed for now — the concrete field
-// shapes land with the builder-gui epic (US-2.x).
+// The field/layout definition.
 export const FormSchemaSchema = z.object({
-  fields: z.array(z.unknown()),
+  fields: z.array(FieldSchema),
 })
 
 export type FormSchema = z.infer<typeof FormSchemaSchema>

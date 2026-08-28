@@ -129,6 +129,34 @@ export function formBuilderPlugin(
     )
 
     typed.get(
+      "/api/forms/:formId/draft",
+      {
+        schema: {
+          params: FormParamsSchema,
+          response: {
+            200: FormVersionSchema.nullable(),
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const version = await versionsService.getDraft(
+            request.params.formId,
+          )
+          return reply
+            .code(200)
+            .send(version ? serializeVersion(version) : null)
+        } catch (error) {
+          if (error instanceof FormNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.get(
       "/api/forms/:formId/versions",
       {
         schema: {
