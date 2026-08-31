@@ -10,12 +10,14 @@ export {
   PublishFormVersionSchema,
   FormVersionSummarySchema,
   FormVersionHistorySchema,
+  PublishedFieldIdsSchema,
 } from "./schemas/form-version.js"
 export type {
   FormVersion,
   FormSchema,
   PublishFormVersion,
   FormVersionSummary,
+  PublishedFieldIds,
 } from "./schemas/form-version.js"
 export {
   FieldSchema,

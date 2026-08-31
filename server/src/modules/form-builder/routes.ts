@@ -8,6 +8,7 @@ import {
   FormSummarySchema,
   FormVersionHistorySchema,
   FormVersionSchema,
+  PublishedFieldIdsSchema,
   PublishFormVersionSchema,
   type FormSchema,
 } from "shared"
@@ -176,6 +177,32 @@ export function formBuilderPlugin(
             publishedAt: version.publishedAt?.toISOString() ?? null,
             publishedBy: version.publishedBy,
           }))
+        } catch (error) {
+          if (error instanceof FormNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.get(
+      "/api/forms/:formId/published-field-ids",
+      {
+        schema: {
+          params: FormParamsSchema,
+          response: {
+            200: PublishedFieldIdsSchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const ids = await versionsService.listPublishedFieldIds(
+            request.params.formId,
+          )
+          return reply.code(200).send(ids)
         } catch (error) {
           if (error instanceof FormNotFoundError) {
             return reply.code(404).send({ message: error.message })

@@ -36,3 +36,9 @@ export function saveDraft(
     body: JSON.stringify(body),
   }).then((res) => json<FormVersion>(res))
 }
+
+export function getPublishedFieldIds(formId: string): Promise<string[]> {
+  return fetch(`/api/forms/${formId}/published-field-ids`).then((res) =>
+    json<string[]>(res),
+  )
+}
