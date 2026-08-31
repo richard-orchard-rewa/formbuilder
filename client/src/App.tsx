@@ -2,11 +2,17 @@ import { useEffect, useState } from "react"
 import type { FormSummary } from "shared"
 import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
+import { FormFill } from "./FormFill.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
+
+type View =
+  | { mode: "list" }
+  | { mode: "build"; form: FormSummary }
+  | { mode: "fill"; form: FormSummary }
 
 export function App() {
   const [forms, setForms] = useState<FormSummary[]>([])
-  const [selected, setSelected] = useState<FormSummary | null>(null)
+  const [view, setView] = useState<View>({ mode: "list" })
   const [showRendererSpike, setShowRendererSpike] = useState(false)
 
   useEffect(() => {
@@ -26,12 +32,22 @@ export function App() {
     )
   }
 
-  if (selected) {
+  if (view.mode === "build") {
     return (
       <FormBuilder
-        formId={selected.id}
-        formName={selected.name}
-        onBack={() => setSelected(null)}
+        formId={view.form.id}
+        formName={view.form.name}
+        onBack={() => setView({ mode: "list" })}
+      />
+    )
+  }
+
+  if (view.mode === "fill") {
+    return (
+      <FormFill
+        formId={view.form.id}
+        formName={view.form.name}
+        onBack={() => setView({ mode: "list" })}
       />
     )
   }
@@ -41,9 +57,13 @@ export function App() {
       <h1>form-builder</h1>
       <ul>
         {forms.map((form) => (
-          <li key={form.id}>
-            <button type="button" onClick={() => setSelected(form)}>
-              {form.name}
+          <li key={form.id} className="form-list__item">
+            <span>{form.name}</span>
+            <button type="button" onClick={() => setView({ mode: "build", form })}>
+              Build
+            </button>
+            <button type="button" onClick={() => setView({ mode: "fill", form })}>
+              Fill out
             </button>
           </li>
         ))}

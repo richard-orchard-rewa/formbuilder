@@ -19,30 +19,36 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   dropdown: "Dropdown",
 }
 
+// Any field type can be marked required (US-3.5); per-type configuration
+// beyond that (max length, options list, ...) lands with their own issues.
+const requiredFlag = z.boolean().default(false)
+
 // US-3.1: a single-line text field, configurable beyond just its label.
 export const TextFieldSchema = z.object({
   id: z.string(),
   type: z.literal("text"),
   label: z.string(),
   placeholder: z.string().optional(),
-  required: z.boolean().default(false),
+  required: requiredFlag,
   maxLength: z.number().int().positive().optional(),
 })
 
 export type TextField = z.infer<typeof TextFieldSchema>
 
-// Not yet configurable beyond a label — their own field-types epic issues
-// (US-3.2, US-3.3) extend these.
+// Not yet configurable beyond a label and required — their own field-types
+// epic issues (US-3.2, US-3.3) extend these.
 export const TextAreaFieldSchema = z.object({
   id: z.string(),
   type: z.literal("textarea"),
   label: z.string(),
+  required: requiredFlag,
 })
 
 export const DropdownFieldSchema = z.object({
   id: z.string(),
   type: z.literal("dropdown"),
   label: z.string(),
+  required: requiredFlag,
 })
 
 export const FieldSchema = z.discriminatedUnion("type", [

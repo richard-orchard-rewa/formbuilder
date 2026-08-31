@@ -114,6 +114,11 @@ export function FormCanvas({
                 {FIELD_TYPE_LABELS[field.type]}
               </span>
               <span className="form-canvas__field-label">{field.label}</span>
+              {field.required && (
+                <span className="form-canvas__field-required-badge">
+                  Required
+                </span>
+              )}
             </div>
           </li>
         ))}
