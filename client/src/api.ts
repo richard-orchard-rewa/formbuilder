@@ -75,3 +75,9 @@ export async function submitForm(
   }
   return json<Submission>(res)
 }
+
+export function getPublishedFieldIds(formId: string): Promise<string[]> {
+  return fetch(`/api/forms/${formId}/published-field-ids`).then((res) =>
+    json<string[]>(res),
+  )
+}
