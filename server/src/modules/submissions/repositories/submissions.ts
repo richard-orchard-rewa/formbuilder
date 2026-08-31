@@ -23,6 +23,14 @@ export interface SubmissionDetailRow extends SubmissionRow {
   schema: unknown
 }
 
+export interface SubmissionEditRow {
+  id: string
+  submissionId: string
+  previousData: unknown
+  editedBy: string | null
+  editedAt: Date
+}
+
 export interface SubmissionsRepository {
   // Records a completed submission directly (no prior draft) against a
   // specific form version, so it always points at the exact schema it was
@@ -78,4 +86,19 @@ export interface SubmissionsRepository {
     formId: string,
     submissionId: string,
   ): Promise<SubmissionDetailRow | null>
+
+  // Overwrites a submitted submission's data in place and records the prior
+  // data as an audit-trail row in the same operation (US-5.2), so the two
+  // can never happen independently. Returns null if the row doesn't exist,
+  // belongs to a different form, or is still a draft (edits apply only to
+  // already-submitted submissions -- a draft is edited via saveDraft).
+  edit(
+    formId: string,
+    submissionId: string,
+    data: unknown,
+    editedBy?: string | null,
+  ): Promise<SubmissionRow | null>
+
+  // The edit history for one submission, most recent first (US-5.2).
+  listEdits(submissionId: string): Promise<SubmissionEditRow[]>
 }

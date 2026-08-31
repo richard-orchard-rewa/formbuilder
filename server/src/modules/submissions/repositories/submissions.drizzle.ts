@@ -1,8 +1,13 @@
 import { and, desc, eq } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
-import { formVersions, submissions } from "../../../db/schema.js"
+import {
+  formVersions,
+  submissionEdits,
+  submissions,
+} from "../../../db/schema.js"
 import type {
   SubmissionDetailRow,
+  SubmissionEditRow,
   SubmissionRow,
   SubmissionsRepository,
   SubmissionSummaryRow,
@@ -140,5 +145,53 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
       .innerJoin(formVersions, eq(submissions.formVersionId, formVersions.id))
       .where(and(eq(submissions.id, submissionId), eq(submissions.formId, formId)))
     return row ?? null
+  }
+
+  async edit(
+    formId: string,
+    submissionId: string,
+    data: unknown,
+    editedBy?: string | null,
+  ): Promise<SubmissionRow | null> {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ data: submissions.data })
+        .from(submissions)
+        .where(
+          and(
+            eq(submissions.id, submissionId),
+            eq(submissions.formId, formId),
+            eq(submissions.status, "submitted"),
+          ),
+        )
+      if (!existing) return null
+
+      await tx.insert(submissionEdits).values({
+        submissionId,
+        previousData: existing.data,
+        editedBy: editedBy ?? null,
+      })
+
+      const [updated] = await tx
+        .update(submissions)
+        .set({ data, updatedAt: new Date() })
+        .where(eq(submissions.id, submissionId))
+        .returning(SUBMISSION_COLUMNS)
+      return updated
+    })
+  }
+
+  async listEdits(submissionId: string): Promise<SubmissionEditRow[]> {
+    return this.db
+      .select({
+        id: submissionEdits.id,
+        submissionId: submissionEdits.submissionId,
+        previousData: submissionEdits.previousData,
+        editedBy: submissionEdits.editedBy,
+        editedAt: submissionEdits.editedAt,
+      })
+      .from(submissionEdits)
+      .where(eq(submissionEdits.submissionId, submissionId))
+      .orderBy(desc(submissionEdits.editedAt))
   }
 }

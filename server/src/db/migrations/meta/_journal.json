@@ -36,6 +36,13 @@
       "when": 1788144339885,
       "tag": "0004_smiling_living_tribunal",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788157586421,
+      "tag": "0005_fancy_jimmy_woo",
+      "breakpoints": true
     }
   ]
 }

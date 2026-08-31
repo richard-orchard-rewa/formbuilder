@@ -64,6 +64,33 @@ export const SubmissionDetailSchema = SubmissionSchema.extend({
 
 export type SubmissionDetail = z.infer<typeof SubmissionDetailSchema>
 
+// Corrects a previously submitted submission's values (US-5.2). Validated
+// against the exact schema version the submission was originally captured
+// against, not the form's current active version.
+export const EditSubmissionSchema = z.object({
+  data: z.record(z.string(), z.unknown()),
+  // Freeform identifier of who made the edit, mirroring `submittedBy` --
+  // there's no auth/user system yet, so this is whatever the caller
+  // supplies.
+  editedBy: z.string().min(1).optional(),
+})
+
+export type EditSubmission = z.infer<typeof EditSubmissionSchema>
+
+// One row of a submission's edit history (US-5.2): the data as it stood
+// immediately before that edit was applied, plus who made it and when.
+export const SubmissionEditSchema = z.object({
+  id: z.string(),
+  submissionId: z.string(),
+  previousData: z.record(z.string(), z.unknown()),
+  editedBy: z.string().nullable(),
+  editedAt: z.iso.datetime(),
+})
+
+export type SubmissionEdit = z.infer<typeof SubmissionEditSchema>
+
+export const SubmissionEditListSchema = z.array(SubmissionEditSchema)
+
 // Returned when required fields are missing at submission time (US-3.5).
 export const SubmissionValidationErrorSchema = z.object({
   message: z.string(),

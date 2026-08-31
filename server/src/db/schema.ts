@@ -105,3 +105,24 @@ export const submissions = pgTable("submissions", {
     .defaultNow(),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
 })
+
+// An immutable audit trail of edits made to a submitted submission (US-5.2):
+// one row per edit, capturing the full prior data snapshot so a full history
+// of who changed what and when can be reconstructed, mirroring how
+// form_versions never mutates a published row in place.
+export const submissionEdits = pgTable("submission_edits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  submissionId: uuid("submission_id")
+    .notNull()
+    .references(() => submissions.id, { onDelete: "cascade" }),
+  // The submission's data immediately before this edit was applied, so the
+  // edit history can show what changed rather than just that it did.
+  previousData: jsonb("previous_data").notNull(),
+  // Freeform identifier of who made this edit, mirroring `submittedBy` and
+  // `publishedBy` above -- there's no auth/user system yet, so this is
+  // whatever the caller supplies rather than a foreign key to a users table.
+  editedBy: text("edited_by"),
+  editedAt: timestamp("edited_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})

@@ -26,8 +26,29 @@ export class DraftNotFoundError extends Error {
   }
 }
 
+// Thrown when a submissionId passed to edit doesn't resolve to an existing,
+// submitted submission for this form (US-5.2) -- it may have never existed,
+// belonged to a different form, or still be an in-progress draft (drafts are
+// edited via saveDraft, not this).
+export class SubmissionNotFoundError extends Error {
+  constructor(formId: string, submissionId: string) {
+    super(`No submitted submission ${submissionId} found for form ${formId}`)
+    this.name = "SubmissionNotFoundError"
+  }
+}
+
 function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === ""
+}
+
+function requireFields(fields: Field[], data: Record<string, unknown>) {
+  const missingFieldIds = fields
+    .filter((field) => field.required && isEmpty(data[field.id]))
+    .map((field) => field.id)
+
+  if (missingFieldIds.length > 0) {
+    throw new MissingRequiredFieldsError(missingFieldIds)
+  }
 }
 
 export class SubmissionsService {
@@ -53,13 +74,7 @@ export class SubmissionsService {
     }
 
     const fields = (active.schema as { fields: Field[] }).fields
-    const missingFieldIds = fields
-      .filter((field) => field.required && isEmpty(data[field.id]))
-      .map((field) => field.id)
-
-    if (missingFieldIds.length > 0) {
-      throw new MissingRequiredFieldsError(missingFieldIds)
-    }
+    requireFields(fields, data)
 
     if (submissionId) {
       const finalized = await this.repo.finalizeDraft(
@@ -111,5 +126,37 @@ export class SubmissionsService {
   // since been republished with a different structure (US-5.1).
   getById(formId: string, submissionId: string) {
     return this.repo.getById(formId, submissionId)
+  }
+
+  // Corrects a previously submitted submission's values (US-5.2). Validates
+  // against the exact schema version the submission was originally captured
+  // against -- not the form's current active version, which may since have
+  // changed or been republished -- so an edit can never be rejected (or
+  // wrongly accepted) against rules that didn't apply when it was captured.
+  // Records the prior data as an audit-trail row in the same operation.
+  async edit(
+    formId: string,
+    submissionId: string,
+    data: Record<string, unknown>,
+    editedBy?: string | null,
+  ) {
+    const existing = await this.repo.getById(formId, submissionId)
+    if (!existing || existing.status !== "submitted") {
+      throw new SubmissionNotFoundError(formId, submissionId)
+    }
+
+    const fields = (existing.schema as { fields: Field[] }).fields
+    requireFields(fields, data)
+
+    const edited = await this.repo.edit(formId, submissionId, data, editedBy)
+    if (!edited) {
+      throw new SubmissionNotFoundError(formId, submissionId)
+    }
+    return edited
+  }
+
+  // The full edit history for one submission, most recent first (US-5.2).
+  getEditHistory(submissionId: string) {
+    return this.repo.listEdits(submissionId)
   }
 }
