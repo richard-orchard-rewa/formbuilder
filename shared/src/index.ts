@@ -23,10 +23,16 @@ export {
   TextFieldSchema,
   TextAreaFieldSchema,
   DropdownFieldSchema,
+  DropdownOptionSchema,
   FIELD_TYPES,
   FIELD_TYPE_LABELS,
 } from "./schemas/field.js"
-export type { Field, FieldType, TextField } from "./schemas/field.js"
+export type {
+  Field,
+  FieldType,
+  TextField,
+  DropdownOption,
+} from "./schemas/field.js"
 export {
   SubmitFormSchema,
   SubmissionSchema,

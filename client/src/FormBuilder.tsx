@@ -32,7 +32,7 @@ function createField(type: FieldType): Field {
     case "textarea":
       return { id, type, label, required: false }
     case "dropdown":
-      return { id, type, label, required: false }
+      return { id, type, label, required: false, options: [] }
   }
 }
 
