@@ -68,3 +68,4 @@ export type {
   SubmissionEdit,
   SubmissionValidationError,
 } from "./schemas/submission.js"
+export { buildSubmissionSchema, toJsonSchema } from "./json-schema.js"

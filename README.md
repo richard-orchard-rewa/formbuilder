@@ -26,6 +26,19 @@ changing it, run `npm run db:generate -w server` to produce a new SQL
 migration under `server/src/db/migrations/`, then `npm run db:migrate -w server`
 to apply it.
 
+## Form contracts
+
+Zod is the single source of truth for a form's field definitions
+(`shared/src/schemas/field.ts`). `shared/src/json-schema.ts` converts those
+to JSON Schema (`toJsonSchema`) for the renderer, and builds the matching
+Zod schema a submission is validated against (`buildSubmissionSchema`) —
+see [ADR-0005](docs/adr/0005-zod-to-json-schema.md). The round trip is
+proven in `shared/src/json-schema.test.ts`:
+
+```bash
+npm run test -w shared
+```
+
 ## Layout
 
 - `shared/` — Zod schemas and types used by both `client` and `server`.
