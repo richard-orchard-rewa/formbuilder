@@ -33,6 +33,14 @@ function createField(type: FieldType): Field {
       return { id, type, label, required: false }
     case "dropdown":
       return { id, type, label, required: false, options: [] }
+    case "checkbox":
+      return { id, type, label, required: false, defaultChecked: false }
+    case "radio":
+      return { id, type, label, required: false, options: [] }
+    case "date":
+      return { id, type, label, required: false }
+    case "number":
+      return { id, type, label, required: false }
   }
 }
 
