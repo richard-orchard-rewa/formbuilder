@@ -1,0 +1,128 @@
+import { sql } from "drizzle-orm"
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  jsonb,
+  timestamp,
+  unique,
+  uniqueIndex,
+  check,
+} from "drizzle-orm/pg-core"
+
+// A form is the container that owns a sequence of versions. Its own fields
+// are metadata only — the actual field definitions live on form_versions so
+// editing a draft never touches submissions made against a published one.
+export const forms = pgTable("forms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  // The stable, human-readable identifier consuming apps use to request this
+  // form (as opposed to `id`, which is an implementation detail).
+  slug: text("slug").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+// Each edit of a form is a new version rather than a mutation in place, so a
+// live/published version stays immutable for as long as submissions can
+// reference it (US-1.3, US-1.4).
+export const formVersions = pgTable(
+  "form_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    formId: uuid("form_id")
+      .notNull()
+      .references(() => forms.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    // The field/layout definition, expressed as the app's Zod-derived schema
+    // shape (see US-0.3, Zod-to-JSON-Schema) rather than a fixed set of
+    // columns per field type.
+    schema: jsonb("schema").notNull(),
+    // "published" is the single active version used for new submissions;
+    // publishing a draft demotes any previously published version to
+    // "superseded" (US-1.2) so it stays retrievable but not editable.
+    status: text("status", { enum: ["draft", "published", "superseded"] })
+      .notNull()
+      .default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    // Freeform identifier of who published this version (US-1.4). There's no
+    // auth/user system yet, so this is whatever the caller supplies rather
+    // than a foreign key to a users table.
+    publishedBy: text("published_by"),
+  },
+  (table) => [
+    unique("form_versions_form_id_version_key").on(
+      table.formId,
+      table.version,
+    ),
+    check(
+      "form_versions_published_at_matches_status",
+      sql`(${table.status} = 'draft') = (${table.publishedAt} is null)`,
+    ),
+    uniqueIndex("form_versions_one_published_per_form")
+      .on(table.formId)
+      .where(sql`${table.status} = 'published'`),
+  ],
+)
+
+// A submission always targets one specific version, so editing the form
+// later can never change what an existing submission is validated or
+// rendered against. `formId` is denormalized from `formVersionId` (rather
+// than requiring a join through form_versions) so reporting queries can
+// filter/group submissions by form directly (US-4.2). The submission's own
+// metadata lives in typed columns; the admin-defined, per-form answer set
+// itself has no fixed shape, so it lives in `data` (US-4.2).
+export const submissions = pgTable("submissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  formId: uuid("form_id")
+    .notNull()
+    .references(() => forms.id, { onDelete: "restrict" }),
+  formVersionId: uuid("form_version_id")
+    .notNull()
+    .references(() => formVersions.id, { onDelete: "restrict" }),
+  data: jsonb("data").notNull(),
+  status: text("status", { enum: ["draft", "submitted"] })
+    .notNull()
+    .default("draft"),
+  // Freeform identifier of who submitted this, mirroring `publishedBy`
+  // above -- there's no auth/user system yet, so this is whatever the
+  // caller supplies rather than a foreign key to a users table.
+  submittedBy: text("submitted_by"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+})
+
+// An immutable audit trail of edits made to a submitted submission (US-5.2):
+// one row per edit, capturing the full prior data snapshot so a full history
+// of who changed what and when can be reconstructed, mirroring how
+// form_versions never mutates a published row in place.
+export const submissionEdits = pgTable("submission_edits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  submissionId: uuid("submission_id")
+    .notNull()
+    .references(() => submissions.id, { onDelete: "cascade" }),
+  // The submission's data immediately before this edit was applied, so the
+  // edit history can show what changed rather than just that it did.
+  previousData: jsonb("previous_data").notNull(),
+  // Freeform identifier of who made this edit, mirroring `submittedBy` and
+  // `publishedBy` above -- there's no auth/user system yet, so this is
+  // whatever the caller supplies rather than a foreign key to a users table.
+  editedBy: text("edited_by"),
+  editedAt: timestamp("edited_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})

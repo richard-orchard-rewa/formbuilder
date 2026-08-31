@@ -1,0 +1,1 @@
+ALTER TABLE "form_versions" ADD COLUMN "published_by" text;
