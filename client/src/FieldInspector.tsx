@@ -121,6 +121,54 @@ export function FieldInspector({
         </>
       )}
 
+      {field.type === "textarea" && (
+        <>
+          <label className="field-inspector__field">
+            Placeholder
+            <input
+              type="text"
+              value={field.placeholder ?? ""}
+              onChange={(event) =>
+                onChange({
+                  ...field,
+                  placeholder: event.target.value || undefined,
+                })
+              }
+            />
+          </label>
+          <label className="field-inspector__field">
+            Max length
+            <input
+              type="number"
+              min={1}
+              value={field.maxLength ?? ""}
+              onChange={(event) => {
+                const value = event.target.valueAsNumber
+                onChange({
+                  ...field,
+                  maxLength: Number.isNaN(value) ? undefined : value,
+                })
+              }}
+            />
+          </label>
+          <label className="field-inspector__field">
+            Rows
+            <input
+              type="number"
+              min={1}
+              value={field.rows ?? ""}
+              onChange={(event) => {
+                const value = event.target.valueAsNumber
+                onChange({
+                  ...field,
+                  rows: Number.isNaN(value) ? undefined : value,
+                })
+              }}
+            />
+          </label>
+        </>
+      )}
+
       {(field.type === "dropdown" || field.type === "radio") && (
         <OptionsEditor field={field} onChange={onChange} />
       )}

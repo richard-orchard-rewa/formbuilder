@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
-import { vanillaCells, vanillaRenderers } from "@jsonforms/vanilla-renderers"
+import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { Field } from "shared"
+import { formCells } from "./schema/formCells.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface FormPreviewProps {
@@ -31,7 +32,7 @@ export function FormPreview({ fields }: FormPreviewProps) {
           uischema={uiSchema}
           data={data}
           renderers={vanillaRenderers}
-          cells={vanillaCells}
+          cells={formCells}
           onChange={({ data }) => setData(data)}
         />
       )}

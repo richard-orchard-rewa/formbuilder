@@ -51,14 +51,20 @@ export const TextFieldSchema = z.object({
 
 export type TextField = z.infer<typeof TextFieldSchema>
 
-// Not yet configurable beyond a label and required — its own field-types
-// epic issue (US-3.2) extends this.
+// US-3.2: a multi-line text field for longer free text (e.g. notes).
 export const TextAreaFieldSchema = z.object({
   id: z.string(),
   type: z.literal("textarea"),
   label: z.string(),
+  placeholder: z.string().optional(),
   required: requiredFlag,
+  maxLength: z.number().int().positive().optional(),
+  // The textarea's visible height, in rows -- purely a rendering hint, not
+  // a constraint on how much can be entered (that's `maxLength`'s job).
+  rows: z.number().int().positive().optional(),
 })
+
+export type TextAreaField = z.infer<typeof TextAreaFieldSchema>
 
 // A labeled list of selectable values, shared by "dropdown" and "radio".
 export const FieldOptionSchema = z.object({

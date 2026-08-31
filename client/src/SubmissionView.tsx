@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
-import { vanillaCells, vanillaRenderers } from "@jsonforms/vanilla-renderers"
+import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { SubmissionDetail } from "shared"
 import { getSubmission } from "./api.js"
+import { formCells } from "./schema/formCells.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface SubmissionViewProps {
@@ -76,7 +77,7 @@ export function SubmissionView({
             uischema={uiSchema}
             data={submission.data}
             renderers={vanillaRenderers}
-            cells={vanillaCells}
+            cells={formCells}
             readonly
           />
         </>
