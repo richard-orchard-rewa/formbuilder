@@ -47,3 +47,12 @@ export const FormVersionSummarySchema = z.object({
 export type FormVersionSummary = z.infer<typeof FormVersionSummarySchema>
 
 export const FormVersionHistorySchema = z.array(FormVersionSummarySchema)
+
+// The set of field ids that appear in any version of the form that was
+// ever published (i.e. every version except the current draft). Deleting
+// one of these from the draft (US-2.4) has downstream impact on whatever
+// already-collected submissions reference that version, so the builder UI
+// confirms before removing it.
+export const PublishedFieldIdsSchema = z.array(z.string())
+
+export type PublishedFieldIds = z.infer<typeof PublishedFieldIdsSchema>

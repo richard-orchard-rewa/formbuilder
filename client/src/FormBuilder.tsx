@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { FIELD_TYPE_LABELS, type Field, type FieldType } from "shared"
-import { getDraft, saveDraft } from "./api.js"
+import { getDraft, getPublishedFieldIds, saveDraft } from "./api.js"
 import { FieldInspector } from "./FieldInspector.js"
 import { FieldPalette } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
+import { FormPreview } from "./FormPreview.js"
 
 interface FormBuilderProps {
   formId: string
@@ -46,8 +47,9 @@ function createField(type: FieldType): Field {
 
 // Loads the form's current draft, then lets an admin drag field types from
 // the palette onto the canvas to build it visually (US-2.1), reorder them
-// (US-2.2), and configure the selected field — including marking it
-// required (US-3.1, US-3.5).
+// (US-2.2), configure the selected field — including marking it required
+// (US-3.1, US-3.5), edit its label (US-2.3), delete it (US-2.4), and
+// preview the form (US-2.5).
 export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -55,6 +57,10 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     "loading",
   )
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [publishedFieldIds, setPublishedFieldIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const [mode, setMode] = useState<"edit" | "preview">("edit")
 
   useEffect(() => {
     let cancelled = false
@@ -67,6 +73,13 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
       })
       .catch(() => {
         if (!cancelled) setStatus("error")
+      })
+    getPublishedFieldIds(formId)
+      .then((ids) => {
+        if (!cancelled) setPublishedFieldIds(new Set(ids))
+      })
+      .catch(() => {
+        // Best-effort: the delete-confirmation prompt just won't fire.
       })
     return () => {
       cancelled = true
@@ -97,6 +110,11 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     persist(fields.map((field) => (field.id === next.id ? next : field)))
   }
 
+  function handleDelete(fieldId: string) {
+    persist(fields.filter((field) => field.id !== fieldId))
+    setSelectedId((current) => (current === fieldId ? null : current))
+  }
+
   const selectedField = fields.find((field) => field.id === selectedId) ?? null
 
   return (
@@ -106,13 +124,25 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
           ← Back
         </button>
         <h1>{formName}</h1>
+        {status === "ready" && (
+          <button
+            type="button"
+            onClick={() => setMode(mode === "edit" ? "preview" : "edit")}
+          >
+            {mode === "edit" ? "Preview" : "Back to editing"}
+          </button>
+        )}
       </header>
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load this form.</p>}
       {saveError && <p role="alert">{saveError}</p>}
 
-      {status === "ready" && (
+      {status === "ready" && mode === "preview" && (
+        <FormPreview fields={fields} />
+      )}
+
+      {status === "ready" && mode === "edit" && (
         <div className="form-builder__workspace">
           <FieldPalette />
           <FormCanvas
@@ -122,7 +152,12 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
             onReorder={handleReorder}
             onSelect={setSelectedId}
           />
-          <FieldInspector field={selectedField} onChange={handleFieldChange} />
+          <FieldInspector
+            field={selectedField}
+            onChange={handleFieldChange}
+            onDelete={handleDelete}
+            isPublished={(fieldId) => publishedFieldIds.has(fieldId)}
+          />
         </div>
       )}
     </main>

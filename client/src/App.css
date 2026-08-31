@@ -154,3 +154,17 @@ body {
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+
+.field-inspector__error {
+  color: #c0392b;
+  font-size: 0.8125rem;
+}
+
+.field-inspector__delete {
+  color: #c0392b;
+  border-color: #c0392b;
+}
+
+.form-preview__empty {
+  color: #888;
+}
