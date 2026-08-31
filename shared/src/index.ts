@@ -50,6 +50,9 @@ export {
   SubmissionSummarySchema,
   SubmissionListSchema,
   SubmissionDetailSchema,
+  EditSubmissionSchema,
+  SubmissionEditSchema,
+  SubmissionEditListSchema,
   SubmissionValidationErrorSchema,
 } from "./schemas/submission.js"
 export type {
@@ -58,5 +61,7 @@ export type {
   Submission,
   SubmissionSummary,
   SubmissionDetail,
+  EditSubmission,
+  SubmissionEdit,
   SubmissionValidationError,
 } from "./schemas/submission.js"

@@ -2,8 +2,10 @@ import type { FastifyPluginAsync } from "fastify"
 import type { ZodTypeProvider } from "fastify-type-provider-zod"
 import { z } from "zod"
 import {
+  EditSubmissionSchema,
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
+  SubmissionEditListSchema,
   SubmissionListSchema,
   SubmissionSchema,
   SubmissionValidationErrorSchema,
@@ -14,9 +16,11 @@ import {
   DraftNotFoundError,
   MissingRequiredFieldsError,
   NoActiveVersionError,
+  SubmissionNotFoundError,
 } from "./services/submissions.js"
 import type {
   SubmissionDetailRow,
+  SubmissionEditRow,
   SubmissionRow,
 } from "./repositories/submissions.js"
 import type { SubmissionsService } from "./services/submissions.js"
@@ -43,6 +47,14 @@ function serializeDetail(submission: SubmissionDetailRow) {
     // The jsonb column is untyped at the DB layer; the app is the only
     // writer and always writes the FormSchema shape.
     schema: submission.schema as FormSchema,
+  }
+}
+
+function serializeEdit(edit: SubmissionEditRow) {
+  return {
+    ...edit,
+    previousData: edit.previousData as Record<string, unknown>,
+    editedAt: edit.editedAt.toISOString(),
   }
 }
 
@@ -184,6 +196,59 @@ export function submissionsPlugin(
           })
         }
         return reply.code(200).send(serializeDetail(submission))
+      },
+    )
+
+    typed.put(
+      "/api/forms/:formId/submissions/:submissionId",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          body: EditSubmissionSchema,
+          response: {
+            200: SubmissionSchema,
+            400: SubmissionValidationErrorSchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const submission = await service.edit(
+            request.params.formId,
+            request.params.submissionId,
+            request.body.data,
+            request.body.editedBy,
+          )
+          return reply.code(200).send(serialize(submission))
+        } catch (error) {
+          if (error instanceof MissingRequiredFieldsError) {
+            return reply.code(400).send({
+              message: error.message,
+              missingFieldIds: error.missingFieldIds,
+            })
+          }
+          if (error instanceof SubmissionNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.get(
+      "/api/forms/:formId/submissions/:submissionId/edits",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          response: { 200: SubmissionEditListSchema },
+        },
+      },
+      async (request) => {
+        const edits = await service.getEditHistory(
+          request.params.submissionId,
+        )
+        return edits.map(serializeEdit)
       },
     )
   }

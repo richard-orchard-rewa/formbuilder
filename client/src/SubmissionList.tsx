@@ -7,6 +7,7 @@ interface SubmissionListProps {
   formName: string
   onBack: () => void
   onView: (submissionId: string) => void
+  onEdit: (submissionId: string) => void
 }
 
 type Status = "loading" | "ready" | "error"
@@ -19,6 +20,7 @@ export function SubmissionList({
   formName,
   onBack,
   onView,
+  onEdit,
 }: SubmissionListProps) {
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([])
   const [status, setStatus] = useState<Status>("loading")
@@ -67,6 +69,11 @@ export function SubmissionList({
               <button type="button" onClick={() => onView(submission.id)}>
                 View
               </button>
+              {submission.status === "submitted" && (
+                <button type="button" onClick={() => onEdit(submission.id)}>
+                  Edit
+                </button>
+              )}
             </li>
           ))}
         </ul>

@@ -4,6 +4,7 @@ import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
+import { SubmissionEdit } from "./SubmissionEdit.js"
 import { SubmissionList } from "./SubmissionList.js"
 import { SubmissionView } from "./SubmissionView.js"
 
@@ -13,6 +14,7 @@ type View =
   | { mode: "fill"; form: FormSummary }
   | { mode: "submissions"; form: FormSummary }
   | { mode: "view-submission"; form: FormSummary; submissionId: string }
+  | { mode: "edit-submission"; form: FormSummary; submissionId: string }
 
 export function App() {
   const [forms, setForms] = useState<FormSummary[]>([])
@@ -66,6 +68,9 @@ export function App() {
         onView={(submissionId) =>
           setView({ mode: "view-submission", form, submissionId })
         }
+        onEdit={(submissionId) =>
+          setView({ mode: "edit-submission", form, submissionId })
+        }
       />
     )
   }
@@ -74,6 +79,18 @@ export function App() {
     const { form } = view
     return (
       <SubmissionView
+        formId={form.id}
+        formName={form.name}
+        submissionId={view.submissionId}
+        onBack={() => setView({ mode: "submissions", form })}
+      />
+    )
+  }
+
+  if (view.mode === "edit-submission") {
+    const { form } = view
+    return (
+      <SubmissionEdit
         formId={form.id}
         formName={form.name}
         submissionId={view.submissionId}

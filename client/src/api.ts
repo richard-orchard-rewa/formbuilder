@@ -5,6 +5,7 @@ import type {
   FormVersion,
   Submission,
   SubmissionDetail,
+  SubmissionEdit,
   SubmissionSummary,
   SubmissionValidationError,
 } from "shared"
@@ -130,5 +131,36 @@ export function getSubmission(
 ): Promise<SubmissionDetail> {
   return fetch(`/api/forms/${formId}/submissions/${submissionId}`).then(
     (res) => json<SubmissionDetail>(res),
+  )
+}
+
+// Corrects a previously submitted submission's values, validated against
+// the exact schema version it was originally captured against rather than
+// the form's current active version (US-5.2).
+export async function editSubmission(
+  formId: string,
+  submissionId: string,
+  data: Record<string, unknown>,
+  editedBy?: string,
+): Promise<Submission> {
+  const res = await fetch(`/api/forms/${formId}/submissions/${submissionId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, editedBy }),
+  })
+  if (res.status === 400) {
+    const body = (await res.json()) as SubmissionValidationError
+    throw new SubmissionRejectedError(body.missingFieldIds)
+  }
+  return json<Submission>(res)
+}
+
+// The edit history for one submission, most recent first (US-5.2).
+export function getSubmissionEdits(
+  formId: string,
+  submissionId: string,
+): Promise<SubmissionEdit[]> {
+  return fetch(`/api/forms/${formId}/submissions/${submissionId}/edits`).then(
+    (res) => json<SubmissionEdit[]>(res),
   )
 }
