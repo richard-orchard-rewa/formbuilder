@@ -1,7 +1,12 @@
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
-import { submissions } from "../../../db/schema.js"
-import type { SubmissionRow, SubmissionsRepository } from "./submissions.js"
+import { formVersions, submissions } from "../../../db/schema.js"
+import type {
+  SubmissionDetailRow,
+  SubmissionRow,
+  SubmissionsRepository,
+  SubmissionSummaryRow,
+} from "./submissions.js"
 
 const SUBMISSION_COLUMNS = {
   id: submissions.id,
@@ -105,6 +110,35 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
         ),
       )
       .returning(SUBMISSION_COLUMNS)
+    return row ?? null
+  }
+
+  async listByForm(formId: string): Promise<SubmissionSummaryRow[]> {
+    return this.db
+      .select({
+        id: submissions.id,
+        status: submissions.status,
+        createdAt: submissions.createdAt,
+        submittedAt: submissions.submittedAt,
+      })
+      .from(submissions)
+      .where(eq(submissions.formId, formId))
+      .orderBy(desc(submissions.createdAt))
+  }
+
+  async getById(
+    formId: string,
+    submissionId: string,
+  ): Promise<SubmissionDetailRow | null> {
+    const [row] = await this.db
+      .select({
+        ...SUBMISSION_COLUMNS,
+        formVersionNumber: formVersions.version,
+        schema: formVersions.schema,
+      })
+      .from(submissions)
+      .innerJoin(formVersions, eq(submissions.formVersionId, formVersions.id))
+      .where(and(eq(submissions.id, submissionId), eq(submissions.formId, formId)))
     return row ?? null
   }
 }

@@ -4,11 +4,15 @@ import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
+import { SubmissionList } from "./SubmissionList.js"
+import { SubmissionView } from "./SubmissionView.js"
 
 type View =
   | { mode: "list" }
   | { mode: "build"; form: FormSummary }
   | { mode: "fill"; form: FormSummary }
+  | { mode: "submissions"; form: FormSummary }
+  | { mode: "view-submission"; form: FormSummary; submissionId: string }
 
 export function App() {
   const [forms, setForms] = useState<FormSummary[]>([])
@@ -52,6 +56,32 @@ export function App() {
     )
   }
 
+  if (view.mode === "submissions") {
+    const { form } = view
+    return (
+      <SubmissionList
+        formId={form.id}
+        formName={form.name}
+        onBack={() => setView({ mode: "list" })}
+        onView={(submissionId) =>
+          setView({ mode: "view-submission", form, submissionId })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "view-submission") {
+    const { form } = view
+    return (
+      <SubmissionView
+        formId={form.id}
+        formName={form.name}
+        submissionId={view.submissionId}
+        onBack={() => setView({ mode: "submissions", form })}
+      />
+    )
+  }
+
   return (
     <main>
       <h1>form-builder</h1>
@@ -64,6 +94,12 @@ export function App() {
             </button>
             <button type="button" onClick={() => setView({ mode: "fill", form })}>
               Fill out
+            </button>
+            <button
+              type="button"
+              onClick={() => setView({ mode: "submissions", form })}
+            >
+              Submissions
             </button>
           </li>
         ))}

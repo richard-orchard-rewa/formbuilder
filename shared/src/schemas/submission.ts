@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { FormSchemaSchema } from "./form-version.js"
 
 // Submitted values keyed by field id. Loosely typed for now, matching
 // FormSchemaSchema's own field looseness ahead of the full field-types
@@ -38,6 +39,30 @@ export const SubmissionSchema = z.object({
 })
 
 export type Submission = z.infer<typeof SubmissionSchema>
+
+// A bare-bones per-form list, just enough to navigate to one submission
+// (US-5.1) -- filtering by date range/version and showing richer columns
+// is US-5.3's job, not this one.
+export const SubmissionSummarySchema = z.object({
+  id: z.string(),
+  status: z.enum(["draft", "submitted"]),
+  createdAt: z.iso.datetime(),
+  submittedAt: z.iso.datetime().nullable(),
+})
+
+export type SubmissionSummary = z.infer<typeof SubmissionSummarySchema>
+
+export const SubmissionListSchema = z.array(SubmissionSummarySchema)
+
+// A single submission plus the exact schema (and version number) it was
+// captured against, so it always renders correctly even if the form has
+// since been republished with a different structure (US-5.1).
+export const SubmissionDetailSchema = SubmissionSchema.extend({
+  formVersionNumber: z.number().int(),
+  schema: FormSchemaSchema,
+})
+
+export type SubmissionDetail = z.infer<typeof SubmissionDetailSchema>
 
 // Returned when required fields are missing at submission time (US-3.5).
 export const SubmissionValidationErrorSchema = z.object({
