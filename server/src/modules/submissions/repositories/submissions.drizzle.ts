@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, gte, lte } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
 import {
   formVersions,
@@ -8,6 +8,7 @@ import {
 import type {
   SubmissionDetailRow,
   SubmissionEditRow,
+  SubmissionListFilters,
   SubmissionRow,
   SubmissionsRepository,
   SubmissionSummaryRow,
@@ -118,16 +119,28 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
     return row ?? null
   }
 
-  async listByForm(formId: string): Promise<SubmissionSummaryRow[]> {
+  async listByForm(
+    formId: string,
+    filters?: SubmissionListFilters,
+  ): Promise<SubmissionSummaryRow[]> {
+    const conditions = [eq(submissions.formId, formId)]
+    if (filters?.from) conditions.push(gte(submissions.createdAt, filters.from))
+    if (filters?.to) conditions.push(lte(submissions.createdAt, filters.to))
+    if (filters?.formVersionNumber !== undefined) {
+      conditions.push(eq(formVersions.version, filters.formVersionNumber))
+    }
+
     return this.db
       .select({
         id: submissions.id,
         status: submissions.status,
+        formVersionNumber: formVersions.version,
         createdAt: submissions.createdAt,
         submittedAt: submissions.submittedAt,
       })
       .from(submissions)
-      .where(eq(submissions.formId, formId))
+      .innerJoin(formVersions, eq(submissions.formVersionId, formVersions.id))
+      .where(and(...conditions))
       .orderBy(desc(submissions.createdAt))
   }
 

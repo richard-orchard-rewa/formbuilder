@@ -1,6 +1,9 @@
 import type { Field } from "shared"
 import type { FormVersionsService } from "../../form-builder/services/form-versions.js"
-import type { SubmissionsRepository } from "../repositories/submissions.js"
+import type {
+  SubmissionListFilters,
+  SubmissionsRepository,
+} from "../repositories/submissions.js"
 
 export class NoActiveVersionError extends Error {
   constructor(formId: string) {
@@ -115,10 +118,10 @@ export class SubmissionsService {
     return this.repo.getDraft(formId, submissionId)
   }
 
-  // A bare-bones list of a form's submissions, just enough to navigate to
-  // one (US-5.1).
-  listByForm(formId: string) {
-    return this.repo.listByForm(formId)
+  // A form's submissions for review/reporting, optionally narrowed by date
+  // range or schema version (US-5.1, US-5.3).
+  listByForm(formId: string, filters?: SubmissionListFilters) {
+    return this.repo.listByForm(formId, filters)
   }
 
   // Fetches one submission (draft or submitted) together with the exact

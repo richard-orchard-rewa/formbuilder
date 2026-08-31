@@ -6,6 +6,7 @@ import {
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
   SubmissionEditListSchema,
+  SubmissionListQuerySchema,
   SubmissionListSchema,
   SubmissionSchema,
   SubmissionValidationErrorSchema,
@@ -161,11 +162,19 @@ export function submissionsPlugin(
       {
         schema: {
           params: FormParamsSchema,
+          querystring: SubmissionListQuerySchema,
           response: { 200: SubmissionListSchema },
         },
       },
       async (request) => {
-        const submissions = await service.listByForm(request.params.formId)
+        const { from, to, formVersionNumber } = request.query
+        const submissions = await service.listByForm(request.params.formId, {
+          // `to` is a calendar date; bound it at the end of that day so the
+          // range stays inclusive of everything submitted on it.
+          from: from ? new Date(`${from}T00:00:00.000Z`) : undefined,
+          to: to ? new Date(`${to}T23:59:59.999Z`) : undefined,
+          formVersionNumber,
+        })
         return submissions.map((submission) => ({
           ...submission,
           createdAt: submission.createdAt.toISOString(),

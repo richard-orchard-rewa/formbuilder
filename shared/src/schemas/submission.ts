@@ -40,12 +40,12 @@ export const SubmissionSchema = z.object({
 
 export type Submission = z.infer<typeof SubmissionSchema>
 
-// A bare-bones per-form list, just enough to navigate to one submission
-// (US-5.1) -- filtering by date range/version and showing richer columns
-// is US-5.3's job, not this one.
+// A per-form list an admin can review or report on (US-5.1, US-5.3):
+// status, the version it was captured against, and when.
 export const SubmissionSummarySchema = z.object({
   id: z.string(),
   status: z.enum(["draft", "submitted"]),
+  formVersionNumber: z.number().int(),
   createdAt: z.iso.datetime(),
   submittedAt: z.iso.datetime().nullable(),
 })
@@ -53,6 +53,19 @@ export const SubmissionSummarySchema = z.object({
 export type SubmissionSummary = z.infer<typeof SubmissionSummarySchema>
 
 export const SubmissionListSchema = z.array(SubmissionSummarySchema)
+
+// Filters for the submission list (US-5.3). `from`/`to` bound `createdAt`
+// (inclusive) rather than `submittedAt` so a date-range filter still
+// matches drafts, which have no `submittedAt` yet. `formVersionNumber`
+// narrows to submissions captured against one specific version of the
+// form. All optional -- an unfiltered request lists everything.
+export const SubmissionListQuerySchema = z.object({
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  formVersionNumber: z.coerce.number().int().optional(),
+})
+
+export type SubmissionListQuery = z.infer<typeof SubmissionListQuerySchema>
 
 // A single submission plus the exact schema (and version number) it was
 // captured against, so it always renders correctly even if the form has
