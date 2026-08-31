@@ -99,4 +99,17 @@ export class SubmissionsService {
   getDraft(formId: string, submissionId: string) {
     return this.repo.getDraft(formId, submissionId)
   }
+
+  // A bare-bones list of a form's submissions, just enough to navigate to
+  // one (US-5.1).
+  listByForm(formId: string) {
+    return this.repo.listByForm(formId)
+  }
+
+  // Fetches one submission (draft or submitted) together with the exact
+  // version it targets, so it renders correctly even if the form has
+  // since been republished with a different structure (US-5.1).
+  getById(formId: string, submissionId: string) {
+    return this.repo.getById(formId, submissionId)
+  }
 }

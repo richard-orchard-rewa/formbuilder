@@ -3,20 +3,26 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod"
 import { z } from "zod"
 import {
   SaveDraftSubmissionSchema,
+  SubmissionDetailSchema,
+  SubmissionListSchema,
   SubmissionSchema,
   SubmissionValidationErrorSchema,
   SubmitFormSchema,
+  type FormSchema,
 } from "shared"
 import {
   DraftNotFoundError,
   MissingRequiredFieldsError,
   NoActiveVersionError,
 } from "./services/submissions.js"
-import type { SubmissionRow } from "./repositories/submissions.js"
+import type {
+  SubmissionDetailRow,
+  SubmissionRow,
+} from "./repositories/submissions.js"
 import type { SubmissionsService } from "./services/submissions.js"
 
 const FormParamsSchema = z.object({ formId: z.string() })
-const DraftParamsSchema = z.object({
+const SubmissionParamsSchema = z.object({
   formId: z.string(),
   submissionId: z.string(),
 })
@@ -27,6 +33,16 @@ function serialize(submission: SubmissionRow) {
     ...submission,
     data: submission.data as Record<string, unknown>,
     submittedAt: submission.submittedAt?.toISOString() ?? null,
+  }
+}
+
+function serializeDetail(submission: SubmissionDetailRow) {
+  return {
+    ...serialize(submission),
+    formVersionNumber: submission.formVersionNumber,
+    // The jsonb column is untyped at the DB layer; the app is the only
+    // writer and always writes the FormSchema shape.
+    schema: submission.schema as FormSchema,
   }
 }
 
@@ -111,7 +127,7 @@ export function submissionsPlugin(
       "/api/forms/:formId/submissions/draft/:submissionId",
       {
         schema: {
-          params: DraftParamsSchema,
+          params: SubmissionParamsSchema,
           response: {
             200: SubmissionSchema.nullable(),
           },
@@ -125,6 +141,49 @@ export function submissionsPlugin(
         return reply
           .code(200)
           .send(submission ? serialize(submission) : null)
+      },
+    )
+
+    typed.get(
+      "/api/forms/:formId/submissions",
+      {
+        schema: {
+          params: FormParamsSchema,
+          response: { 200: SubmissionListSchema },
+        },
+      },
+      async (request) => {
+        const submissions = await service.listByForm(request.params.formId)
+        return submissions.map((submission) => ({
+          ...submission,
+          createdAt: submission.createdAt.toISOString(),
+          submittedAt: submission.submittedAt?.toISOString() ?? null,
+        }))
+      },
+    )
+
+    typed.get(
+      "/api/forms/:formId/submissions/:submissionId",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          response: {
+            200: SubmissionDetailSchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const submission = await service.getById(
+          request.params.formId,
+          request.params.submissionId,
+        )
+        if (!submission) {
+          return reply.code(404).send({
+            message: `No submission ${request.params.submissionId} found for form ${request.params.formId}`,
+          })
+        }
+        return reply.code(200).send(serializeDetail(submission))
       },
     )
   }

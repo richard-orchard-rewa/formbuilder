@@ -4,6 +4,8 @@ import type {
   FormSummary,
   FormVersion,
   Submission,
+  SubmissionDetail,
+  SubmissionSummary,
   SubmissionValidationError,
 } from "shared"
 
@@ -108,5 +110,25 @@ export function getDraftSubmission(
 export function getPublishedFieldIds(formId: string): Promise<string[]> {
   return fetch(`/api/forms/${formId}/published-field-ids`).then((res) =>
     json<string[]>(res),
+  )
+}
+
+// A bare-bones list of a form's submissions, just enough to navigate to
+// one (US-5.1). Filtering/richer columns are US-5.3's job.
+export function listSubmissions(formId: string): Promise<SubmissionSummary[]> {
+  return fetch(`/api/forms/${formId}/submissions`).then((res) =>
+    json<SubmissionSummary[]>(res),
+  )
+}
+
+// Fetches one submission together with the exact schema version it was
+// captured against, so it renders correctly even if the form has since
+// been republished with a different structure (US-5.1).
+export function getSubmission(
+  formId: string,
+  submissionId: string,
+): Promise<SubmissionDetail> {
+  return fetch(`/api/forms/${formId}/submissions/${submissionId}`).then(
+    (res) => json<SubmissionDetail>(res),
   )
 }

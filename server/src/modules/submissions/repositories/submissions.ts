@@ -8,6 +8,21 @@ export interface SubmissionRow {
   submittedAt: Date | null
 }
 
+export interface SubmissionSummaryRow {
+  id: string
+  status: "draft" | "submitted"
+  createdAt: Date
+  submittedAt: Date | null
+}
+
+export interface SubmissionDetailRow extends SubmissionRow {
+  // The version's own number and schema at the time this submission was
+  // captured, joined in so it renders correctly even if the form has
+  // since been republished with a different structure (US-5.1).
+  formVersionNumber: number
+  schema: unknown
+}
+
 export interface SubmissionsRepository {
   // Records a completed submission directly (no prior draft) against a
   // specific form version, so it always points at the exact schema it was
@@ -50,4 +65,17 @@ export interface SubmissionsRepository {
     data: unknown,
     submittedBy?: string | null,
   ): Promise<SubmissionRow | null>
+
+  // A bare-bones list of every submission (draft and submitted) for a
+  // form, most recent first -- just enough to navigate to one (US-5.1).
+  // Filtering/richer columns are US-5.3's job.
+  listByForm(formId: string): Promise<SubmissionSummaryRow[]>
+
+  // Fetches one submission together with the version it targets, scoped
+  // to `formId` so a submission id from another form can't be looked up
+  // (US-5.1). Returns null if no match.
+  getById(
+    formId: string,
+    submissionId: string,
+  ): Promise<SubmissionDetailRow | null>
 }
