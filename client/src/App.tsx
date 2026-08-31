@@ -2,16 +2,29 @@ import { useEffect, useState } from "react"
 import type { FormSummary } from "shared"
 import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
+import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 
 export function App() {
   const [forms, setForms] = useState<FormSummary[]>([])
   const [selected, setSelected] = useState<FormSummary | null>(null)
+  const [showRendererSpike, setShowRendererSpike] = useState(false)
 
   useEffect(() => {
     listForms()
       .then(setForms)
       .catch(() => setForms([]))
   }, [])
+
+  if (showRendererSpike) {
+    return (
+      <main>
+        <button type="button" onClick={() => setShowRendererSpike(false)}>
+          ← Back
+        </button>
+        <RendererSpike />
+      </main>
+    )
+  }
 
   if (selected) {
     return (
@@ -36,6 +49,11 @@ export function App() {
         ))}
       </ul>
       <NewFormButton onCreated={(form) => setForms([form, ...forms])} />
+      <p>
+        <button type="button" onClick={() => setShowRendererSpike(true)}>
+          View renderer spike (US-0.2)
+        </button>
+      </p>
     </main>
   )
 }
