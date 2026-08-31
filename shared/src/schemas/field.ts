@@ -68,13 +68,17 @@ export const FieldOptionSchema = z.object({
 
 export type FieldOption = z.infer<typeof FieldOptionSchema>
 
-// Not yet configurable beyond a label — its own field-types epic issue
-// (US-3.3) extends this.
+// US-3.3: a dropdown field with an admin-defined list of options.
 export const DropdownFieldSchema = z.object({
   id: z.string(),
   type: z.literal("dropdown"),
   label: z.string(),
   required: requiredFlag,
+  options: z.array(FieldOptionSchema).default([]),
+  // Must match one of `options`' values, enforced where options are edited
+  // rather than in this shape (a value can be added and made default in
+  // the same edit).
+  defaultValue: z.string().optional(),
 })
 
 // US-3.4: a single checkbox, e.g. "I agree to the terms".

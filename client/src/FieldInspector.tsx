@@ -1,4 +1,4 @@
-import type { Field, FieldOption, RadioField } from "shared"
+import type { Field } from "shared"
 
 interface FieldInspectorProps {
   field: Field | null
@@ -7,9 +7,9 @@ interface FieldInspectorProps {
 
 // Configuration panel for the field selected on the canvas. Label and
 // required apply to every field type (US-3.5); type-specific options
-// (like "text"'s placeholder/maxLength, US-3.1, and "checkbox"/"radio"/
-// "date"/"number"'s own settings, US-3.4) grow as their own field-types
-// epic issues land.
+// (like "text"'s placeholder/maxLength, US-3.1; "dropdown"/"radio"'s
+// options list, US-3.3/US-3.4; and "checkbox"/"date"/"number"'s own
+// settings, US-3.4) grow as their own field-types epic issues land.
 export function FieldInspector({ field, onChange }: FieldInspectorProps) {
   if (!field) {
     return (
@@ -79,22 +79,22 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
         </>
       )}
 
-      {field.type === "checkbox" && (
-        <>
-          <label className="field-inspector__field field-inspector__field--checkbox">
-            <input
-              type="checkbox"
-              checked={field.defaultChecked}
-              onChange={(event) =>
-                onChange({ ...field, defaultChecked: event.target.checked })
-              }
-            />
-            Checked by default
-          </label>
-        </>
+      {(field.type === "dropdown" || field.type === "radio") && (
+        <OptionsEditor field={field} onChange={onChange} />
       )}
 
-      {field.type === "radio" && <OptionsEditor field={field} onChange={onChange} />}
+      {field.type === "checkbox" && (
+        <label className="field-inspector__field field-inspector__field--checkbox">
+          <input
+            type="checkbox"
+            checked={field.defaultChecked}
+            onChange={(event) =>
+              onChange({ ...field, defaultChecked: event.target.checked })
+            }
+          />
+          Checked by default
+        </label>
+      )}
 
       {field.type === "date" && (
         <>
@@ -172,15 +172,15 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
   )
 }
 
-// Add/edit/reorder/delete the option list for a "radio" field.
+// Add/edit/reorder/delete the option list shared by "dropdown" and "radio".
 function OptionsEditor({
   field,
   onChange,
 }: {
-  field: RadioField
+  field: Extract<Field, { type: "dropdown" | "radio" }>
   onChange: (field: Field) => void
 }) {
-  function replaceOption(index: number, next: FieldOption) {
+  function replaceOption(index: number, next: { value: string; label: string }) {
     onChange({
       ...field,
       options: field.options.map((option, i) => (i === index ? next : option)),
