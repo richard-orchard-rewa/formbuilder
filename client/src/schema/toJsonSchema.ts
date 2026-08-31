@@ -1,11 +1,14 @@
 import type { JsonSchema7 } from "@jsonforms/core"
 import type { Field, FormSchema } from "shared"
 
-// Converts the builder's draft FormSchema into the JSON Schema + UI Schema
-// pair JSON Forms renders from (ADR-0003). This is a stand-in for the
-// generic Zod-to-JSON-Schema conversion US-0.3 will wire up, covering every
-// field type the canvas currently supports (US-3.1 through US-3.4); it's
-// meant to be replaced by that conversion once it lands.
+// Converts a FormSchema into the JSON Schema + UI Schema pair JSON Forms
+// renders from (ADR-0003) — used for both the builder's draft preview
+// (US-2.5) and the public fill-out view (US-4.1), so what an admin
+// previews is exactly what a respondent later fills out. This is a
+// stand-in for the generic Zod-to-JSON-Schema conversion US-0.3 will wire
+// up, covering every field type the canvas currently supports (US-3.1
+// through US-3.4); it's meant to be replaced by that conversion once it
+// lands.
 export function toJsonSchema(schema: FormSchema) {
   const properties: Record<string, JsonSchema7> = {}
   const required: string[] = []

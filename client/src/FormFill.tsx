@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react"
-import type { Field, FormVersion } from "shared"
+import { useEffect, useMemo, useState } from "react"
+import { JsonForms } from "@jsonforms/react"
+import { vanillaCells, vanillaRenderers } from "@jsonforms/vanilla-renderers"
+import type { FormVersion } from "shared"
 import { getActiveVersion, SubmissionRejectedError, submitForm } from "./api.js"
+import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface FormFillProps {
   formId: string
@@ -10,12 +13,19 @@ interface FormFillProps {
 
 type Status = "loading" | "ready" | "no-active" | "error" | "submitted"
 
-// The public-facing view a respondent fills out. Required fields are
-// enforced two ways: natively via HTML `required` here, and again by the
-// server at submission time in case that's ever bypassed (US-3.5).
+// The public-facing view a respondent fills out, rendered with the same
+// JSON Forms renderer used by the builder's preview (ADR-0003) so the UI
+// always matches the active schema version's field types and constraints
+// (US-4.1). Required fields and type constraints (enum, number range,
+// date bounds, ...) are validated client-side by JSON Forms/ajv against
+// the generated JSON Schema, and independently re-checked by the server
+// at submission time in case that's ever bypassed (US-3.5).
 export function FormFill({ formId, formName, onBack }: FormFillProps) {
   const [version, setVersion] = useState<FormVersion | null>(null)
   const [status, setStatus] = useState<Status>("loading")
+  const [data, setData] = useState<Record<string, unknown>>({})
+  const [errors, setErrors] = useState<unknown[]>([])
+  const [showValidation, setShowValidation] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -25,6 +35,7 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
       .then((active) => {
         if (cancelled) return
         setVersion(active)
+        setData({})
         setStatus(active ? "ready" : "no-active")
       })
       .catch(() => {
@@ -35,13 +46,17 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
     }
   }, [formId])
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  const { schema, uiSchema } = useMemo(
+    () => toJsonSchema(version?.schema ?? { fields: [] }),
+    [version],
+  )
+
+  async function handleSubmit() {
+    if (errors.length > 0) {
+      setShowValidation(true)
+      return
+    }
     setSubmitError(null)
-    const data: Record<string, unknown> = {}
-    new FormData(event.currentTarget).forEach((value, key) => {
-      data[key] = value
-    })
     try {
       await submitForm(formId, data)
       setStatus("submitted")
@@ -72,35 +87,26 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
       {submitError && <p role="alert">{submitError}</p>}
 
       {status === "ready" && version && (
-        <form onSubmit={handleSubmit}>
-          {version.schema.fields.map((field) => (
-            <FieldInput key={field.id} field={field} />
-          ))}
-          <button type="submit">Submit</button>
-        </form>
+        <>
+          <JsonForms
+            schema={schema}
+            uischema={uiSchema}
+            data={data}
+            renderers={vanillaRenderers}
+            cells={vanillaCells}
+            validationMode={
+              showValidation ? "ValidateAndShow" : "ValidateAndHide"
+            }
+            onChange={({ data, errors }) => {
+              setData(data)
+              setErrors(errors ?? [])
+            }}
+          />
+          <button type="button" onClick={handleSubmit}>
+            Submit
+          </button>
+        </>
       )}
     </main>
-  )
-}
-
-function FieldInput({ field }: { field: Field }) {
-  return (
-    <label className="form-fill__field">
-      {field.label}
-      {field.required && <span aria-hidden="true"> *</span>}
-      {field.type === "textarea" ? (
-        <textarea name={field.id} required={field.required} />
-      ) : field.type === "text" ? (
-        <input
-          type="text"
-          name={field.id}
-          required={field.required}
-          placeholder={field.placeholder}
-          maxLength={field.maxLength}
-        />
-      ) : (
-        <input type="text" name={field.id} required={field.required} />
-      )}
-    </label>
   )
 }

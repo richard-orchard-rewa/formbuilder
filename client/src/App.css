@@ -140,19 +140,8 @@ body {
   margin-bottom: 0.5rem;
 }
 
-.form-fill__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 1rem;
+.form-fill {
   max-width: 24rem;
-}
-
-.form-fill__field input,
-.form-fill__field textarea {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 .field-inspector__error {
