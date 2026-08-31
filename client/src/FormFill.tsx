@@ -189,7 +189,7 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
           <button type="button" onClick={handleSaveDraft}>
             Save for later
           </button>
-          <button type="button" onClick={handleSubmit}>
+          <button type="button" className="primary" onClick={handleSubmit}>
             Submit
           </button>
         </>

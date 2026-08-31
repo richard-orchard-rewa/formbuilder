@@ -78,6 +78,15 @@ Forms render from their JSON Schema via `@jsonforms/react` (ADR-0003) — the sa
 
 Vitest + Testing Library cover client components (`client/src/*.test.tsx`, `client/src/test-setup.ts`, config in `client/vite.config.ts`'s `test` block).
 
+### Visual design — RAWA brand
+
+The UI follows the org-wide RAWA Design System: navy canvas, white cards, Plus Jakarta Sans, pill buttons, soft shadows — see `C:\Users\richard.orchard\OneDrive - Relationships Australia WA\RAWA-Design\RAWA-design-reference.md` for the full spec (colours, type scale, spacing, component recipes, voice/copy rules).
+
+- `client/src/styles/rawa-tokens.css` — the design tokens (colours/type/spacing/radii/shadows as CSS variables), copied in from that kit's `colors_and_type.css`. Update it from the source kit rather than hand-editing values.
+- `client/public/fonts/` and `client/public/brand/` — the self-hosted Plus Jakarta Sans files and RAWA wordmark/mark SVGs the tokens and header reference.
+- `client/src/App.css` — applies the tokens to this app's own component classes *and* to JSON Forms' vanilla-renderer output (`.control`, `.input`, `.select`, `.radio-*`, `.validation_error`, …), so admin-authored and respondent-facing screens look consistent.
+- This is an internal admin tool, not the client-facing feedback survey the design kit's "canonical full-screen client layout" targets — the navy canvas + white card + wordmark shell is used, but there's no step-progress bar or persistent Safety Exit pill here.
+
 ### Shared contracts (ADR-0005)
 
 Zod schemas in `shared/src/schemas/` are the single source of truth for a form's field definitions and a submission's shape. `shared/src/json-schema.ts` converts a field list to JSON Schema (`toJsonSchema`) and builds the matching Zod schema a submission is validated against server-side (`buildSubmissionSchema`) — proven round-trip in `shared/src/json-schema.test.ts`. `fastify-type-provider-zod` wires the same schemas into Fastify route validation on the server; the client imports the inferred TS types directly from `shared`.
