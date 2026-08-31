@@ -8,6 +8,13 @@ separate — it does not depend on, share code with, or modify that repo.
 
 ## Getting started
 
+Double-click [`start.bat`](start.bat) (Windows, requires Docker Desktop to be
+running) to bring up Postgres, install dependencies and apply migrations on
+first run, start both dev servers, and open the app in your browser once
+it's ready.
+
+To run the same steps by hand instead:
+
 ```bash
 npm install
 docker compose up -d          # local Postgres on :5432
@@ -15,6 +22,27 @@ cp server/.env.example server/.env
 npm run db:migrate -w server   # apply server/src/db/migrations to DATABASE_URL
 npm run dev                    # server on :3000, client on :5173
 ```
+
+## Testing
+
+```bash
+npm test                        # Vitest — shared + client
+npm run typecheck                # tsc --noEmit across all workspaces
+npm run test:e2e                 # Playwright — needs Postgres migrated (see above)
+```
+
+Playwright starts both dev servers itself via `webServer` — see
+[`e2e/playwright.config.ts`](e2e/playwright.config.ts). First-time browser
+install: `npx playwright install chromium`.
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull
+request and on push to this repo's integration branch
+(`claude/github-issue-24-14ff4b` — see [CLAUDE.md](CLAUDE.md)): dependency
+install + `npm audit --omit=dev` + typecheck, then unit tests, then the
+Playwright suite against a Postgres service container. See
+[US-0.6](https://github.com/richard-orchard-rewa/formbuilder/issues/26).
 
 ## Data layer
 
@@ -46,3 +74,5 @@ npm run test -w shared
   `server/src/modules/<capability>/` (routes → service → repository), mounted
   from `server/src/index.ts`.
 - `client/` — Vite + React app.
+- `e2e/` — Playwright feature tests, run against `client` and `server`
+  together (see [Testing](#testing)).

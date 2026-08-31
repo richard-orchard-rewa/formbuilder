@@ -135,6 +135,7 @@ function NewFormButton({ onCreated }: { onCreated: (form: FormSummary) => void }
   return (
     <button
       type="button"
+      className="primary"
       onClick={() => {
         const name = window.prompt("Form name?")
         if (!name) return

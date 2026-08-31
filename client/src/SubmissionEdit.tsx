@@ -125,7 +125,7 @@ export function SubmissionEdit({
               setSaveMessage(null)
             }}
           />
-          <button type="button" onClick={handleSave}>
+          <button type="button" className="primary" onClick={handleSave}>
             Save changes
           </button>
 
