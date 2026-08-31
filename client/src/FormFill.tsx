@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
 import { vanillaCells, vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { FormVersion } from "shared"
-import { getActiveVersion, SubmissionRejectedError, submitForm } from "./api.js"
+import {
+  getActiveVersion,
+  getDraftSubmission,
+  saveDraftSubmission,
+  submitForm,
+  SubmissionRejectedError,
+} from "./api.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface FormFillProps {
@@ -12,6 +18,39 @@ interface FormFillProps {
 }
 
 type Status = "loading" | "ready" | "no-active" | "error" | "submitted"
+
+// Remembers the in-progress draft's id per form (US-4.3), so returning to
+// the same form later resumes it instead of starting over. Reads/writes
+// are wrapped in try/catch since localStorage can be unavailable (private
+// browsing, blocked site data) -- when it is, saving a draft still works
+// for the current visit, it just won't be resumable after a reload.
+function draftStorageKey(formId: string) {
+  return `form-fill-draft:${formId}`
+}
+
+function readSavedDraftId(formId: string): string | null {
+  try {
+    return window.localStorage.getItem(draftStorageKey(formId))
+  } catch {
+    return null
+  }
+}
+
+function writeSavedDraftId(formId: string, submissionId: string) {
+  try {
+    window.localStorage.setItem(draftStorageKey(formId), submissionId)
+  } catch {
+    // Best-effort only.
+  }
+}
+
+function clearSavedDraftId(formId: string) {
+  try {
+    window.localStorage.removeItem(draftStorageKey(formId))
+  } catch {
+    // Best-effort only.
+  }
+}
 
 // The public-facing view a respondent fills out, rendered with the same
 // JSON Forms renderer used by the builder's preview (ADR-0003) so the UI
@@ -27,20 +66,44 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
   const [errors, setErrors] = useState<unknown[]>([])
   const [showValidation, setShowValidation] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submissionId, setSubmissionId] = useState<string | null>(null)
+  const [draftMessage, setDraftMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setStatus("loading")
-    getActiveVersion(formId)
-      .then((active) => {
-        if (cancelled) return
-        setVersion(active)
+    setSubmissionId(null)
+    setDraftMessage(null)
+
+    async function load() {
+      const active = await getActiveVersion(formId)
+      if (cancelled) return
+      setVersion(active)
+      if (!active) {
+        setStatus("no-active")
+        return
+      }
+
+      const savedDraftId = readSavedDraftId(formId)
+      const draft = savedDraftId
+        ? await getDraftSubmission(formId, savedDraftId)
+        : null
+      if (cancelled) return
+
+      if (draft) {
+        setData(draft.data)
+        setSubmissionId(draft.id)
+      } else {
+        if (savedDraftId) clearSavedDraftId(formId)
         setData({})
-        setStatus(active ? "ready" : "no-active")
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("error")
-      })
+      }
+      setStatus("ready")
+    }
+
+    load().catch(() => {
+      if (!cancelled) setStatus("error")
+    })
+
     return () => {
       cancelled = true
     }
@@ -51,6 +114,23 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
     [version],
   )
 
+  async function handleSaveDraft() {
+    setSubmitError(null)
+    try {
+      const draft = await saveDraftSubmission(
+        formId,
+        data,
+        submissionId ?? undefined,
+      )
+      setSubmissionId(draft.id)
+      writeSavedDraftId(formId, draft.id)
+      setDraftMessage("Saved — you can return later to finish this form.")
+    } catch {
+      setDraftMessage(null)
+      setSubmitError("Couldn't save this draft. Please try again.")
+    }
+  }
+
   async function handleSubmit() {
     if (errors.length > 0) {
       setShowValidation(true)
@@ -58,7 +138,8 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
     }
     setSubmitError(null)
     try {
-      await submitForm(formId, data)
+      await submitForm(formId, data, submissionId ?? undefined)
+      clearSavedDraftId(formId)
       setStatus("submitted")
     } catch (error) {
       if (error instanceof SubmissionRejectedError) {
@@ -85,6 +166,7 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
       )}
       {status === "submitted" && <p>Thanks — your response was recorded.</p>}
       {submitError && <p role="alert">{submitError}</p>}
+      {draftMessage && <p>{draftMessage}</p>}
 
       {status === "ready" && version && (
         <>
@@ -100,8 +182,12 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
             onChange={({ data, errors }) => {
               setData(data)
               setErrors(errors ?? [])
+              setDraftMessage(null)
             }}
           />
+          <button type="button" onClick={handleSaveDraft}>
+            Save for later
+          </button>
           <button type="button" onClick={handleSubmit}>
             Submit
           </button>

@@ -1,6 +1,17 @@
+import { and, eq } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
 import { submissions } from "../../../db/schema.js"
 import type { SubmissionRow, SubmissionsRepository } from "./submissions.js"
+
+const SUBMISSION_COLUMNS = {
+  id: submissions.id,
+  formId: submissions.formId,
+  formVersionId: submissions.formVersionId,
+  status: submissions.status,
+  data: submissions.data,
+  submittedBy: submissions.submittedBy,
+  submittedAt: submissions.submittedAt,
+}
 
 export class DrizzleSubmissionsRepository implements SubmissionsRepository {
   constructor(private readonly db: Db) {}
@@ -21,15 +32,79 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
         status: "submitted",
         submittedAt: new Date(),
       })
-      .returning({
-        id: submissions.id,
-        formId: submissions.formId,
-        formVersionId: submissions.formVersionId,
-        submittedBy: submissions.submittedBy,
-        submittedAt: submissions.submittedAt,
+      .returning(SUBMISSION_COLUMNS)
+    return row
+  }
+
+  async saveDraft(
+    formId: string,
+    formVersionId: string,
+    data: unknown,
+    submissionId?: string,
+  ): Promise<SubmissionRow> {
+    if (submissionId) {
+      const [updated] = await this.db
+        .update(submissions)
+        .set({ data, formVersionId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(submissions.id, submissionId),
+            eq(submissions.formId, formId),
+            eq(submissions.status, "draft"),
+          ),
+        )
+        .returning(SUBMISSION_COLUMNS)
+      if (updated) return updated
+    }
+
+    const [created] = await this.db
+      .insert(submissions)
+      .values({ formId, formVersionId, data, status: "draft" })
+      .returning(SUBMISSION_COLUMNS)
+    return created
+  }
+
+  async getDraft(
+    formId: string,
+    submissionId: string,
+  ): Promise<SubmissionRow | null> {
+    const [row] = await this.db
+      .select(SUBMISSION_COLUMNS)
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.id, submissionId),
+          eq(submissions.formId, formId),
+          eq(submissions.status, "draft"),
+        ),
+      )
+    return row ?? null
+  }
+
+  async finalizeDraft(
+    formId: string,
+    submissionId: string,
+    formVersionId: string,
+    data: unknown,
+    submittedBy?: string | null,
+  ): Promise<SubmissionRow | null> {
+    const [row] = await this.db
+      .update(submissions)
+      .set({
+        data,
+        formVersionId,
+        submittedBy: submittedBy ?? null,
+        status: "submitted",
+        submittedAt: new Date(),
       })
-    // submittedAt is nullable at the column level (a submission can be
-    // saved as a draft first), but this insert always sets it.
-    return { ...row, submittedAt: row.submittedAt! }
+      .where(
+        and(
+          eq(submissions.id, submissionId),
+          eq(submissions.formId, formId),
+          eq(submissions.status, "draft"),
+        ),
+      )
+      .returning(SUBMISSION_COLUMNS)
+    return row ?? null
   }
 }

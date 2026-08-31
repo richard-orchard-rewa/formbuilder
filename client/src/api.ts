@@ -63,17 +63,46 @@ export class SubmissionRejectedError extends Error {
 export async function submitForm(
   formId: string,
   data: Record<string, unknown>,
+  submissionId?: string,
 ): Promise<Submission> {
   const res = await fetch(`/api/forms/${formId}/submissions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data }),
+    body: JSON.stringify({ data, submissionId }),
   })
   if (res.status === 400) {
     const body = (await res.json()) as SubmissionValidationError
     throw new SubmissionRejectedError(body.missingFieldIds)
   }
   return json<Submission>(res)
+}
+
+// Saves an in-progress submission with no required-field validation, so a
+// respondent can return and finish it later (US-4.3). With no
+// `submissionId`, creates a new draft; with one, overwrites that draft's
+// data in place.
+export function saveDraftSubmission(
+  formId: string,
+  data: Record<string, unknown>,
+  submissionId?: string,
+): Promise<Submission> {
+  return fetch(`/api/forms/${formId}/submissions/draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, submissionId }),
+  }).then((res) => json<Submission>(res))
+}
+
+// Fetches a saved draft to resume filling it out. Resolves to null if it
+// no longer exists, belongs to a different form, or has already been
+// finalized (US-4.3).
+export function getDraftSubmission(
+  formId: string,
+  submissionId: string,
+): Promise<Submission | null> {
+  return fetch(`/api/forms/${formId}/submissions/draft/${submissionId}`).then(
+    (res) => json<Submission | null>(res),
+  )
 }
 
 export function getPublishedFieldIds(formId: string): Promise<string[]> {
