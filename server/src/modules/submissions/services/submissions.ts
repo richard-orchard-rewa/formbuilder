@@ -16,6 +16,16 @@ export class MissingRequiredFieldsError extends Error {
   }
 }
 
+// Thrown when a submissionId passed to finalize doesn't resolve to an
+// existing, unfinalized draft for this form (US-4.3) -- it may have never
+// existed, belonged to a different form, or already been submitted.
+export class DraftNotFoundError extends Error {
+  constructor(formId: string, submissionId: string) {
+    super(`No draft ${submissionId} found for form ${formId}`)
+    this.name = "DraftNotFoundError"
+  }
+}
+
 function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === ""
 }
@@ -28,11 +38,14 @@ export class SubmissionsService {
 
   // Validates the submission against the form's active version before
   // recording it, so a required field can never be silently skipped even
-  // if a client bypasses its own validation (US-3.5).
+  // if a client bypasses its own validation (US-3.5). If `submissionId`
+  // resumes an existing draft, that row is finalized in place rather than
+  // inserting a duplicate (US-4.3).
   async submit(
     formId: string,
     data: Record<string, unknown>,
     submittedBy?: string | null,
+    submissionId?: string,
   ) {
     const active = await this.formVersions.getActiveVersion(formId)
     if (!active) {
@@ -48,6 +61,42 @@ export class SubmissionsService {
       throw new MissingRequiredFieldsError(missingFieldIds)
     }
 
+    if (submissionId) {
+      const finalized = await this.repo.finalizeDraft(
+        formId,
+        submissionId,
+        active.id,
+        data,
+        submittedBy,
+      )
+      if (!finalized) {
+        throw new DraftNotFoundError(formId, submissionId)
+      }
+      return finalized
+    }
+
     return this.repo.create(formId, active.id, data, submittedBy)
+  }
+
+  // Saves an in-progress submission with no required-field validation --
+  // that's the whole point of a draft (US-4.3). Needs an active version to
+  // attach the draft to, same as a direct submission.
+  async saveDraft(
+    formId: string,
+    data: Record<string, unknown>,
+    submissionId?: string,
+  ) {
+    const active = await this.formVersions.getActiveVersion(formId)
+    if (!active) {
+      throw new NoActiveVersionError(formId)
+    }
+    return this.repo.saveDraft(formId, active.id, data, submissionId)
+  }
+
+  // Fetches a draft to resume filling it out. Returns null if it doesn't
+  // exist, belongs to a different form, or has already been finalized
+  // (US-4.3).
+  getDraft(formId: string, submissionId: string) {
+    return this.repo.getDraft(formId, submissionId)
   }
 }
