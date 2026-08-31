@@ -11,8 +11,18 @@ export interface SubmissionRow {
 export interface SubmissionSummaryRow {
   id: string
   status: "draft" | "submitted"
+  formVersionNumber: number
   createdAt: Date
   submittedAt: Date | null
+}
+
+// Filters for listByForm (US-5.3). `from`/`to` bound `createdAt`
+// (inclusive) rather than `submittedAt`, so a date-range filter still
+// matches drafts. All optional -- an unfiltered call lists everything.
+export interface SubmissionListFilters {
+  from?: Date
+  to?: Date
+  formVersionNumber?: number
 }
 
 export interface SubmissionDetailRow extends SubmissionRow {
@@ -74,10 +84,14 @@ export interface SubmissionsRepository {
     submittedBy?: string | null,
   ): Promise<SubmissionRow | null>
 
-  // A bare-bones list of every submission (draft and submitted) for a
-  // form, most recent first -- just enough to navigate to one (US-5.1).
-  // Filtering/richer columns are US-5.3's job.
-  listByForm(formId: string): Promise<SubmissionSummaryRow[]>
+  // Lists a form's submissions (draft and submitted) for review/reporting,
+  // most recent first, together with the version each targets (US-5.1,
+  // US-5.3). Narrowed by `filters` when given -- an admin filtering by
+  // date range or schema version.
+  listByForm(
+    formId: string,
+    filters?: SubmissionListFilters,
+  ): Promise<SubmissionSummaryRow[]>
 
   // Fetches one submission together with the version it targets, scoped
   // to `formId` so a submission id from another form can't be looked up

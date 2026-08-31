@@ -3,9 +3,11 @@ import type {
   FormSchema,
   FormSummary,
   FormVersion,
+  FormVersionSummary,
   Submission,
   SubmissionDetail,
   SubmissionEdit,
+  SubmissionListQuery,
   SubmissionSummary,
   SubmissionValidationError,
 } from "shared"
@@ -114,11 +116,31 @@ export function getPublishedFieldIds(formId: string): Promise<string[]> {
   )
 }
 
-// A bare-bones list of a form's submissions, just enough to navigate to
-// one (US-5.1). Filtering/richer columns are US-5.3's job.
-export function listSubmissions(formId: string): Promise<SubmissionSummary[]> {
-  return fetch(`/api/forms/${formId}/submissions`).then((res) =>
-    json<SubmissionSummary[]>(res),
+// A form's submissions for review/reporting, optionally narrowed by date
+// range or schema version (US-5.1, US-5.3).
+export function listSubmissions(
+  formId: string,
+  filters?: SubmissionListQuery,
+): Promise<SubmissionSummary[]> {
+  const query = new URLSearchParams()
+  if (filters?.from) query.set("from", filters.from)
+  if (filters?.to) query.set("to", filters.to)
+  if (filters?.formVersionNumber !== undefined) {
+    query.set("formVersionNumber", String(filters.formVersionNumber))
+  }
+  const queryString = query.toString()
+  return fetch(
+    `/api/forms/${formId}/submissions${queryString ? `?${queryString}` : ""}`,
+  ).then((res) => json<SubmissionSummary[]>(res))
+}
+
+// The version history of a form, so a submission list can offer "filter by
+// version" (US-5.3).
+export function listFormVersions(
+  formId: string,
+): Promise<FormVersionSummary[]> {
+  return fetch(`/api/forms/${formId}/versions`).then((res) =>
+    json<FormVersionSummary[]>(res),
   )
 }
 
