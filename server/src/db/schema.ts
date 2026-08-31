@@ -76,9 +76,16 @@ export const formVersions = pgTable(
 
 // A submission always targets one specific version, so editing the form
 // later can never change what an existing submission is validated or
-// rendered against.
+// rendered against. `formId` is denormalized from `formVersionId` (rather
+// than requiring a join through form_versions) so reporting queries can
+// filter/group submissions by form directly (US-4.2). The submission's own
+// metadata lives in typed columns; the admin-defined, per-form answer set
+// itself has no fixed shape, so it lives in `data` (US-4.2).
 export const submissions = pgTable("submissions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  formId: uuid("form_id")
+    .notNull()
+    .references(() => forms.id, { onDelete: "restrict" }),
   formVersionId: uuid("form_version_id")
     .notNull()
     .references(() => formVersions.id, { onDelete: "restrict" }),
@@ -86,6 +93,10 @@ export const submissions = pgTable("submissions", {
   status: text("status", { enum: ["draft", "submitted"] })
     .notNull()
     .default("draft"),
+  // Freeform identifier of who submitted this, mirroring `publishedBy`
+  // above -- there's no auth/user system yet, so this is whatever the
+  // caller supplies rather than a foreign key to a users table.
+  submittedBy: text("submitted_by"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

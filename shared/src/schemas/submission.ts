@@ -5,13 +5,19 @@ import { z } from "zod"
 // epic.
 export const SubmitFormSchema = z.object({
   data: z.record(z.string(), z.unknown()),
+  // Freeform identifier of who's submitting, mirroring
+  // PublishFormVersionSchema's `publishedBy` -- there's no auth/user system
+  // yet, so this is whatever the caller supplies (US-4.2).
+  submittedBy: z.string().min(1).optional(),
 })
 
 export type SubmitForm = z.infer<typeof SubmitFormSchema>
 
 export const SubmissionSchema = z.object({
   id: z.string(),
+  formId: z.string(),
   formVersionId: z.string(),
+  submittedBy: z.string().nullable(),
   submittedAt: z.iso.datetime(),
 })
 

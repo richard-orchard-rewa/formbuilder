@@ -41,6 +41,7 @@ export function submissionsPlugin(
           const submission = await service.submit(
             request.params.formId,
             request.body.data,
+            request.body.submittedBy,
           )
           return reply.code(201).send({
             ...submission,
