@@ -29,7 +29,11 @@ export class SubmissionsService {
   // Validates the submission against the form's active version before
   // recording it, so a required field can never be silently skipped even
   // if a client bypasses its own validation (US-3.5).
-  async submit(formId: string, data: Record<string, unknown>) {
+  async submit(
+    formId: string,
+    data: Record<string, unknown>,
+    submittedBy?: string | null,
+  ) {
     const active = await this.formVersions.getActiveVersion(formId)
     if (!active) {
       throw new NoActiveVersionError(formId)
@@ -44,6 +48,6 @@ export class SubmissionsService {
       throw new MissingRequiredFieldsError(missingFieldIds)
     }
 
-    return this.repo.create(active.id, data)
+    return this.repo.create(formId, active.id, data, submittedBy)
   }
 }
