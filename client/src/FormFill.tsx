@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
-import { vanillaCells, vanillaRenderers } from "@jsonforms/vanilla-renderers"
+import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { FormVersion } from "shared"
 import {
   getActiveVersion,
@@ -9,6 +9,7 @@ import {
   submitForm,
   SubmissionRejectedError,
 } from "./api.js"
+import { formCells } from "./schema/formCells.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface FormFillProps {
@@ -175,7 +176,7 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
             uischema={uiSchema}
             data={data}
             renderers={vanillaRenderers}
-            cells={vanillaCells}
+            cells={formCells}
             validationMode={
               showValidation ? "ValidateAndShow" : "ValidateAndHide"
             }

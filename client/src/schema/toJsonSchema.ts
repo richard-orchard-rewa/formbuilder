@@ -50,7 +50,11 @@ function toProperty(field: Field): JsonSchema7 {
         ...(field.maxLength ? { maxLength: field.maxLength } : {}),
       }
     case "textarea":
-      return { type: "string", title: field.label }
+      return {
+        type: "string",
+        title: field.label,
+        ...(field.maxLength ? { maxLength: field.maxLength } : {}),
+      }
     case "dropdown":
     case "radio":
       return {
@@ -90,7 +94,15 @@ function toUiSchemaElement(field: Field) {
   return {
     type: "Control" as const,
     scope: `#/properties/${field.id}`,
-    ...(field.type === "textarea" ? { options: { multi: true } } : {}),
+    ...(field.type === "textarea"
+      ? {
+          options: {
+            multi: true,
+            ...(field.placeholder ? { placeholder: field.placeholder } : {}),
+            ...(field.rows ? { rows: field.rows } : {}),
+          },
+        }
+      : {}),
     ...(field.type === "radio" ? { options: { format: "radio" } } : {}),
   }
 }

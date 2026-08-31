@@ -38,6 +38,7 @@ export type {
   FieldType,
   FieldOption,
   TextField,
+  TextAreaField,
   CheckboxField,
   RadioField,
   DateField,
