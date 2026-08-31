@@ -5,9 +5,10 @@ interface FieldInspectorProps {
   onChange: (field: Field) => void
 }
 
-// Configuration panel for the field selected on the canvas. "text" and
-// "dropdown" have type-specific options so far (US-3.1, US-3.3); other
-// types grow their own as their field-types epic issues land.
+// Configuration panel for the field selected on the canvas. Label and
+// required apply to every field type (US-3.5); type-specific options
+// (like "text"'s placeholder/maxLength, US-3.1, and "dropdown"'s options
+// list, US-3.3) grow as their own field-types epic issues land.
 export function FieldInspector({ field, onChange }: FieldInspectorProps) {
   if (!field) {
     return (
@@ -33,6 +34,16 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
           }
         />
       </label>
+      <label className="field-inspector__field field-inspector__field--checkbox">
+        <input
+          type="checkbox"
+          checked={field.required}
+          onChange={(event) =>
+            onChange({ ...field, required: event.target.checked })
+          }
+        />
+        Required
+      </label>
 
       {field.type === "text" && (
         <>
@@ -48,16 +59,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
                 })
               }
             />
-          </label>
-          <label className="field-inspector__field field-inspector__field--checkbox">
-            <input
-              type="checkbox"
-              checked={field.required}
-              onChange={(event) =>
-                onChange({ ...field, required: event.target.checked })
-              }
-            />
-            Required
           </label>
           <label className="field-inspector__field">
             Max length
@@ -79,17 +80,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
 
       {field.type === "dropdown" && (
         <>
-          <label className="field-inspector__field field-inspector__field--checkbox">
-            <input
-              type="checkbox"
-              checked={field.required}
-              onChange={(event) =>
-                onChange({ ...field, required: event.target.checked })
-              }
-            />
-            Required
-          </label>
-
           <div className="field-inspector__field">
             Options
             <ul className="field-inspector__options">

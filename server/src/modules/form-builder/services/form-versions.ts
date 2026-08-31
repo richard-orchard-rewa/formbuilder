@@ -18,4 +18,8 @@ export class FormVersionsService {
   getDraft(formId: string) {
     return this.repo.getDraft(formId)
   }
+
+  getActiveVersion(formId: string) {
+    return this.repo.getActiveVersion(formId)
+  }
 }

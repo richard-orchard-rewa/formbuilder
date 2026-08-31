@@ -125,3 +125,32 @@ body {
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+
+.form-canvas__field-required-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #4a90d9;
+  white-space: nowrap;
+}
+
+.form-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.form-fill__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  max-width: 24rem;
+}
+
+.form-fill__field input,
+.form-fill__field textarea {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
