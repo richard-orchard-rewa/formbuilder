@@ -147,4 +147,31 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
 
     return null
   }
+
+  async getActiveVersion(formId: string): Promise<FormVersionRow | null> {
+    const [active] = await this.db
+      .select(VERSION_COLUMNS)
+      .from(formVersions)
+      .where(
+        and(
+          eq(formVersions.formId, formId),
+          eq(formVersions.status, "published"),
+        ),
+      )
+
+    if (active) {
+      return active
+    }
+
+    const [form] = await this.db
+      .select({ id: forms.id })
+      .from(forms)
+      .where(eq(forms.id, formId))
+
+    if (!form) {
+      throw new FormNotFoundError(formId)
+    }
+
+    return null
+  }
 }

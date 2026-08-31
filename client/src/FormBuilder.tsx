@@ -30,9 +30,9 @@ function createField(type: FieldType): Field {
     case "text":
       return { id, type, label, required: false }
     case "textarea":
-      return { id, type, label }
+      return { id, type, label, required: false }
     case "dropdown":
-      return { id, type, label }
+      return { id, type, label, required: false }
     case "checkbox":
       return { id, type, label, required: false, defaultChecked: false }
     case "radio":
@@ -46,7 +46,8 @@ function createField(type: FieldType): Field {
 
 // Loads the form's current draft, then lets an admin drag field types from
 // the palette onto the canvas to build it visually (US-2.1), reorder them
-// (US-2.2), and configure the selected field (US-3.x).
+// (US-2.2), and configure the selected field — including marking it
+// required (US-3.1, US-3.5).
 export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)

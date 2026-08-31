@@ -35,24 +35,29 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   number: "Number",
 }
 
+// Any field type can be marked required (US-3.5); per-type configuration
+// beyond that (max length, options list, ...) lands with their own issues.
+const requiredFlag = z.boolean().default(false)
+
 // US-3.1: a single-line text field, configurable beyond just its label.
 export const TextFieldSchema = z.object({
   id: z.string(),
   type: z.literal("text"),
   label: z.string(),
   placeholder: z.string().optional(),
-  required: z.boolean().default(false),
+  required: requiredFlag,
   maxLength: z.number().int().positive().optional(),
 })
 
 export type TextField = z.infer<typeof TextFieldSchema>
 
-// Not yet configurable beyond a label — its own field-types epic issue
-// (US-3.2) extends this.
+// Not yet configurable beyond a label and required — its own field-types
+// epic issue (US-3.2) extends this.
 export const TextAreaFieldSchema = z.object({
   id: z.string(),
   type: z.literal("textarea"),
   label: z.string(),
+  required: requiredFlag,
 })
 
 // A labeled list of selectable values, shared by "dropdown" and "radio".
@@ -69,6 +74,7 @@ export const DropdownFieldSchema = z.object({
   id: z.string(),
   type: z.literal("dropdown"),
   label: z.string(),
+  required: requiredFlag,
 })
 
 // US-3.4: a single checkbox, e.g. "I agree to the terms".

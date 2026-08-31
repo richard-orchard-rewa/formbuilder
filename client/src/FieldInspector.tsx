@@ -5,9 +5,11 @@ interface FieldInspectorProps {
   onChange: (field: Field) => void
 }
 
-// Configuration panel for the field selected on the canvas. Each type's
-// own options (US-3.1, US-3.4) grow independently here as their
-// field-types epic issues land.
+// Configuration panel for the field selected on the canvas. Label and
+// required apply to every field type (US-3.5); type-specific options
+// (like "text"'s placeholder/maxLength, US-3.1, and "checkbox"/"radio"/
+// "date"/"number"'s own settings, US-3.4) grow as their own field-types
+// epic issues land.
 export function FieldInspector({ field, onChange }: FieldInspectorProps) {
   if (!field) {
     return (
@@ -33,6 +35,16 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
           }
         />
       </label>
+      <label className="field-inspector__field field-inspector__field--checkbox">
+        <input
+          type="checkbox"
+          checked={field.required}
+          onChange={(event) =>
+            onChange({ ...field, required: event.target.checked })
+          }
+        />
+        Required
+      </label>
 
       {field.type === "text" && (
         <>
@@ -49,7 +61,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
               }
             />
           </label>
-          <RequiredCheckbox field={field} onChange={onChange} />
           <label className="field-inspector__field">
             Max length
             <input
@@ -70,7 +81,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
 
       {field.type === "checkbox" && (
         <>
-          <RequiredCheckbox field={field} onChange={onChange} />
           <label className="field-inspector__field field-inspector__field--checkbox">
             <input
               type="checkbox"
@@ -84,16 +94,10 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
         </>
       )}
 
-      {field.type === "radio" && (
-        <>
-          <RequiredCheckbox field={field} onChange={onChange} />
-          <OptionsEditor field={field} onChange={onChange} />
-        </>
-      )}
+      {field.type === "radio" && <OptionsEditor field={field} onChange={onChange} />}
 
       {field.type === "date" && (
         <>
-          <RequiredCheckbox field={field} onChange={onChange} />
           <label className="field-inspector__field">
             Earliest date
             <input
@@ -119,7 +123,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
 
       {field.type === "number" && (
         <>
-          <RequiredCheckbox field={field} onChange={onChange} />
           <label className="field-inspector__field">
             Minimum
             <input
@@ -166,28 +169,6 @@ export function FieldInspector({ field, onChange }: FieldInspectorProps) {
         </>
       )}
     </aside>
-  )
-}
-
-// Any field type with a `required` flag can render this the same way.
-function RequiredCheckbox({
-  field,
-  onChange,
-}: {
-  field: Extract<Field, { required: boolean }>
-  onChange: (field: Field) => void
-}) {
-  return (
-    <label className="field-inspector__field field-inspector__field--checkbox">
-      <input
-        type="checkbox"
-        checked={field.required}
-        onChange={(event) =>
-          onChange({ ...field, required: event.target.checked })
-        }
-      />
-      Required
-    </label>
   )
 }
 
