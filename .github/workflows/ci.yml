@@ -3,10 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    # This repo's default/integration branch is claude/github-issue-24-14ff4b,
-    # not main — every PR in this repo targets it (see `gh pr list`).
     branches:
-      - claude/github-issue-24-14ff4b
+      - main
 
 # Dependabot rebases often, and each rebase re-triggers CI on the same PR —
 # only cancel superseded pull_request runs; a push to main runs to completion.

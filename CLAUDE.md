@@ -11,7 +11,8 @@ It is **entirely separate** from the sibling `feedback` app — never edit, depe
 ## Repo conventions
 
 - **Issues are user stories** named `US-<epic>.<n>` (e.g. `US-0.6`), each with acceptance criteria in the issue body.
-- **Work happens per-issue** on branches `claude/github-issue-N[-suffix]`, opened as PRs against this repo's integration branch — **`claude/github-issue-24-14ff4b`, not `main`** (confirmed via `gh pr list`; there is a `main` branch in this repo, but nothing targets it). When one issue's work builds directly on another's still-open branch, stack the PR on that branch instead.
+- **Work happens per-issue** on branches `claude/github-issue-N[-suffix]`, cut from `main` and opened as PRs back into `main` — **`main` is the integration branch**, so it's always the version to check out or check CI against. When one issue's work builds directly on another's still-open branch, stack the PR on that branch instead.
+  - Earlier work in this repo (through PR #52) instead used `claude/github-issue-24-14ff4b` as the integration branch, with `main` left stale; that branch has since been merged into `main` and retired for this purpose.
 - **Always `npm ci`, never `npm install`, in CI** — enforces the lockfile.
 
 ## Monorepo structure
