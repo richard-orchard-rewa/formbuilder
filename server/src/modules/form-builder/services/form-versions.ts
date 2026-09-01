@@ -24,6 +24,10 @@ export class FormVersionsService {
     return this.repo.getActiveVersion(formId)
   }
 
+  getVersionById(versionId: string) {
+    return this.repo.getVersionById(versionId)
+  }
+
   // The field ids that appear in any version other than the current draft
   // (US-2.4): deleting one of these from the draft has downstream impact on
   // submissions already collected against a published version.

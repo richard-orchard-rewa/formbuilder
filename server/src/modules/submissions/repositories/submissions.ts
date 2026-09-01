@@ -4,14 +4,30 @@ export interface SubmissionRow {
   formVersionId: string
   status: "draft" | "submitted"
   data: unknown
+  legacyData: unknown
+  migratedFromSubmissionId: string | null
   submittedBy: string | null
   submittedAt: Date | null
+}
+
+// Input to createMigrated (US-6.1): everything needed to record a
+// submission produced by migrating another one onto a newer version,
+// rather than being captured directly.
+export interface CreateMigratedInput {
+  formId: string
+  formVersionId: string
+  data: unknown
+  legacyData: unknown | null
+  status: "draft" | "submitted"
+  migratedFromSubmissionId: string
+  migratedBy?: string | null
 }
 
 export interface SubmissionSummaryRow {
   id: string
   status: "draft" | "submitted"
   formVersionNumber: number
+  migratedFromSubmissionId: string | null
   createdAt: Date
   submittedAt: Date | null
 }
@@ -115,4 +131,24 @@ export interface SubmissionsRepository {
 
   // The edit history for one submission, most recent first (US-5.2).
   listEdits(submissionId: string): Promise<SubmissionEditRow[]>
+
+  // Records a submission produced by migrating another one onto a newer
+  // version (US-6.1). The source submission is never touched -- this always
+  // inserts a new row, linked back via `migratedFromSubmissionId`.
+  createMigrated(input: CreateMigratedInput): Promise<SubmissionRow>
+
+  // Finds the submission (if any) already migrated from `submissionId` onto
+  // `formVersionId`, so a migration can be re-run safely without creating
+  // duplicates (US-6.1).
+  findMigratedCopy(
+    submissionId: string,
+    formVersionId: string,
+  ): Promise<SubmissionRow | null>
+
+  // The ids of every submitted (not draft) submission captured against one
+  // specific version, so a bulk migration knows what to migrate (US-6.1).
+  listSubmittedByVersion(
+    formId: string,
+    formVersionId: string,
+  ): Promise<{ id: string }[]>
 }

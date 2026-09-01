@@ -1,9 +1,12 @@
 import type {
   Field,
+  FieldMapping,
   FormSchema,
   FormSummary,
   FormVersion,
   FormVersionSummary,
+  MigrationPlan,
+  MigrationResult,
   Submission,
   SubmissionDetail,
   SubmissionEdit,
@@ -53,6 +56,27 @@ export function getActiveVersion(formId: string): Promise<FormVersion | null> {
   return fetch(`/api/forms/${formId}/active`).then((res) =>
     json<FormVersion | null>(res),
   )
+}
+
+// Thrown when a form has no draft to publish (e.g. it was already published
+// with no further edits since).
+export class NoDraftToPublishError extends Error {
+  constructor() {
+    super("This form has no draft changes to publish")
+    this.name = "NoDraftToPublishError"
+  }
+}
+
+export async function publishForm(formId: string): Promise<FormVersion> {
+  const res = await fetch(`/api/forms/${formId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  })
+  if (res.status === 409) {
+    throw new NoDraftToPublishError()
+  }
+  return json<FormVersion>(res)
 }
 
 // Thrown when the server rejects a submission for missing required fields
@@ -185,4 +209,50 @@ export function getSubmissionEdits(
   return fetch(`/api/forms/${formId}/submissions/${submissionId}/edits`).then(
     (res) => json<SubmissionEdit[]>(res),
   )
+}
+
+// The diff between two form versions an admin needs in order to build a
+// migration plan (US-6.1): which fields carry over automatically and which
+// need an explicit mapping decision.
+export function getMigrationPlan(
+  formId: string,
+  fromVersionId: string,
+  targetVersionId: string,
+): Promise<MigrationPlan> {
+  const query = new URLSearchParams({ fromVersionId, targetVersionId })
+  return fetch(
+    `/api/forms/${formId}/submissions/migration-plan?${query}`,
+  ).then((res) => json<MigrationPlan>(res))
+}
+
+// Migrates one submitted submission onto `targetVersionId` (US-6.1),
+// creating a new submission linked back to the original rather than
+// altering it in place.
+export function migrateSubmission(
+  formId: string,
+  submissionId: string,
+  targetVersionId: string,
+  fieldMappings: FieldMapping[],
+): Promise<Submission> {
+  return fetch(`/api/forms/${formId}/submissions/${submissionId}/migrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetVersionId, fieldMappings }),
+  }).then((res) => json<Submission>(res))
+}
+
+// Migrates every submitted submission captured against `fromVersionId` onto
+// `targetVersionId` using the same field-mapping plan (US-6.1). Safe to
+// re-run -- submissions already migrated to that target are skipped.
+export function migrateVersion(
+  formId: string,
+  fromVersionId: string,
+  targetVersionId: string,
+  fieldMappings: FieldMapping[],
+): Promise<MigrationResult> {
+  return fetch(`/api/forms/${formId}/versions/${fromVersionId}/migrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetVersionId, fieldMappings }),
+  }).then((res) => json<MigrationResult>(res))
 }

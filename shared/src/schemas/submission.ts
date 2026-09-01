@@ -34,6 +34,14 @@ export const SubmissionSchema = z.object({
   formVersionId: z.string(),
   status: z.enum(["draft", "submitted"]),
   data: z.record(z.string(), z.unknown()),
+  // Values carried over from an older version by a migration (US-6.1) that
+  // either had no counterpart in this submission's version or couldn't be
+  // safely converted to its replacement's type -- kept visible rather than
+  // discarded, keyed by their original field id.
+  legacyData: z.record(z.string(), z.unknown()).nullable(),
+  // Set when this row was produced by migrating another submission onto a
+  // newer version (US-6.1), rather than being captured directly.
+  migratedFromSubmissionId: z.string().nullable(),
   submittedBy: z.string().nullable(),
   submittedAt: z.iso.datetime().nullable(),
 })
@@ -46,6 +54,7 @@ export const SubmissionSummarySchema = z.object({
   id: z.string(),
   status: z.enum(["draft", "submitted"]),
   formVersionNumber: z.number().int(),
+  migratedFromSubmissionId: z.string().nullable(),
   createdAt: z.iso.datetime(),
   submittedAt: z.iso.datetime().nullable(),
 })

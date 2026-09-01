@@ -68,4 +68,20 @@ export type {
   SubmissionEdit,
   SubmissionValidationError,
 } from "./schemas/submission.js"
+export {
+  FieldMappingSchema,
+  MigrationFieldSummarySchema,
+  MigrationPlanSchema,
+  MigrateSubmissionRequestSchema,
+  MigrateVersionRequestSchema,
+  MigrationResultSchema,
+} from "./schemas/migration.js"
+export type {
+  FieldMapping,
+  MigrationFieldSummary,
+  MigrationPlan,
+  MigrateSubmissionRequest,
+  MigrateVersionRequest,
+  MigrationResult,
+} from "./schemas/migration.js"
 export { buildSubmissionSchema, toJsonSchema } from "./json-schema.js"

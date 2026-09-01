@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { FormVersionSummary, SubmissionSummary } from "shared"
-import { listFormVersions, listSubmissions } from "./api.js"
+import { getActiveVersion, listFormVersions, listSubmissions } from "./api.js"
 
 interface SubmissionListProps {
   formId: string
@@ -8,6 +8,14 @@ interface SubmissionListProps {
   onBack: () => void
   onView: (submissionId: string) => void
   onEdit: (submissionId: string) => void
+  // Opens the migration planner for the given source version (US-6.1) --
+  // for one submission when `submissionId` is given, otherwise for every
+  // submitted submission captured against that version.
+  onMigrate: (
+    fromVersionId: string,
+    fromVersionNumber: number,
+    submissionId?: string,
+  ) => void
 }
 
 type Status = "loading" | "ready" | "error"
@@ -21,9 +29,13 @@ export function SubmissionList({
   onBack,
   onView,
   onEdit,
+  onMigrate,
 }: SubmissionListProps) {
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([])
   const [versions, setVersions] = useState<FormVersionSummary[]>([])
+  const [activeVersionNumber, setActiveVersionNumber] = useState<
+    number | null
+  >(null)
   const [status, setStatus] = useState<Status>("loading")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
@@ -33,7 +45,21 @@ export function SubmissionList({
     listFormVersions(formId)
       .then(setVersions)
       .catch(() => setVersions([]))
+    getActiveVersion(formId)
+      .then((active) => setActiveVersionNumber(active?.version ?? null))
+      .catch(() => setActiveVersionNumber(null))
   }, [formId])
+
+  // A submission can only be migrated forward, onto the form's current
+  // active version (US-6.1) -- there's no active version to target, or
+  // this submission already targets it.
+  function canMigrateFrom(versionNumber: number) {
+    return activeVersionNumber !== null && versionNumber !== activeVersionNumber
+  }
+
+  function versionIdFor(versionNumber: number) {
+    return versions.find((version) => version.version === versionNumber)?.id
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -101,6 +127,22 @@ export function SubmissionList({
         </label>
       </form>
 
+      {versionFilter !== "" && canMigrateFrom(Number(versionFilter)) && (
+        <p>
+          <button
+            type="button"
+            onClick={() => {
+              const fromVersionId = versionIdFor(Number(versionFilter))
+              if (fromVersionId) {
+                onMigrate(fromVersionId, Number(versionFilter))
+              }
+            }}
+          >
+            Migrate all v{versionFilter} submissions to v{activeVersionNumber}
+          </button>
+        </p>
+      )}
+
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load submissions.</p>}
       {status === "ready" && submissions.length === 0 && (
@@ -125,6 +167,26 @@ export function SubmissionList({
                   Edit
                 </button>
               )}
+              {submission.status === "submitted" &&
+                canMigrateFrom(submission.formVersionNumber) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fromVersionId = versionIdFor(
+                        submission.formVersionNumber,
+                      )
+                      if (fromVersionId) {
+                        onMigrate(
+                          fromVersionId,
+                          submission.formVersionNumber,
+                          submission.id,
+                        )
+                      }
+                    }}
+                  >
+                    Migrate to v{activeVersionNumber}
+                  </button>
+                )}
             </li>
           ))}
         </ul>
