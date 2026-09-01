@@ -1,0 +1,3 @@
+ALTER TABLE "form_versions" DROP CONSTRAINT "form_versions_published_at_matches_status";--> statement-breakpoint
+CREATE UNIQUE INDEX "form_versions_one_published_per_form" ON "form_versions" USING btree ("form_id") WHERE "form_versions"."status" = 'published';--> statement-breakpoint
+ALTER TABLE "form_versions" ADD CONSTRAINT "form_versions_published_at_matches_status" CHECK (("form_versions"."status" = 'draft') = ("form_versions"."published_at" is null));

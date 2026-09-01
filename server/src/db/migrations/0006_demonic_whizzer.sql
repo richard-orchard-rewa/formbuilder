@@ -1,0 +1,4 @@
+ALTER TABLE "submissions" ADD COLUMN "legacy_data" jsonb;--> statement-breakpoint
+ALTER TABLE "submissions" ADD COLUMN "migrated_from_submission_id" uuid;--> statement-breakpoint
+ALTER TABLE "submissions" ADD CONSTRAINT "submissions_migrated_from_submission_id_submissions_id_fk" FOREIGN KEY ("migrated_from_submission_id") REFERENCES "public"."submissions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "submissions_one_migration_per_target_version" ON "submissions" USING btree ("migrated_from_submission_id","form_version_id") WHERE "submissions"."migrated_from_submission_id" is not null;

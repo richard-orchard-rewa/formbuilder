@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Dependabot rebases often, and each rebase re-triggers CI on the same PR —
+# only cancel superseded pull_request runs; a push to main runs to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared
+        run: npm run build -w shared
+
+      - name: Audit dependencies
+        # skip-dev: a dev-only tool (drizzle-kit's esbuild) currently carries
+        # an advisory that only matters if its dev server is exposed to the
+        # network, which never happens in this pipeline or in production.
+        run: npm audit --omit=dev
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared
+        run: npm run build -w shared
+
+      - name: Run unit tests
+        run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [static-analysis, unit-tests]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: formbuilder
+          POSTGRES_PASSWORD: formbuilder
+          POSTGRES_DB: formbuilder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://formbuilder:formbuilder@localhost:5432/formbuilder
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared
+        run: npm run build -w shared
+
+      - name: Run database migrations
+        run: npm run db:migrate -w server
+
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browsers
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      - name: Install Playwright system dependencies
+        run: npx playwright install-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test --config=e2e/playwright.config.ts
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 30
