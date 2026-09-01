@@ -9,6 +9,7 @@ import {
   unique,
   uniqueIndex,
   check,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core"
 
 // A form is the container that owns a sequence of versions. Its own fields
@@ -81,30 +82,56 @@ export const formVersions = pgTable(
 // filter/group submissions by form directly (US-4.2). The submission's own
 // metadata lives in typed columns; the admin-defined, per-form answer set
 // itself has no fixed shape, so it lives in `data` (US-4.2).
-export const submissions = pgTable("submissions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  formId: uuid("form_id")
-    .notNull()
-    .references(() => forms.id, { onDelete: "restrict" }),
-  formVersionId: uuid("form_version_id")
-    .notNull()
-    .references(() => formVersions.id, { onDelete: "restrict" }),
-  data: jsonb("data").notNull(),
-  status: text("status", { enum: ["draft", "submitted"] })
-    .notNull()
-    .default("draft"),
-  // Freeform identifier of who submitted this, mirroring `publishedBy`
-  // above -- there's no auth/user system yet, so this is whatever the
-  // caller supplies rather than a foreign key to a users table.
-  submittedBy: text("submitted_by"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  submittedAt: timestamp("submitted_at", { withTimezone: true }),
-})
+export const submissions = pgTable(
+  "submissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    formId: uuid("form_id")
+      .notNull()
+      .references(() => forms.id, { onDelete: "restrict" }),
+    formVersionId: uuid("form_version_id")
+      .notNull()
+      .references(() => formVersions.id, { onDelete: "restrict" }),
+    data: jsonb("data").notNull(),
+    // Values migrated from an older version whose field either no longer
+    // exists in this submission's version or couldn't be safely converted
+    // to its replacement's type (US-6.1). Keyed by the *original* field id
+    // so nothing a migration can't confidently place is ever silently
+    // discarded -- it just isn't part of the live form's data.
+    legacyData: jsonb("legacy_data"),
+    status: text("status", { enum: ["draft", "submitted"] })
+      .notNull()
+      .default("draft"),
+    // Freeform identifier of who submitted this, mirroring `publishedBy`
+    // above -- there's no auth/user system yet, so this is whatever the
+    // caller supplies rather than a foreign key to a users table.
+    submittedBy: text("submitted_by"),
+    // Set when this row was produced by migrating another submission onto a
+    // newer version (US-6.1) rather than being captured directly. The
+    // original submission is left untouched -- a version is immutable once
+    // published (ADR-0004) -- so a migration always creates a new row
+    // rather than converting one in place.
+    migratedFromSubmissionId: uuid("migrated_from_submission_id").references(
+      (): AnyPgColumn => submissions.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  },
+  (table) => [
+    // A submission can only be migrated onto a given target version once --
+    // re-running a bulk migration (e.g. after fixing a mapping) must not
+    // create duplicate copies (US-6.1).
+    uniqueIndex("submissions_one_migration_per_target_version")
+      .on(table.migratedFromSubmissionId, table.formVersionId)
+      .where(sql`${table.migratedFromSubmissionId} is not null`),
+  ],
+)
 
 // An immutable audit trail of edits made to a submitted submission (US-5.2):
 // one row per edit, capturing the full prior data snapshot so a full history

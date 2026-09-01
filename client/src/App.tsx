@@ -3,6 +3,7 @@ import type { FormSummary } from "shared"
 import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
+import { MigrationPlanner } from "./MigrationPlanner.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SubmissionEdit } from "./SubmissionEdit.js"
 import { SubmissionList } from "./SubmissionList.js"
@@ -15,6 +16,13 @@ type View =
   | { mode: "submissions"; form: FormSummary }
   | { mode: "view-submission"; form: FormSummary; submissionId: string }
   | { mode: "edit-submission"; form: FormSummary; submissionId: string }
+  | {
+      mode: "migrate"
+      form: FormSummary
+      fromVersionId: string
+      fromVersionNumber: number
+      submissionId?: string
+    }
 
 export function App() {
   const [forms, setForms] = useState<FormSummary[]>([])
@@ -71,6 +79,29 @@ export function App() {
         onEdit={(submissionId) =>
           setView({ mode: "edit-submission", form, submissionId })
         }
+        onMigrate={(fromVersionId, fromVersionNumber, submissionId) =>
+          setView({
+            mode: "migrate",
+            form,
+            fromVersionId,
+            fromVersionNumber,
+            submissionId,
+          })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "migrate") {
+    const { form } = view
+    return (
+      <MigrationPlanner
+        formId={form.id}
+        formName={form.name}
+        fromVersionId={view.fromVersionId}
+        fromVersionNumber={view.fromVersionNumber}
+        submissionId={view.submissionId}
+        onBack={() => setView({ mode: "submissions", form })}
       />
     )
   }

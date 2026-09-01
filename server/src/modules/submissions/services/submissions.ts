@@ -1,9 +1,11 @@
-import type { Field } from "shared"
+import type { Field, FieldMapping, FormSchema } from "shared"
+import { FormVersionNotFoundError } from "../../form-builder/repositories/form-versions.js"
 import type { FormVersionsService } from "../../form-builder/services/form-versions.js"
 import type {
   SubmissionListFilters,
   SubmissionsRepository,
 } from "../repositories/submissions.js"
+import { migrateData } from "./migration.js"
 
 export class NoActiveVersionError extends Error {
   constructor(formId: string) {
@@ -161,5 +163,142 @@ export class SubmissionsService {
   // The full edit history for one submission, most recent first (US-5.2).
   getEditHistory(submissionId: string) {
     return this.repo.listEdits(submissionId)
+  }
+
+  // Computes the diff an admin needs to decide a migration plan for
+  // (US-6.1): which of `fromVersionId`'s fields carry over to
+  // `targetVersionId` under the same id, and which need an explicit
+  // FieldMapping because they don't.
+  async getMigrationPlan(fromVersionId: string, targetVersionId: string) {
+    const [fromVersion, targetVersion] = await Promise.all([
+      this.formVersions.getVersionById(fromVersionId),
+      this.formVersions.getVersionById(targetVersionId),
+    ])
+    if (!fromVersion) throw new FormVersionNotFoundError(fromVersionId)
+    if (!targetVersion) throw new FormVersionNotFoundError(targetVersionId)
+
+    const sourceFields = (fromVersion.schema as FormSchema).fields
+    const targetFields = (targetVersion.schema as FormSchema).fields
+    const targetIds = new Set(targetFields.map((field) => field.id))
+
+    const autoMappedFields = sourceFields
+      .filter((field) => targetIds.has(field.id))
+      .map(({ id, label, type }) => ({ id, label, type }))
+    const unmappedSourceFields = sourceFields
+      .filter((field) => !targetIds.has(field.id))
+      .map(({ id, label, type }) => ({ id, label, type }))
+
+    return {
+      autoMappedFields,
+      unmappedSourceFields,
+      targetFields: targetFields.map(({ id, label, type }) => ({
+        id,
+        label,
+        type,
+      })),
+    }
+  }
+
+  // Migrates one submitted submission onto `targetVersionId` (US-6.1),
+  // applying `fieldMappings` for whatever fields don't carry over
+  // automatically. The source row is left untouched -- this always creates
+  // a new submission, linked back via `migratedFromSubmissionId` -- and
+  // re-running it for the same (submission, target version) pair returns
+  // the existing copy rather than creating a duplicate. The new row is
+  // saved as a draft rather than submitted if the mapping leaves one of the
+  // target version's required fields empty, so it surfaces in the
+  // submissions list as needing follow-up rather than silently passing
+  // validation it wouldn't otherwise have passed.
+  async migrateSubmission(
+    formId: string,
+    submissionId: string,
+    targetVersionId: string,
+    fieldMappings: FieldMapping[],
+    migratedBy?: string | null,
+  ) {
+    const existing = await this.repo.getById(formId, submissionId)
+    if (!existing || existing.status !== "submitted") {
+      throw new SubmissionNotFoundError(formId, submissionId)
+    }
+
+    const alreadyMigrated = await this.repo.findMigratedCopy(
+      submissionId,
+      targetVersionId,
+    )
+    if (alreadyMigrated) return alreadyMigrated
+
+    const targetVersion = await this.formVersions.getVersionById(targetVersionId)
+    if (!targetVersion) throw new FormVersionNotFoundError(targetVersionId)
+
+    const sourceFields = (existing.schema as FormSchema).fields
+    const targetFields = (targetVersion.schema as FormSchema).fields
+    const { data, legacyData } = migrateData(
+      sourceFields,
+      targetFields,
+      fieldMappings,
+      existing.data as Record<string, unknown>,
+    )
+
+    const missingRequired = targetFields.filter(
+      (field) => field.required && isEmpty(data[field.id]),
+    )
+
+    return this.repo.createMigrated({
+      formId,
+      formVersionId: targetVersionId,
+      data,
+      legacyData,
+      status: missingRequired.length > 0 ? "draft" : "submitted",
+      migratedFromSubmissionId: submissionId,
+      migratedBy,
+    })
+  }
+
+  // Migrates every submitted submission captured against `fromVersionId`
+  // onto `targetVersionId` using the same field-mapping plan (US-6.1).
+  // Submissions already migrated to that target are skipped rather than
+  // re-migrated, so this can be safely re-run (e.g. after new submissions
+  // arrive against the old version).
+  async migrateVersion(
+    formId: string,
+    fromVersionId: string,
+    targetVersionId: string,
+    fieldMappings: FieldMapping[],
+    migratedBy?: string | null,
+  ) {
+    const targetVersion = await this.formVersions.getVersionById(targetVersionId)
+    if (!targetVersion) throw new FormVersionNotFoundError(targetVersionId)
+
+    const sourceSubmissions = await this.repo.listSubmittedByVersion(
+      formId,
+      fromVersionId,
+    )
+
+    let migratedCount = 0
+    let needsFollowUpCount = 0
+    let alreadyMigratedCount = 0
+
+    for (const submission of sourceSubmissions) {
+      const existingCopy = await this.repo.findMigratedCopy(
+        submission.id,
+        targetVersionId,
+      )
+      if (existingCopy) {
+        alreadyMigratedCount++
+        continue
+      }
+
+      const migrated = await this.migrateSubmission(
+        formId,
+        submission.id,
+        targetVersionId,
+        fieldMappings,
+        migratedBy,
+      )
+      migratedCount++
+      if (migrated.status === "draft") needsFollowUpCount++
+    }
+
+    return { migratedCount, needsFollowUpCount, alreadyMigratedCount }
   }
 }

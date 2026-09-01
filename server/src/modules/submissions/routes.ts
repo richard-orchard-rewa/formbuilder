@@ -3,6 +3,10 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod"
 import { z } from "zod"
 import {
   EditSubmissionSchema,
+  MigrateSubmissionRequestSchema,
+  MigrateVersionRequestSchema,
+  MigrationPlanSchema,
+  MigrationResultSchema,
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
   SubmissionEditListSchema,
@@ -13,6 +17,7 @@ import {
   SubmitFormSchema,
   type FormSchema,
 } from "shared"
+import { FormVersionNotFoundError } from "../form-builder/repositories/form-versions.js"
 import {
   DraftNotFoundError,
   MissingRequiredFieldsError,
@@ -37,6 +42,7 @@ function serialize(submission: SubmissionRow) {
   return {
     ...submission,
     data: submission.data as Record<string, unknown>,
+    legacyData: (submission.legacyData as Record<string, unknown> | null) ?? null,
     submittedAt: submission.submittedAt?.toISOString() ?? null,
   }
 }
@@ -184,6 +190,34 @@ export function submissionsPlugin(
     )
 
     typed.get(
+      "/api/forms/:formId/submissions/migration-plan",
+      {
+        schema: {
+          params: FormParamsSchema,
+          querystring: z.object({
+            fromVersionId: z.string(),
+            targetVersionId: z.string(),
+          }),
+          response: { 200: MigrationPlanSchema, 404: ErrorResponseSchema },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const plan = await service.getMigrationPlan(
+            request.query.fromVersionId,
+            request.query.targetVersionId,
+          )
+          return reply.code(200).send(plan)
+        } catch (error) {
+          if (error instanceof FormVersionNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.get(
       "/api/forms/:formId/submissions/:submissionId",
       {
         schema: {
@@ -258,6 +292,65 @@ export function submissionsPlugin(
           request.params.submissionId,
         )
         return edits.map(serializeEdit)
+      },
+    )
+
+    typed.post(
+      "/api/forms/:formId/submissions/:submissionId/migrate",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          body: MigrateSubmissionRequestSchema,
+          response: { 200: SubmissionSchema, 404: ErrorResponseSchema },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const submission = await service.migrateSubmission(
+            request.params.formId,
+            request.params.submissionId,
+            request.body.targetVersionId,
+            request.body.fieldMappings,
+            request.body.migratedBy,
+          )
+          return reply.code(200).send(serialize(submission))
+        } catch (error) {
+          if (
+            error instanceof SubmissionNotFoundError ||
+            error instanceof FormVersionNotFoundError
+          ) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
+      },
+    )
+
+    typed.post(
+      "/api/forms/:formId/versions/:fromVersionId/migrate",
+      {
+        schema: {
+          params: z.object({ formId: z.string(), fromVersionId: z.string() }),
+          body: MigrateVersionRequestSchema,
+          response: { 200: MigrationResultSchema, 404: ErrorResponseSchema },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const result = await service.migrateVersion(
+            request.params.formId,
+            request.params.fromVersionId,
+            request.body.targetVersionId,
+            request.body.fieldMappings,
+            request.body.migratedBy,
+          )
+          return reply.code(200).send(result)
+        } catch (error) {
+          if (error instanceof FormVersionNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
       },
     )
   }

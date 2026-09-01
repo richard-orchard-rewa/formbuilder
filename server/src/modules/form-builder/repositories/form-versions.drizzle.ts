@@ -174,4 +174,12 @@ export class DrizzleFormVersionsRepository implements FormVersionsRepository {
 
     return null
   }
+
+  async getVersionById(versionId: string): Promise<FormVersionRow | null> {
+    const [version] = await this.db
+      .select(VERSION_COLUMNS)
+      .from(formVersions)
+      .where(eq(formVersions.id, versionId))
+    return version ?? null
+  }
 }

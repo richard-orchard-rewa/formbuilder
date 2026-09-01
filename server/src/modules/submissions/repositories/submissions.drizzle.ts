@@ -6,6 +6,7 @@ import {
   submissions,
 } from "../../../db/schema.js"
 import type {
+  CreateMigratedInput,
   SubmissionDetailRow,
   SubmissionEditRow,
   SubmissionListFilters,
@@ -20,6 +21,8 @@ const SUBMISSION_COLUMNS = {
   formVersionId: submissions.formVersionId,
   status: submissions.status,
   data: submissions.data,
+  legacyData: submissions.legacyData,
+  migratedFromSubmissionId: submissions.migratedFromSubmissionId,
   submittedBy: submissions.submittedBy,
   submittedAt: submissions.submittedAt,
 }
@@ -135,6 +138,7 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
         id: submissions.id,
         status: submissions.status,
         formVersionNumber: formVersions.version,
+        migratedFromSubmissionId: submissions.migratedFromSubmissionId,
         createdAt: submissions.createdAt,
         submittedAt: submissions.submittedAt,
       })
@@ -206,5 +210,54 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
       .from(submissionEdits)
       .where(eq(submissionEdits.submissionId, submissionId))
       .orderBy(desc(submissionEdits.editedAt))
+  }
+
+  async createMigrated(input: CreateMigratedInput): Promise<SubmissionRow> {
+    const [row] = await this.db
+      .insert(submissions)
+      .values({
+        formId: input.formId,
+        formVersionId: input.formVersionId,
+        data: input.data,
+        legacyData: input.legacyData,
+        status: input.status,
+        migratedFromSubmissionId: input.migratedFromSubmissionId,
+        submittedBy: input.migratedBy ?? null,
+        submittedAt: input.status === "submitted" ? new Date() : null,
+      })
+      .returning(SUBMISSION_COLUMNS)
+    return row
+  }
+
+  async findMigratedCopy(
+    submissionId: string,
+    formVersionId: string,
+  ): Promise<SubmissionRow | null> {
+    const [row] = await this.db
+      .select(SUBMISSION_COLUMNS)
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.migratedFromSubmissionId, submissionId),
+          eq(submissions.formVersionId, formVersionId),
+        ),
+      )
+    return row ?? null
+  }
+
+  async listSubmittedByVersion(
+    formId: string,
+    formVersionId: string,
+  ): Promise<{ id: string }[]> {
+    return this.db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.formId, formId),
+          eq(submissions.formVersionId, formVersionId),
+          eq(submissions.status, "submitted"),
+        ),
+      )
   }
 }

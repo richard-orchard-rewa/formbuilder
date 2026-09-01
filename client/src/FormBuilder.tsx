@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react"
 import { FIELD_TYPE_LABELS, type Field, type FieldType } from "shared"
-import { getDraft, getPublishedFieldIds, saveDraft } from "./api.js"
+import {
+  getActiveVersion,
+  getDraft,
+  getPublishedFieldIds,
+  NoDraftToPublishError,
+  publishForm,
+  saveDraft,
+} from "./api.js"
 import { FieldInspector } from "./FieldInspector.js"
 import { FieldPalette } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
@@ -61,14 +68,29 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     new Set(),
   )
   const [mode, setMode] = useState<"edit" | "preview">("edit")
+  const [publishState, setPublishState] = useState<
+    "idle" | "publishing" | "error"
+  >("idle")
+  const [publishError, setPublishError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setStatus("loading")
     getDraft(formId)
-      .then((draft) => {
+      .then(async (draft) => {
         if (cancelled) return
-        setFields(draft?.schema.fields ?? [])
+        // Once a version is published there's no draft row until the next
+        // edit creates one -- fall back to the active version's fields so
+        // resuming editing starts from the form as it currently stands
+        // rather than blank, which would otherwise silently drop every
+        // field the moment the next change is saved.
+        if (draft) {
+          setFields(draft.schema.fields)
+        } else {
+          const active = await getActiveVersion(formId)
+          if (cancelled) return
+          setFields(active?.schema.fields ?? [])
+        }
         setStatus("ready")
       })
       .catch(() => {
@@ -115,6 +137,26 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     setSelectedId((current) => (current === fieldId ? null : current))
   }
 
+  function handlePublish() {
+    setPublishState("publishing")
+    setPublishError(null)
+    publishForm(formId)
+      .then(() => {
+        setPublishState("idle")
+        return getPublishedFieldIds(formId).then((ids) =>
+          setPublishedFieldIds(new Set(ids)),
+        )
+      })
+      .catch((error) => {
+        setPublishState("error")
+        setPublishError(
+          error instanceof NoDraftToPublishError
+            ? error.message
+            : "Couldn't publish this form.",
+        )
+      })
+  }
+
   const selectedField = fields.find((field) => field.id === selectedId) ?? null
 
   return (
@@ -132,11 +174,22 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
             {mode === "edit" ? "Preview" : "Back to editing"}
           </button>
         )}
+        {status === "ready" && (
+          <button
+            type="button"
+            className="primary"
+            onClick={handlePublish}
+            disabled={publishState === "publishing"}
+          >
+            {publishState === "publishing" ? "Publishing…" : "Publish"}
+          </button>
+        )}
       </header>
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load this form.</p>}
       {saveError && <p role="alert">{saveError}</p>}
+      {publishError && <p role="alert">{publishError}</p>}
 
       {status === "ready" && mode === "preview" && (
         <FormPreview fields={fields} />

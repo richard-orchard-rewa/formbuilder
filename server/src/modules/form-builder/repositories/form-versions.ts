@@ -27,6 +27,15 @@ export class FormNotFoundError extends Error {
   }
 }
 
+// Thrown when a caller references a specific version by id (e.g. as a
+// migration's source or target, US-6.1) and it doesn't exist.
+export class FormVersionNotFoundError extends Error {
+  constructor(versionId: string) {
+    super(`No form version found with id ${versionId}`)
+    this.name = "FormVersionNotFoundError"
+  }
+}
+
 export interface FormVersionsRepository {
   // Publishes the form's current draft version: locks it as immutable,
   // assigns it the next version number, and supersedes whichever version
@@ -55,4 +64,10 @@ export interface FormVersionsRepository {
   // exist. This is what a submission is validated and recorded against
   // (US-3.5).
   getActiveVersion(formId: string): Promise<FormVersionRow | null>
+
+  // Returns one specific version by id (from any form), or null if it
+  // doesn't exist. Used when a caller already knows the exact version it
+  // wants -- e.g. migrating a submission onto a specific target version
+  // (US-6.1) -- rather than asking for "the draft" or "the active version".
+  getVersionById(versionId: string): Promise<FormVersionRow | null>
 }
