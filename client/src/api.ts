@@ -201,8 +201,8 @@ export async function editSubmission(
   return json<Submission>(res)
 }
 
-// The audit-trail history for one submission, most recently superseded
-// first (US-5.2, US-6.1).
+// Every version of one submission, oldest first, ending with the current
+// one (US-5.2, US-6.1, US-6.2).
 export function getSubmissionHistory(
   formId: string,
   submissionId: string,

@@ -9,7 +9,9 @@ import {
   MigrationResultSchema,
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
+  SubmissionHistoryAtQuerySchema,
   SubmissionHistoryListSchema,
+  SubmissionHistorySchema,
   SubmissionListQuerySchema,
   SubmissionListSchema,
   SubmissionSchema,
@@ -63,7 +65,7 @@ function serializeHistoryEntry(entry: SubmissionHistoryRow) {
     data: entry.data as Record<string, unknown>,
     legacyData: (entry.legacyData as Record<string, unknown> | null) ?? null,
     activeFrom: entry.activeFrom.toISOString(),
-    activeTo: entry.activeTo.toISOString(),
+    activeTo: entry.activeTo?.toISOString() ?? null,
   }
 }
 
@@ -281,6 +283,8 @@ export function submissionsPlugin(
       },
     )
 
+    // Every version of the submission, oldest first, ending with the
+    // current one (US-6.2).
     typed.get(
       "/api/forms/:formId/submissions/:submissionId/history",
       {
@@ -290,10 +294,38 @@ export function submissionsPlugin(
         },
       },
       async (request) => {
-        const history = await service.getHistory(
+        const versions = await service.getVersions(
           request.params.submissionId,
         )
-        return history.map(serializeHistoryEntry)
+        return versions.map(serializeHistoryEntry)
+      },
+    )
+
+    // The version of the submission active at a specific point in time
+    // (US-6.2) -- "what did this look like on date X".
+    typed.get(
+      "/api/forms/:formId/submissions/:submissionId/history/at",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          querystring: SubmissionHistoryAtQuerySchema,
+          response: {
+            200: SubmissionHistorySchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const version = await service.getVersionAt(
+          request.params.submissionId,
+          new Date(request.query.asOf),
+        )
+        if (!version) {
+          return reply.code(404).send({
+            message: `No version of submission ${request.params.submissionId} was active at ${request.query.asOf}`,
+          })
+        }
+        return reply.code(200).send(serializeHistoryEntry(version))
       },
     )
 
