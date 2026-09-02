@@ -8,6 +8,7 @@ interface SubmissionHistoryProps {
   formName: string
   submissionId: string
   onBack: () => void
+  onSelectVersion: (versionId: string) => void
 }
 
 type Status = "loading" | "ready" | "error"
@@ -21,6 +22,7 @@ export function SubmissionHistory({
   formName,
   submissionId,
   onBack,
+  onSelectVersion,
 }: SubmissionHistoryProps) {
   const [versions, setVersions] = useState<SubmissionHistoryEntry[]>([])
   const [status, setStatus] = useState<Status>("loading")
@@ -55,7 +57,9 @@ export function SubmissionHistory({
       {status === "error" && (
         <p role="alert">Couldn't load this submission's history.</p>
       )}
-      {status === "ready" && <SubmissionHistoryList versions={versions} />}
+      {status === "ready" && (
+        <SubmissionHistoryList versions={versions} onSelect={onSelectVersion} />
+      )}
     </main>
   )
 }

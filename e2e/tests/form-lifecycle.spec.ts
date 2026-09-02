@@ -86,4 +86,15 @@ test("create, build, publish, submit, and edit a form", async ({
   ).toBeVisible()
   await expect(page.getByText(/No edits yet\./)).not.toBeVisible()
   await expect(page.locator("ul li")).toHaveCount(1)
+
+  // Viewing a past version (US-6.4): read-only, clearly labelled
+  // historical, showing the pre-edit value rather than the current one.
+  await page.locator("ul li button").click()
+  await expect(
+    page.getByRole("heading", { name: `${formName} — Historical version` }),
+  ).toBeVisible()
+  await expect(page.getByRole("status")).toContainText("Historical version")
+  await expect(page.getByRole("status")).toContainText("Read-only")
+  await expect(page.getByLabel(/Full name/)).toHaveValue("Ada Lovelace")
+  await expect(page.getByLabel(/Full name/)).toBeDisabled()
 })

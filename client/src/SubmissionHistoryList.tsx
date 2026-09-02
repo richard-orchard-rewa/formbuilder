@@ -2,6 +2,10 @@ import type { SubmissionHistory } from "shared"
 
 interface SubmissionHistoryListProps {
   versions: SubmissionHistory[]
+  // Opens one previous version read-only (US-6.4). Optional -- the inline
+  // list on the edit screen doesn't offer this, only the dedicated history
+  // screen does.
+  onSelect?: (versionId: string) => void
 }
 
 // Renders the previous versions of a submission as a timeline, most recent
@@ -9,7 +13,10 @@ interface SubmissionHistoryListProps {
 // the full lifetime list returned by getSubmissionHistory, including the
 // current still-live entry (`activeTo: null`) -- that one isn't a "previous
 // version" so it's excluded here.
-export function SubmissionHistoryList({ versions }: SubmissionHistoryListProps) {
+export function SubmissionHistoryList({
+  versions,
+  onSelect,
+}: SubmissionHistoryListProps) {
   const previousVersions = versions
     .filter(
       (version): version is SubmissionHistory & { activeTo: string } =>
@@ -23,12 +30,25 @@ export function SubmissionHistoryList({ versions }: SubmissionHistoryListProps) 
 
   return (
     <ul>
-      {previousVersions.map((version) => (
-        <li key={version.id}>
-          {new Date(version.activeTo).toLocaleString()}
-          {version.editedBy && ` — ${version.editedBy}`}
-        </li>
-      ))}
+      {previousVersions.map((version) => {
+        const label = (
+          <>
+            {new Date(version.activeTo).toLocaleString()}
+            {version.editedBy && ` — ${version.editedBy}`}
+          </>
+        )
+        return (
+          <li key={version.id}>
+            {onSelect ? (
+              <button type="button" onClick={() => onSelect(version.id)}>
+                {label}
+              </button>
+            ) : (
+              label
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }

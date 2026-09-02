@@ -8,6 +8,7 @@ import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SubmissionEdit } from "./SubmissionEdit.js"
 import { SubmissionHistory } from "./SubmissionHistory.js"
 import { SubmissionList } from "./SubmissionList.js"
+import { SubmissionVersionView } from "./SubmissionVersionView.js"
 import { SubmissionView } from "./SubmissionView.js"
 
 type View =
@@ -18,6 +19,12 @@ type View =
   | { mode: "view-submission"; form: FormSummary; submissionId: string }
   | { mode: "edit-submission"; form: FormSummary; submissionId: string }
   | { mode: "submission-history"; form: FormSummary; submissionId: string }
+  | {
+      mode: "submission-version"
+      form: FormSummary
+      submissionId: string
+      versionId: string
+    }
   | {
       mode: "migrate"
       form: FormSummary
@@ -131,6 +138,22 @@ export function App() {
         formName={form.name}
         submissionId={submissionId}
         onBack={() => setView({ mode: "view-submission", form, submissionId })}
+        onSelectVersion={(versionId) =>
+          setView({ mode: "submission-version", form, submissionId, versionId })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "submission-version") {
+    const { form, submissionId, versionId } = view
+    return (
+      <SubmissionVersionView
+        formId={form.id}
+        formName={form.name}
+        submissionId={submissionId}
+        versionId={versionId}
+        onBack={() => setView({ mode: "submission-history", form, submissionId })}
       />
     )
   }
