@@ -75,4 +75,15 @@ test("create, build, publish, submit, and edit a form", async ({
 
   await expect(page.getByText("Saved.")).toBeVisible()
   await expect(page.getByText(/No edits yet\./)).not.toBeVisible()
+
+  // History: the timeline of previous versions is reachable from the
+  // submission detail screen (US-6.3), most recent edit first.
+  await page.getByRole("button", { name: "← Back" }).click()
+  await submissionRow.getByRole("button", { name: "View" }).click()
+  await page.getByRole("button", { name: "History" }).click()
+  await expect(
+    page.getByRole("heading", { name: `${formName} — Submission history` }),
+  ).toBeVisible()
+  await expect(page.getByText(/No edits yet\./)).not.toBeVisible()
+  await expect(page.locator("ul li")).toHaveCount(1)
 })

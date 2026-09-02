@@ -9,6 +9,7 @@ import {
   SubmissionRejectedError,
 } from "./api.js"
 import { formCells } from "./schema/formCells.js"
+import { SubmissionHistoryList } from "./SubmissionHistoryList.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
 
 interface SubmissionEditProps {
@@ -71,8 +72,6 @@ export function SubmissionEdit({
     [submission],
   )
 
-  const pastVersions = history.slice(0, -1)
-
   async function handleSave() {
     if (errors.length > 0) {
       setShowValidation(true)
@@ -132,20 +131,7 @@ export function SubmissionEdit({
           </button>
 
           <h2>Edit history</h2>
-          {/* getSubmissionHistory returns every version including the
-              current one (activeTo: null) at the end -- that's not itself
-              an edit event, so it's excluded from this list. */}
-          {pastVersions.length === 0 && <p>No edits yet.</p>}
-          {pastVersions.length > 0 && (
-            <ul>
-              {pastVersions.map((entry) => (
-                <li key={entry.id}>
-                  {entry.activeTo && new Date(entry.activeTo).toLocaleString()}
-                  {entry.editedBy && ` — ${entry.editedBy}`}
-                </li>
-              ))}
-            </ul>
-          )}
+          <SubmissionHistoryList versions={history} />
         </>
       )}
     </main>

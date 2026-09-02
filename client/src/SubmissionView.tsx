@@ -11,6 +11,7 @@ interface SubmissionViewProps {
   formName: string
   submissionId: string
   onBack: () => void
+  onViewHistory: () => void
 }
 
 type Status = "loading" | "ready" | "error"
@@ -24,6 +25,7 @@ export function SubmissionView({
   formName,
   submissionId,
   onBack,
+  onViewHistory,
 }: SubmissionViewProps) {
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null)
   const [status, setStatus] = useState<Status>("loading")
@@ -57,6 +59,9 @@ export function SubmissionView({
           ← Back
         </button>
         <h1>{formName} — Submission</h1>
+        <button type="button" onClick={onViewHistory}>
+          History
+        </button>
       </header>
 
       {status === "loading" && <p>Loading…</p>}
