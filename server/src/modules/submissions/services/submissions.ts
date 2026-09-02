@@ -182,6 +182,37 @@ export class SubmissionsService {
     )
   }
 
+  // One specific past (or current) version of a submission, plus the exact
+  // schema (and version number) that was active at its `activeFrom` (US-6.4)
+  // -- so a historical version always renders correctly even if the form
+  // has since been republished with a different structure, mirroring
+  // getById's approach for the current version. Scoped to `formId` the same
+  // way getById is. Returns null if the submission doesn't exist, belongs
+  // to a different form, or `versionId` doesn't match any of its versions.
+  async getVersionDetail(
+    formId: string,
+    submissionId: string,
+    versionId: string,
+  ) {
+    const submission = await this.repo.getById(formId, submissionId)
+    if (!submission) return null
+
+    const versions = await this.repo.listVersions(submissionId)
+    const version = versions.find((candidate) => candidate.id === versionId)
+    if (!version) return null
+
+    const formVersion = await this.formVersions.getVersionById(
+      version.formVersionId,
+    )
+    if (!formVersion) throw new FormVersionNotFoundError(version.formVersionId)
+
+    return {
+      ...version,
+      formVersionNumber: formVersion.version,
+      schema: formVersion.schema,
+    }
+  }
+
   // Computes the diff an admin needs to decide a migration plan for
   // (US-6.1): which of `fromVersionId`'s fields carry over to
   // `targetVersionId` under the same id, and which need an explicit

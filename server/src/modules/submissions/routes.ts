@@ -10,6 +10,7 @@ import {
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
   SubmissionHistoryAtQuerySchema,
+  SubmissionHistoryDetailSchema,
   SubmissionHistoryListSchema,
   SubmissionHistorySchema,
   SubmissionListQuerySchema,
@@ -37,6 +38,9 @@ const FormParamsSchema = z.object({ formId: z.string() })
 const SubmissionParamsSchema = z.object({
   formId: z.string(),
   submissionId: z.string(),
+})
+const SubmissionVersionParamsSchema = SubmissionParamsSchema.extend({
+  versionId: z.string(),
 })
 const ErrorResponseSchema = z.object({ message: z.string() })
 
@@ -66,6 +70,18 @@ function serializeHistoryEntry(entry: SubmissionHistoryRow) {
     legacyData: (entry.legacyData as Record<string, unknown> | null) ?? null,
     activeFrom: entry.activeFrom.toISOString(),
     activeTo: entry.activeTo?.toISOString() ?? null,
+  }
+}
+
+function serializeHistoryDetail(
+  entry: SubmissionHistoryRow & { formVersionNumber: number; schema: unknown },
+) {
+  return {
+    ...serializeHistoryEntry(entry),
+    formVersionNumber: entry.formVersionNumber,
+    // The jsonb column is untyped at the DB layer; the app is the only
+    // writer and always writes the FormSchema shape.
+    schema: entry.schema as FormSchema,
   }
 }
 
@@ -326,6 +342,43 @@ export function submissionsPlugin(
           })
         }
         return reply.code(200).send(serializeHistoryEntry(version))
+      },
+    )
+
+    // One specific version of the submission -- current or past -- with the
+    // exact schema it was active against, read-only (US-6.4). Registered
+    // after the more specific /history/at path so Fastify's router doesn't
+    // treat "at" as a :versionId value.
+    typed.get(
+      "/api/forms/:formId/submissions/:submissionId/history/:versionId",
+      {
+        schema: {
+          params: SubmissionVersionParamsSchema,
+          response: {
+            200: SubmissionHistoryDetailSchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        try {
+          const version = await service.getVersionDetail(
+            request.params.formId,
+            request.params.submissionId,
+            request.params.versionId,
+          )
+          if (!version) {
+            return reply.code(404).send({
+              message: `No version ${request.params.versionId} found for submission ${request.params.submissionId}`,
+            })
+          }
+          return reply.code(200).send(serializeHistoryDetail(version))
+        } catch (error) {
+          if (error instanceof FormVersionNotFoundError) {
+            return reply.code(404).send({ message: error.message })
+          }
+          throw error
+        }
       },
     )
 

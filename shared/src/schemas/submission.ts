@@ -123,6 +123,19 @@ export type SubmissionHistory = z.infer<typeof SubmissionHistorySchema>
 
 export const SubmissionHistoryListSchema = z.array(SubmissionHistorySchema)
 
+// One version of a submission plus the exact schema (and version number)
+// that was active at its `activeFrom` (US-6.4), so a historical version
+// always renders correctly -- mirroring SubmissionDetailSchema's approach
+// for the current version.
+export const SubmissionHistoryDetailSchema = SubmissionHistorySchema.extend({
+  formVersionNumber: z.number().int(),
+  schema: FormSchemaSchema,
+})
+
+export type SubmissionHistoryDetail = z.infer<
+  typeof SubmissionHistoryDetailSchema
+>
+
 // Point-in-time lookup (US-6.2): which version of a submission was active
 // at `asOf`, per the SCD Type 2 design -- "what did this look like on date
 // X".

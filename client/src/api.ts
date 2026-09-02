@@ -10,6 +10,7 @@ import type {
   Submission,
   SubmissionDetail,
   SubmissionHistory,
+  SubmissionHistoryDetail,
   SubmissionListQuery,
   SubmissionSummary,
   SubmissionValidationError,
@@ -210,6 +211,19 @@ export function getSubmissionHistory(
   return fetch(`/api/forms/${formId}/submissions/${submissionId}/history`).then(
     (res) => json<SubmissionHistory[]>(res),
   )
+}
+
+// One specific version of a submission -- current or past -- with the exact
+// schema it was active against, so it renders correctly regardless of how
+// the form has since changed (US-6.4).
+export function getSubmissionVersion(
+  formId: string,
+  submissionId: string,
+  versionId: string,
+): Promise<SubmissionHistoryDetail> {
+  return fetch(
+    `/api/forms/${formId}/submissions/${submissionId}/history/${versionId}`,
+  ).then((res) => json<SubmissionHistoryDetail>(res))
 }
 
 // The diff between two form versions an admin needs in order to build a
