@@ -161,10 +161,25 @@ export class SubmissionsService {
     return edited
   }
 
-  // The full audit-trail history for one submission, most recently
-  // superseded first (US-5.2, US-6.1).
-  getHistory(submissionId: string) {
-    return this.repo.listHistory(submissionId)
+  // Every version of one submission across its lifetime, oldest first,
+  // including the current one (US-5.2, US-6.1, US-6.2).
+  getVersions(submissionId: string) {
+    return this.repo.listVersions(submissionId)
+  }
+
+  // The version of a submission that was active at a specific point in
+  // time (US-6.2) -- "what did this look like on date X" -- or null if
+  // `asOf` predates the submission's own creation. `activeTo: null` (the
+  // current version) is treated as an open-ended window extending to now.
+  async getVersionAt(submissionId: string, asOf: Date) {
+    const versions = await this.repo.listVersions(submissionId)
+    return (
+      versions.find(
+        (version) =>
+          version.activeFrom <= asOf &&
+          (version.activeTo === null || asOf < version.activeTo),
+      ) ?? null
+    )
   }
 
   // Computes the diff an admin needs to decide a migration plan for

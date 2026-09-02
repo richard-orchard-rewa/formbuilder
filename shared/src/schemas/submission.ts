@@ -99,10 +99,12 @@ export const EditSubmissionSchema = z.object({
 
 export type EditSubmission = z.infer<typeof EditSubmissionSchema>
 
-// One row of a submission's audit-trail history (US-5.2, US-6.1): a full
-// snapshot of the submission as it stood during [activeFrom, activeTo),
+// One version of a submission across its lifetime (US-5.2, US-6.1, US-6.2):
+// a full snapshot of the data as it stood during [activeFrom, activeTo),
 // archived by a database trigger the moment an edit superseded it (SCD
-// Type 2), plus who made that edit.
+// Type 2), plus who made the edit that produced it. `activeTo` is null for
+// the current, still-live version -- every earlier one was closed out by a
+// later edit and always has one.
 export const SubmissionHistorySchema = z.object({
   id: z.string(),
   submissionId: z.string(),
@@ -114,12 +116,23 @@ export const SubmissionHistorySchema = z.object({
   migratedFromSubmissionId: z.string().nullable(),
   editedBy: z.string().nullable(),
   activeFrom: z.iso.datetime(),
-  activeTo: z.iso.datetime(),
+  activeTo: z.iso.datetime().nullable(),
 })
 
 export type SubmissionHistory = z.infer<typeof SubmissionHistorySchema>
 
 export const SubmissionHistoryListSchema = z.array(SubmissionHistorySchema)
+
+// Point-in-time lookup (US-6.2): which version of a submission was active
+// at `asOf`, per the SCD Type 2 design -- "what did this look like on date
+// X".
+export const SubmissionHistoryAtQuerySchema = z.object({
+  asOf: z.iso.datetime(),
+})
+
+export type SubmissionHistoryAtQuery = z.infer<
+  typeof SubmissionHistoryAtQuerySchema
+>
 
 // Returned when required fields are missing at submission time (US-3.5).
 export const SubmissionValidationErrorSchema = z.object({

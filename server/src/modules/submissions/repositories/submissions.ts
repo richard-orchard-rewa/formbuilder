@@ -49,6 +49,8 @@ export interface SubmissionDetailRow extends SubmissionRow {
   schema: unknown
 }
 
+// One version of a submission across its lifetime (US-6.1, US-6.2).
+// `activeTo` is null for the current, still-live version.
 export interface SubmissionHistoryRow {
   id: string
   submissionId: string
@@ -60,7 +62,7 @@ export interface SubmissionHistoryRow {
   migratedFromSubmissionId: string | null
   editedBy: string | null
   activeFrom: Date
-  activeTo: Date
+  activeTo: Date | null
 }
 
 export interface SubmissionsRepository {
@@ -137,9 +139,12 @@ export interface SubmissionsRepository {
     editedBy?: string | null,
   ): Promise<SubmissionRow | null>
 
-  // The archived history for one submission, most recently superseded
-  // first (US-5.2, US-6.1).
-  listHistory(submissionId: string): Promise<SubmissionHistoryRow[]>
+  // Every version of one submission across its lifetime, oldest first,
+  // ending with the current still-live one (`activeTo: null`) (US-5.2,
+  // US-6.1, US-6.2) -- so a point-in-time "what did this look like on date
+  // X" query can be answered by finding the entry whose
+  // [activeFrom, activeTo) window contains X.
+  listVersions(submissionId: string): Promise<SubmissionHistoryRow[]>
 
   // Records a submission produced by migrating another one onto a newer
   // version (US-6.1). The source submission is never touched -- this always
