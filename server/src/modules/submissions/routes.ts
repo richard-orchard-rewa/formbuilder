@@ -9,7 +9,7 @@ import {
   MigrationResultSchema,
   SaveDraftSubmissionSchema,
   SubmissionDetailSchema,
-  SubmissionEditListSchema,
+  SubmissionHistoryListSchema,
   SubmissionListQuerySchema,
   SubmissionListSchema,
   SubmissionSchema,
@@ -26,7 +26,7 @@ import {
 } from "./services/submissions.js"
 import type {
   SubmissionDetailRow,
-  SubmissionEditRow,
+  SubmissionHistoryRow,
   SubmissionRow,
 } from "./repositories/submissions.js"
 import type { SubmissionsService } from "./services/submissions.js"
@@ -57,11 +57,13 @@ function serializeDetail(submission: SubmissionDetailRow) {
   }
 }
 
-function serializeEdit(edit: SubmissionEditRow) {
+function serializeHistoryEntry(entry: SubmissionHistoryRow) {
   return {
-    ...edit,
-    previousData: edit.previousData as Record<string, unknown>,
-    editedAt: edit.editedAt.toISOString(),
+    ...entry,
+    data: entry.data as Record<string, unknown>,
+    legacyData: (entry.legacyData as Record<string, unknown> | null) ?? null,
+    activeFrom: entry.activeFrom.toISOString(),
+    activeTo: entry.activeTo.toISOString(),
   }
 }
 
@@ -280,18 +282,18 @@ export function submissionsPlugin(
     )
 
     typed.get(
-      "/api/forms/:formId/submissions/:submissionId/edits",
+      "/api/forms/:formId/submissions/:submissionId/history",
       {
         schema: {
           params: SubmissionParamsSchema,
-          response: { 200: SubmissionEditListSchema },
+          response: { 200: SubmissionHistoryListSchema },
         },
       },
       async (request) => {
-        const edits = await service.getEditHistory(
+        const history = await service.getHistory(
           request.params.submissionId,
         )
-        return edits.map(serializeEdit)
+        return history.map(serializeHistoryEntry)
       },
     )
 

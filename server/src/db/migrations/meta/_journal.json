@@ -50,6 +50,20 @@
       "when": 1788252439111,
       "tag": "0006_demonic_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0007_replace_submission_edits_with_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788400100000,
+      "tag": "0008_submission_archive_trigger",
+      "breakpoints": true
     }
   ]
 }

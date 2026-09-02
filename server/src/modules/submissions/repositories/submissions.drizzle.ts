@@ -1,14 +1,14 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm"
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
 import {
   formVersions,
-  submissionEdits,
+  submissionHistory,
   submissions,
 } from "../../../db/schema.js"
 import type {
   CreateMigratedInput,
   SubmissionDetailRow,
-  SubmissionEditRow,
+  SubmissionHistoryRow,
   SubmissionListFilters,
   SubmissionRow,
   SubmissionsRepository,
@@ -171,9 +171,16 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
     editedBy?: string | null,
   ): Promise<SubmissionRow | null> {
     return this.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ data: submissions.data })
-        .from(submissions)
+      // Transaction-local: read by the archive trigger via
+      // current_setting('app.edited_by', true), since a trigger has no
+      // direct access to this call's arguments.
+      await tx.execute(
+        sql`select set_config('app.edited_by', ${editedBy ?? ""}, true)`,
+      )
+
+      const [updated] = await tx
+        .update(submissions)
+        .set({ data, updatedAt: new Date() })
         .where(
           and(
             eq(submissions.id, submissionId),
@@ -181,35 +188,29 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
             eq(submissions.status, "submitted"),
           ),
         )
-      if (!existing) return null
-
-      await tx.insert(submissionEdits).values({
-        submissionId,
-        previousData: existing.data,
-        editedBy: editedBy ?? null,
-      })
-
-      const [updated] = await tx
-        .update(submissions)
-        .set({ data, updatedAt: new Date() })
-        .where(eq(submissions.id, submissionId))
         .returning(SUBMISSION_COLUMNS)
-      return updated
+      return updated ?? null
     })
   }
 
-  async listEdits(submissionId: string): Promise<SubmissionEditRow[]> {
+  async listHistory(submissionId: string): Promise<SubmissionHistoryRow[]> {
     return this.db
       .select({
-        id: submissionEdits.id,
-        submissionId: submissionEdits.submissionId,
-        previousData: submissionEdits.previousData,
-        editedBy: submissionEdits.editedBy,
-        editedAt: submissionEdits.editedAt,
+        id: submissionHistory.id,
+        submissionId: submissionHistory.submissionId,
+        formVersionId: submissionHistory.formVersionId,
+        data: submissionHistory.data,
+        legacyData: submissionHistory.legacyData,
+        status: submissionHistory.status,
+        submittedBy: submissionHistory.submittedBy,
+        migratedFromSubmissionId: submissionHistory.migratedFromSubmissionId,
+        editedBy: submissionHistory.editedBy,
+        activeFrom: submissionHistory.activeFrom,
+        activeTo: submissionHistory.activeTo,
       })
-      .from(submissionEdits)
-      .where(eq(submissionEdits.submissionId, submissionId))
-      .orderBy(desc(submissionEdits.editedAt))
+      .from(submissionHistory)
+      .where(eq(submissionHistory.submissionId, submissionId))
+      .orderBy(desc(submissionHistory.activeTo))
   }
 
   async createMigrated(input: CreateMigratedInput): Promise<SubmissionRow> {

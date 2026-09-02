@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
 import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
-import type { SubmissionDetail, SubmissionEdit as SubmissionEditRecord } from "shared"
+import type { SubmissionDetail, SubmissionHistory } from "shared"
 import {
   editSubmission,
   getSubmission,
-  getSubmissionEdits,
+  getSubmissionHistory,
   SubmissionRejectedError,
 } from "./api.js"
 import { formCells } from "./schema/formCells.js"
@@ -32,7 +32,7 @@ export function SubmissionEdit({
   onBack,
 }: SubmissionEditProps) {
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null)
-  const [edits, setEdits] = useState<SubmissionEditRecord[]>([])
+  const [history, setHistory] = useState<SubmissionHistory[]>([])
   const [status, setStatus] = useState<Status>("loading")
   const [data, setData] = useState<Record<string, unknown>>({})
   const [errors, setErrors] = useState<unknown[]>([])
@@ -46,13 +46,13 @@ export function SubmissionEdit({
 
     Promise.all([
       getSubmission(formId, submissionId),
-      getSubmissionEdits(formId, submissionId),
+      getSubmissionHistory(formId, submissionId),
     ])
-      .then(([submissionResult, editsResult]) => {
+      .then(([submissionResult, historyResult]) => {
         if (cancelled) return
         setSubmission(submissionResult)
         setData(submissionResult.data)
-        setEdits(editsResult)
+        setHistory(historyResult)
         setStatus("ready")
       })
       .catch(() => {
@@ -130,13 +130,13 @@ export function SubmissionEdit({
           </button>
 
           <h2>Edit history</h2>
-          {edits.length === 0 && <p>No edits yet.</p>}
-          {edits.length > 0 && (
+          {history.length === 0 && <p>No edits yet.</p>}
+          {history.length > 0 && (
             <ul>
-              {edits.map((edit) => (
-                <li key={edit.id}>
-                  {new Date(edit.editedAt).toLocaleString()}
-                  {edit.editedBy && ` — ${edit.editedBy}`}
+              {history.map((entry) => (
+                <li key={entry.id}>
+                  {new Date(entry.activeTo).toLocaleString()}
+                  {entry.editedBy && ` — ${entry.editedBy}`}
                 </li>
               ))}
             </ul>

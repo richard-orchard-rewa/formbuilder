@@ -9,7 +9,7 @@ import type {
   MigrationResult,
   Submission,
   SubmissionDetail,
-  SubmissionEdit,
+  SubmissionHistory,
   SubmissionListQuery,
   SubmissionSummary,
   SubmissionValidationError,
@@ -201,13 +201,14 @@ export async function editSubmission(
   return json<Submission>(res)
 }
 
-// The edit history for one submission, most recent first (US-5.2).
-export function getSubmissionEdits(
+// The audit-trail history for one submission, most recently superseded
+// first (US-5.2, US-6.1).
+export function getSubmissionHistory(
   formId: string,
   submissionId: string,
-): Promise<SubmissionEdit[]> {
-  return fetch(`/api/forms/${formId}/submissions/${submissionId}/edits`).then(
-    (res) => json<SubmissionEdit[]>(res),
+): Promise<SubmissionHistory[]> {
+  return fetch(`/api/forms/${formId}/submissions/${submissionId}/history`).then(
+    (res) => json<SubmissionHistory[]>(res),
   )
 }
 
