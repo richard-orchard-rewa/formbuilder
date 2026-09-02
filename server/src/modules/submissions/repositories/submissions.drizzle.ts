@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
 import {
   formVersions,
@@ -193,24 +193,63 @@ export class DrizzleSubmissionsRepository implements SubmissionsRepository {
     })
   }
 
-  async listHistory(submissionId: string): Promise<SubmissionHistoryRow[]> {
-    return this.db
-      .select({
-        id: submissionHistory.id,
-        submissionId: submissionHistory.submissionId,
-        formVersionId: submissionHistory.formVersionId,
-        data: submissionHistory.data,
-        legacyData: submissionHistory.legacyData,
-        status: submissionHistory.status,
-        submittedBy: submissionHistory.submittedBy,
-        migratedFromSubmissionId: submissionHistory.migratedFromSubmissionId,
-        editedBy: submissionHistory.editedBy,
-        activeFrom: submissionHistory.activeFrom,
-        activeTo: submissionHistory.activeTo,
-      })
-      .from(submissionHistory)
-      .where(eq(submissionHistory.submissionId, submissionId))
-      .orderBy(desc(submissionHistory.activeTo))
+  async listVersions(submissionId: string): Promise<SubmissionHistoryRow[]> {
+    const [archived, [current]] = await Promise.all([
+      this.db
+        .select({
+          id: submissionHistory.id,
+          submissionId: submissionHistory.submissionId,
+          formVersionId: submissionHistory.formVersionId,
+          data: submissionHistory.data,
+          legacyData: submissionHistory.legacyData,
+          status: submissionHistory.status,
+          submittedBy: submissionHistory.submittedBy,
+          migratedFromSubmissionId: submissionHistory.migratedFromSubmissionId,
+          editedBy: submissionHistory.editedBy,
+          activeFrom: submissionHistory.activeFrom,
+          activeTo: submissionHistory.activeTo,
+        })
+        .from(submissionHistory)
+        .where(eq(submissionHistory.submissionId, submissionId))
+        .orderBy(asc(submissionHistory.activeFrom)),
+      this.db
+        .select({
+          id: submissions.id,
+          formVersionId: submissions.formVersionId,
+          data: submissions.data,
+          legacyData: submissions.legacyData,
+          status: submissions.status,
+          submittedBy: submissions.submittedBy,
+          migratedFromSubmissionId: submissions.migratedFromSubmissionId,
+          activeFrom: submissions.updatedAt,
+        })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId)),
+    ])
+
+    if (!current) return archived
+
+    // The edit that most recently closed out an archived version is the
+    // same edit that produced the current one -- there's no separate
+    // record of "who made the current version" otherwise.
+    const producedBy = archived.at(-1)?.editedBy ?? null
+
+    return [
+      ...archived,
+      {
+        id: current.id,
+        submissionId,
+        formVersionId: current.formVersionId,
+        data: current.data,
+        legacyData: current.legacyData,
+        status: current.status,
+        submittedBy: current.submittedBy,
+        migratedFromSubmissionId: current.migratedFromSubmissionId,
+        editedBy: producedBy,
+        activeFrom: current.activeFrom,
+        activeTo: null,
+      },
+    ]
   }
 
   async createMigrated(input: CreateMigratedInput): Promise<SubmissionRow> {

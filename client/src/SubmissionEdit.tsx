@@ -71,6 +71,8 @@ export function SubmissionEdit({
     [submission],
   )
 
+  const pastVersions = history.slice(0, -1)
+
   async function handleSave() {
     if (errors.length > 0) {
       setShowValidation(true)
@@ -130,12 +132,15 @@ export function SubmissionEdit({
           </button>
 
           <h2>Edit history</h2>
-          {history.length === 0 && <p>No edits yet.</p>}
-          {history.length > 0 && (
+          {/* getSubmissionHistory returns every version including the
+              current one (activeTo: null) at the end -- that's not itself
+              an edit event, so it's excluded from this list. */}
+          {pastVersions.length === 0 && <p>No edits yet.</p>}
+          {pastVersions.length > 0 && (
             <ul>
-              {history.map((entry) => (
+              {pastVersions.map((entry) => (
                 <li key={entry.id}>
-                  {new Date(entry.activeTo).toLocaleString()}
+                  {entry.activeTo && new Date(entry.activeTo).toLocaleString()}
                   {entry.editedBy && ` — ${entry.editedBy}`}
                 </li>
               ))}
