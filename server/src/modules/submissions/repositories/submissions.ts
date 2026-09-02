@@ -49,12 +49,18 @@ export interface SubmissionDetailRow extends SubmissionRow {
   schema: unknown
 }
 
-export interface SubmissionEditRow {
+export interface SubmissionHistoryRow {
   id: string
   submissionId: string
-  previousData: unknown
+  formVersionId: string
+  data: unknown
+  legacyData: unknown
+  status: "draft" | "submitted"
+  submittedBy: string | null
+  migratedFromSubmissionId: string | null
   editedBy: string | null
-  editedAt: Date
+  activeFrom: Date
+  activeTo: Date
 }
 
 export interface SubmissionsRepository {
@@ -117,11 +123,13 @@ export interface SubmissionsRepository {
     submissionId: string,
   ): Promise<SubmissionDetailRow | null>
 
-  // Overwrites a submitted submission's data in place and records the prior
-  // data as an audit-trail row in the same operation (US-5.2), so the two
-  // can never happen independently. Returns null if the row doesn't exist,
-  // belongs to a different form, or is still a draft (edits apply only to
-  // already-submitted submissions -- a draft is edited via saveDraft).
+  // Overwrites a submitted submission's data in place (US-5.2). The prior
+  // row state is archived as an audit-trail row by a database trigger as
+  // part of the same UPDATE (US-6.1), so the two can never happen
+  // independently or race each other. Returns null if the row doesn't
+  // exist, belongs to a different form, or is still a draft (edits apply
+  // only to already-submitted submissions -- a draft is edited via
+  // saveDraft).
   edit(
     formId: string,
     submissionId: string,
@@ -129,8 +137,9 @@ export interface SubmissionsRepository {
     editedBy?: string | null,
   ): Promise<SubmissionRow | null>
 
-  // The edit history for one submission, most recent first (US-5.2).
-  listEdits(submissionId: string): Promise<SubmissionEditRow[]>
+  // The archived history for one submission, most recently superseded
+  // first (US-5.2, US-6.1).
+  listHistory(submissionId: string): Promise<SubmissionHistoryRow[]>
 
   // Records a submission produced by migrating another one onto a newer
   // version (US-6.1). The source submission is never touched -- this always

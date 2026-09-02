@@ -99,19 +99,27 @@ export const EditSubmissionSchema = z.object({
 
 export type EditSubmission = z.infer<typeof EditSubmissionSchema>
 
-// One row of a submission's edit history (US-5.2): the data as it stood
-// immediately before that edit was applied, plus who made it and when.
-export const SubmissionEditSchema = z.object({
+// One row of a submission's audit-trail history (US-5.2, US-6.1): a full
+// snapshot of the submission as it stood during [activeFrom, activeTo),
+// archived by a database trigger the moment an edit superseded it (SCD
+// Type 2), plus who made that edit.
+export const SubmissionHistorySchema = z.object({
   id: z.string(),
   submissionId: z.string(),
-  previousData: z.record(z.string(), z.unknown()),
+  formVersionId: z.string(),
+  data: z.record(z.string(), z.unknown()),
+  legacyData: z.record(z.string(), z.unknown()).nullable(),
+  status: z.enum(["draft", "submitted"]),
+  submittedBy: z.string().nullable(),
+  migratedFromSubmissionId: z.string().nullable(),
   editedBy: z.string().nullable(),
-  editedAt: z.iso.datetime(),
+  activeFrom: z.iso.datetime(),
+  activeTo: z.iso.datetime(),
 })
 
-export type SubmissionEdit = z.infer<typeof SubmissionEditSchema>
+export type SubmissionHistory = z.infer<typeof SubmissionHistorySchema>
 
-export const SubmissionEditListSchema = z.array(SubmissionEditSchema)
+export const SubmissionHistoryListSchema = z.array(SubmissionHistorySchema)
 
 // Returned when required fields are missing at submission time (US-3.5).
 export const SubmissionValidationErrorSchema = z.object({

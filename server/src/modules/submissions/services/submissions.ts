@@ -138,7 +138,8 @@ export class SubmissionsService {
   // against -- not the form's current active version, which may since have
   // changed or been republished -- so an edit can never be rejected (or
   // wrongly accepted) against rules that didn't apply when it was captured.
-  // Records the prior data as an audit-trail row in the same operation.
+  // The prior row state is archived as an audit-trail row by a database
+  // trigger as part of the same UPDATE (US-6.1).
   async edit(
     formId: string,
     submissionId: string,
@@ -160,9 +161,10 @@ export class SubmissionsService {
     return edited
   }
 
-  // The full edit history for one submission, most recent first (US-5.2).
-  getEditHistory(submissionId: string) {
-    return this.repo.listEdits(submissionId)
+  // The full audit-trail history for one submission, most recently
+  // superseded first (US-5.2, US-6.1).
+  getHistory(submissionId: string) {
+    return this.repo.listHistory(submissionId)
   }
 
   // Computes the diff an admin needs to decide a migration plan for

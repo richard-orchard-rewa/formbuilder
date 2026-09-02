@@ -53,8 +53,8 @@ export {
   SubmissionListQuerySchema,
   SubmissionDetailSchema,
   EditSubmissionSchema,
-  SubmissionEditSchema,
-  SubmissionEditListSchema,
+  SubmissionHistorySchema,
+  SubmissionHistoryListSchema,
   SubmissionValidationErrorSchema,
 } from "./schemas/submission.js"
 export type {
@@ -65,7 +65,7 @@ export type {
   SubmissionListQuery,
   SubmissionDetail,
   EditSubmission,
-  SubmissionEdit,
+  SubmissionHistory,
   SubmissionValidationError,
 } from "./schemas/submission.js"
 export {

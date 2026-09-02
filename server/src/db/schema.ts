@@ -8,6 +8,7 @@ import {
   timestamp,
   unique,
   uniqueIndex,
+  index,
   check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core"
@@ -133,23 +134,45 @@ export const submissions = pgTable(
   ],
 )
 
-// An immutable audit trail of edits made to a submitted submission (US-5.2):
-// one row per edit, capturing the full prior data snapshot so a full history
-// of who changed what and when can be reconstructed, mirroring how
-// form_versions never mutates a published row in place.
-export const submissionEdits = pgTable("submission_edits", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  submissionId: uuid("submission_id")
-    .notNull()
-    .references(() => submissions.id, { onDelete: "cascade" }),
-  // The submission's data immediately before this edit was applied, so the
-  // edit history can show what changed rather than just that it did.
-  previousData: jsonb("previous_data").notNull(),
-  // Freeform identifier of who made this edit, mirroring `submittedBy` and
-  // `publishedBy` above -- there's no auth/user system yet, so this is
-  // whatever the caller supplies rather than a foreign key to a users table.
-  editedBy: text("edited_by"),
-  editedAt: timestamp("edited_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+// An immutable audit trail of edits made to a submitted submission (US-5.2,
+// US-6.1): one row per edit, capturing a full snapshot of the row as it
+// stood immediately before the edit applied. Populated by a Postgres
+// `BEFORE UPDATE` trigger on `submissions` (see the
+// submission_archive_trigger migration) rather than application code, so
+// the archive step can never be skipped by a code path that updates
+// `submissions` directly, and so it shares the row-level lock Postgres
+// already takes for the `UPDATE` itself -- closing the race a purely
+// app-level SELECT-then-INSERT-then-UPDATE would be exposed to.
+export const submissionHistory = pgTable(
+  "submission_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    // Denormalized snapshot of the row's own fields at archive time,
+    // mirroring `submissions` itself.
+    formId: uuid("form_id").notNull(),
+    formVersionId: uuid("form_version_id").notNull(),
+    data: jsonb("data").notNull(),
+    legacyData: jsonb("legacy_data"),
+    status: text("status", { enum: ["draft", "submitted"] }).notNull(),
+    submittedBy: text("submitted_by"),
+    migratedFromSubmissionId: uuid("migrated_from_submission_id"),
+    // Freeform identifier of who made this edit, mirroring `submittedBy` and
+    // `publishedBy` above -- there's no auth/user system yet, so this is
+    // whatever the caller supplies rather than a foreign key to a users
+    // table. Captured by the trigger via a transaction-local Postgres
+    // setting (`app.edited_by`), since a trigger has no direct access to
+    // application-level call arguments.
+    editedBy: text("edited_by"),
+    // SCD Type 2 columns: the window during which this snapshot was the
+    // live row's value. `activeFrom` is the superseded row's own
+    // `updated_at`; `activeTo` is when the archiving UPDATE ran.
+    activeFrom: timestamp("active_from", { withTimezone: true }).notNull(),
+    activeTo: timestamp("active_to", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("submission_history_submission_id").on(table.submissionId),
+  ],
+)
