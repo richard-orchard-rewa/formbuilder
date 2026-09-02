@@ -6,6 +6,7 @@ import { FormFill } from "./FormFill.js"
 import { MigrationPlanner } from "./MigrationPlanner.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SubmissionEdit } from "./SubmissionEdit.js"
+import { SubmissionHistory } from "./SubmissionHistory.js"
 import { SubmissionList } from "./SubmissionList.js"
 import { SubmissionView } from "./SubmissionView.js"
 
@@ -16,6 +17,7 @@ type View =
   | { mode: "submissions"; form: FormSummary }
   | { mode: "view-submission"; form: FormSummary; submissionId: string }
   | { mode: "edit-submission"; form: FormSummary; submissionId: string }
+  | { mode: "submission-history"; form: FormSummary; submissionId: string }
   | {
       mode: "migrate"
       form: FormSummary
@@ -107,13 +109,28 @@ export function App() {
   }
 
   if (view.mode === "view-submission") {
-    const { form } = view
+    const { form, submissionId } = view
     return (
       <SubmissionView
         formId={form.id}
         formName={form.name}
-        submissionId={view.submissionId}
+        submissionId={submissionId}
         onBack={() => setView({ mode: "submissions", form })}
+        onViewHistory={() =>
+          setView({ mode: "submission-history", form, submissionId })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "submission-history") {
+    const { form, submissionId } = view
+    return (
+      <SubmissionHistory
+        formId={form.id}
+        formName={form.name}
+        submissionId={submissionId}
+        onBack={() => setView({ mode: "view-submission", form, submissionId })}
       />
     )
   }
