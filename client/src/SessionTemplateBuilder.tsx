@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { Field, ModuleSummary, SessionTemplateModule } from "shared"
 import {
-  EmptyCompositionError,
+  CannotPublishSessionTemplateError,
   getSessionTemplateModules,
   InvalidCompositionError,
   listModules,
@@ -111,7 +111,7 @@ export function SessionTemplateBuilder({
       .catch((error) => {
         setPublishState("error")
         setPublishError(
-          error instanceof EmptyCompositionError
+          error instanceof CannotPublishSessionTemplateError
             ? error.message
             : "Couldn't publish this session template.",
         )

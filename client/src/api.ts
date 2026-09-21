@@ -431,11 +431,14 @@ export function previewSessionTemplate(
   )
 }
 
-// Thrown when a session template has no modules to publish (US-8.4).
-export class EmptyCompositionError extends Error {
-  constructor() {
-    super("This session template has no modules to publish")
-    this.name = "EmptyCompositionError"
+// Thrown when the server refuses to publish -- its composition is empty,
+// or (defensively) references a module with no published version (US-8.4).
+// Carries the server's own message rather than a fixed one, since either
+// cause maps to this same status.
+export class CannotPublishSessionTemplateError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "CannotPublishSessionTemplateError"
   }
 }
 
@@ -448,7 +451,8 @@ export async function publishSessionTemplate(
     body: JSON.stringify({}),
   })
   if (res.status === 409) {
-    throw new EmptyCompositionError()
+    const body = (await res.json()) as { message: string }
+    throw new CannotPublishSessionTemplateError(body.message)
   }
   return json<SessionTemplateVersion>(res)
 }

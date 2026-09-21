@@ -1,6 +1,6 @@
 import { and, desc, eq, max } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
-import { sessionTemplateVersions } from "../../../db/schema.js"
+import { sessionTemplateVersions, sessionTemplates } from "../../../db/schema.js"
 import {
   type SessionTemplateModuleSnapshotInput,
   type SessionTemplateVersionRow,
@@ -29,11 +29,20 @@ export class DrizzleSessionTemplateVersionsRepository
     publishedBy?: string | null,
   ): Promise<SessionTemplateVersionRow> {
     return this.db.transaction(async (tx) => {
+      // Locks the template's own row (rather than the aggregate query below
+      // -- Postgres rejects `FOR UPDATE` combined with an aggregate
+      // function) so two concurrent publishes serialize instead of both
+      // computing the same next version number.
+      await tx
+        .select({ id: sessionTemplates.id })
+        .from(sessionTemplates)
+        .where(eq(sessionTemplates.id, sessionTemplateId))
+        .for("update")
+
       const [{ maxVersion }] = await tx
         .select({ maxVersion: max(sessionTemplateVersions.version) })
         .from(sessionTemplateVersions)
         .where(eq(sessionTemplateVersions.sessionTemplateId, sessionTemplateId))
-        .for("update")
 
       const nextVersion = (maxVersion ?? 0) + 1
 
