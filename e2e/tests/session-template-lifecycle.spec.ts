@@ -121,8 +121,23 @@ test("compose, publish, fill out, and review a session template", async ({
     page.getByText("Thanks — your response was recorded."),
   ).toBeVisible()
 
-  // Version history shows the published version (US-8.7, US-8.8).
+  // Reviewing submissions: the one just captured shows up, against v1,
+  // and opening it renders the answer read-only.
   await page.getByRole("button", { name: "← Back" }).click()
+  await templateRow.getByRole("button", { name: "Submissions" }).click()
+  await expect(
+    page.getByRole("heading", { name: `${templateName} — Submissions` }),
+  ).toBeVisible()
+  const submissionRow = page.locator(".form-list__item", { hasText: "v1" })
+  await expect(submissionRow).toBeVisible()
+  await submissionRow.getByRole("button", { name: "View" }).click()
+  await expect(page.getByText(/Captured against version 1/)).toBeVisible()
+  await expect(page.getByLabel(/Full name/)).toHaveValue("Ada Lovelace")
+  await expect(page.getByLabel(/Full name/)).toBeDisabled()
+
+  // Version history shows the published version (US-8.7, US-8.8).
+  await page.getByRole("button", { name: "← Back" }).click() // submission list
+  await page.getByRole("button", { name: "← Back" }).click() // session templates list
   await templateRow.getByRole("button", { name: "Build" }).click()
   await page.getByRole("button", { name: "Version history" }).click()
   await expect(page.getByText(/v1 — active/)).toBeVisible()

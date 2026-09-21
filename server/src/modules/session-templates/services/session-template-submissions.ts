@@ -65,4 +65,28 @@ export class SessionTemplateSubmissionsService {
     }
     return this.repo.create(input)
   }
+
+  list(sessionTemplateId: string) {
+    return this.repo.list(sessionTemplateId)
+  }
+
+  // One submission plus the exact schema (and version number) it was
+  // captured against, so it always renders correctly even if the template
+  // has since been republished with a different composition -- mirrors
+  // SubmissionsService's own getDetail for forms (US-5.1).
+  async getDetail(sessionTemplateId: string, submissionId: string) {
+    const row = await this.repo.getById(sessionTemplateId, submissionId)
+    if (!row) return null
+
+    const version = await this.versions.getVersionById(row.sessionTemplateVersionId)
+    // Shouldn't happen -- a session template version is never deleted --
+    // but a submission with no resolvable version can't be rendered.
+    if (!version) return null
+
+    return {
+      ...row,
+      sessionTemplateVersionNumber: version.version,
+      schema: { fields: version.fields },
+    }
+  }
 }

@@ -29,6 +29,7 @@ describe("SessionTemplatesList", () => {
         onBack={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
+        onSubmissions={() => {}}
       />,
     )
 
@@ -43,6 +44,7 @@ describe("SessionTemplatesList", () => {
         onBack={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
+        onSubmissions={() => {}}
       />,
     )
 
@@ -58,6 +60,7 @@ describe("SessionTemplatesList", () => {
         onBack={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
+        onSubmissions={() => {}}
       />,
     )
     await waitFor(() => expect(spy).toHaveBeenCalledWith(""))

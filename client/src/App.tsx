@@ -9,6 +9,8 @@ import { ModulesList } from "./ModulesList.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SessionTemplateBuilder } from "./SessionTemplateBuilder.js"
 import { SessionTemplateFill } from "./SessionTemplateFill.js"
+import { SessionTemplateSubmissionList } from "./SessionTemplateSubmissionList.js"
+import { SessionTemplateSubmissionView } from "./SessionTemplateSubmissionView.js"
 import { SessionTemplateVersionHistory } from "./SessionTemplateVersionHistory.js"
 import { SessionTemplateVersionView } from "./SessionTemplateVersionView.js"
 import { SessionTemplatesList } from "./SessionTemplatesList.js"
@@ -33,6 +35,15 @@ type View =
       mode: "session-template-version"
       sessionTemplate: SessionTemplateSummary
       versionId: string
+    }
+  | {
+      mode: "session-template-submissions"
+      sessionTemplate: SessionTemplateSummary
+    }
+  | {
+      mode: "session-template-submission-view"
+      sessionTemplate: SessionTemplateSummary
+      submissionId: string
     }
   | { mode: "build"; form: FormSummary }
   | { mode: "fill"; form: FormSummary }
@@ -105,6 +116,9 @@ export function App() {
         onFill={(sessionTemplate) =>
           setView({ mode: "fill-session-template", sessionTemplate })
         }
+        onSubmissions={(sessionTemplate) =>
+          setView({ mode: "session-template-submissions", sessionTemplate })
+        }
       />
     )
   }
@@ -159,6 +173,38 @@ export function App() {
         versionId={versionId}
         onBack={() =>
           setView({ mode: "session-template-history", sessionTemplate })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "session-template-submissions") {
+    const { sessionTemplate } = view
+    return (
+      <SessionTemplateSubmissionList
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        onBack={() => setView({ mode: "session-templates" })}
+        onView={(submissionId) =>
+          setView({
+            mode: "session-template-submission-view",
+            sessionTemplate,
+            submissionId,
+          })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "session-template-submission-view") {
+    const { sessionTemplate, submissionId } = view
+    return (
+      <SessionTemplateSubmissionView
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        submissionId={submissionId}
+        onBack={() =>
+          setView({ mode: "session-template-submissions", sessionTemplate })
         }
       />
     )
