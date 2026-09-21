@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
-import type { FormSummary } from "shared"
+import type { FormSummary, ModuleSummary } from "shared"
 import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
 import { MigrationPlanner } from "./MigrationPlanner.js"
+import { ModuleBuilder } from "./ModuleBuilder.js"
+import { ModulesList } from "./ModulesList.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SubmissionEdit } from "./SubmissionEdit.js"
 import { SubmissionHistory } from "./SubmissionHistory.js"
@@ -13,6 +15,8 @@ import { SubmissionView } from "./SubmissionView.js"
 
 type View =
   | { mode: "list" }
+  | { mode: "modules" }
+  | { mode: "build-module"; mod: ModuleSummary }
   | { mode: "build"; form: FormSummary }
   | { mode: "fill"; form: FormSummary }
   | { mode: "submissions"; form: FormSummary }
@@ -52,6 +56,25 @@ export function App() {
         </button>
         <RendererSpike />
       </main>
+    )
+  }
+
+  if (view.mode === "modules") {
+    return (
+      <ModulesList
+        onBack={() => setView({ mode: "list" })}
+        onBuild={(mod) => setView({ mode: "build-module", mod })}
+      />
+    )
+  }
+
+  if (view.mode === "build-module") {
+    return (
+      <ModuleBuilder
+        moduleId={view.mod.id}
+        moduleName={view.mod.name}
+        onBack={() => setView({ mode: "modules" })}
+      />
     )
   }
 
@@ -173,6 +196,14 @@ export function App() {
   return (
     <main>
       <h1>form-builder</h1>
+      <nav>
+        <button type="button" disabled>
+          Forms
+        </button>
+        <button type="button" onClick={() => setView({ mode: "modules" })}>
+          Modules
+        </button>
+      </nav>
       <ul>
         {forms.map((form) => (
           <li key={form.id} className="form-list__item">

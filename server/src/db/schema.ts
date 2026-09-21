@@ -134,6 +134,61 @@ export const submissions = pgTable(
   ],
 )
 
+// A module is a reusable, named group of fields (US-7.1) -- built and
+// published the same way a form is (draft -> published version, ADR-0004),
+// but consumed by session templates (Epic US-8) rather than filled out
+// directly. Unlike forms it can be archived (US-7.4) and has no `slug` --
+// nothing addresses a module by a public URL.
+export const modules = pgTable("modules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+// Mirrors form_versions exactly (US-7.3): a module's draft can be edited
+// freely, and publishing it locks that version as immutable so anything
+// already referencing it (a session template, Epic US-8) never shifts.
+export const moduleVersions = pgTable(
+  "module_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    // Same shape as form_versions.schema: { fields: Field[] }.
+    schema: jsonb("schema").notNull(),
+    status: text("status", { enum: ["draft", "published", "superseded"] })
+      .notNull()
+      .default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: text("published_by"),
+  },
+  (table) => [
+    unique("module_versions_module_id_version_key").on(
+      table.moduleId,
+      table.version,
+    ),
+    check(
+      "module_versions_published_at_matches_status",
+      sql`(${table.status} = 'draft') = (${table.publishedAt} is null)`,
+    ),
+    uniqueIndex("module_versions_one_published_per_module")
+      .on(table.moduleId)
+      .where(sql`${table.status} = 'published'`),
+  ],
+)
+
 // An immutable audit trail of edits made to a submitted submission (US-5.2,
 // US-6.1): one row per edit, capturing a full snapshot of the row as it
 // stood immediately before the edit applied. Populated by a Postgres
