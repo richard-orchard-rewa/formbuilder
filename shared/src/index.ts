@@ -88,4 +88,20 @@ export type {
   MigrateVersionRequest,
   MigrationResult,
 } from "./schemas/migration.js"
+export {
+  CreateModuleSchema,
+  ModuleSummarySchema,
+  ModuleListSchema,
+} from "./schemas/module.js"
+export type { CreateModule, ModuleSummary } from "./schemas/module.js"
+export {
+  ModuleSchemaSchema,
+  ModuleVersionSchema,
+  PublishModuleVersionSchema,
+} from "./schemas/module-version.js"
+export type {
+  ModuleSchema,
+  ModuleVersion,
+  PublishModuleVersion,
+} from "./schemas/module-version.js"
 export { buildSubmissionSchema, toJsonSchema } from "./json-schema.js"

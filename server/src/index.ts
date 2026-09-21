@@ -5,6 +5,7 @@ import {
 } from "fastify-type-provider-zod"
 import type { Logger } from "pino"
 import { formBuilderPlugin } from "./modules/form-builder/routes.js"
+import { moduleBuilderPlugin } from "./modules/module-builder/routes.js"
 import { submissionsPlugin } from "./modules/submissions/routes.js"
 import type { AppDeps } from "./deps.js"
 
@@ -16,6 +17,9 @@ export function buildApp(deps: AppDeps, logger: Logger) {
 
   app.register(
     formBuilderPlugin(deps.formBuilderService, deps.formVersionsService),
+  )
+  app.register(
+    moduleBuilderPlugin(deps.moduleBuilderService, deps.moduleVersionsService),
   )
   app.register(submissionsPlugin(deps.submissionsService))
 

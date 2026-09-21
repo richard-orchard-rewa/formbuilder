@@ -7,6 +7,9 @@ import type {
   FormVersionSummary,
   MigrationPlan,
   MigrationResult,
+  ModuleSchema,
+  ModuleSummary,
+  ModuleVersion,
   Submission,
   SubmissionDetail,
   SubmissionHistory,
@@ -133,6 +136,79 @@ export function getDraftSubmission(
   return fetch(`/api/forms/${formId}/submissions/draft/${submissionId}`).then(
     (res) => json<Submission | null>(res),
   )
+}
+
+// US-7.4: non-archived modules, optionally narrowed by a substring,
+// case-insensitive search over name.
+export function listModules(query?: string): Promise<ModuleSummary[]> {
+  const search = query?.trim()
+  const qs = search ? `?q=${encodeURIComponent(search)}` : ""
+  return fetch(`/api/modules${qs}`).then((res) => json<ModuleSummary[]>(res))
+}
+
+export function createModule(
+  name: string,
+  description?: string,
+): Promise<ModuleSummary> {
+  return fetch("/api/modules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  }).then((res) => json<ModuleSummary>(res))
+}
+
+// US-7.4: hides a module from listModules() without deleting it.
+export function archiveModule(moduleId: string): Promise<ModuleSummary> {
+  return fetch(`/api/modules/${moduleId}/archive`, {
+    method: "POST",
+  }).then((res) => json<ModuleSummary>(res))
+}
+
+export function getModuleDraft(moduleId: string): Promise<ModuleVersion | null> {
+  return fetch(`/api/modules/${moduleId}/draft`).then((res) =>
+    json<ModuleVersion | null>(res),
+  )
+}
+
+export function saveModuleDraft(
+  moduleId: string,
+  fields: Field[],
+): Promise<ModuleVersion> {
+  const body: ModuleSchema = { fields }
+  return fetch(`/api/modules/${moduleId}/draft`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((res) => json<ModuleVersion>(res))
+}
+
+export function getModuleActiveVersion(
+  moduleId: string,
+): Promise<ModuleVersion | null> {
+  return fetch(`/api/modules/${moduleId}/active`).then((res) =>
+    json<ModuleVersion | null>(res),
+  )
+}
+
+// Thrown when a module has no draft changes to publish (e.g. it was already
+// published with no further edits since) -- mirrors NoDraftToPublishError.
+export class NoModuleDraftToPublishError extends Error {
+  constructor() {
+    super("This module has no draft changes to publish")
+    this.name = "NoModuleDraftToPublishError"
+  }
+}
+
+export async function publishModule(moduleId: string): Promise<ModuleVersion> {
+  const res = await fetch(`/api/modules/${moduleId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  })
+  if (res.status === 409) {
+    throw new NoModuleDraftToPublishError()
+  }
+  return json<ModuleVersion>(res)
 }
 
 export function getPublishedFieldIds(formId: string): Promise<string[]> {

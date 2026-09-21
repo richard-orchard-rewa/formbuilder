@@ -64,6 +64,13 @@
       "when": 1788400100000,
       "tag": "0008_submission_archive_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789962715175,
+      "tag": "0009_fearless_mercury",
+      "breakpoints": true
     }
   ]
 }
