@@ -4,3 +4,6 @@ dist/
 *.tsbuildinfo
 e2e/test-results/
 e2e/playwright-report/
+
+# Claude Code worktree checkouts (.claude/launch.json itself stays tracked).
+**/.claude/worktrees/
