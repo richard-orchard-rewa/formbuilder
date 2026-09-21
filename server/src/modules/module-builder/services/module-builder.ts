@@ -17,4 +17,8 @@ export class ModuleBuilderService {
   archiveModule(moduleId: string) {
     return this.repo.archive(moduleId)
   }
+
+  getModule(moduleId: string) {
+    return this.repo.getById(moduleId)
+  }
 }

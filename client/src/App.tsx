@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { FormSummary, ModuleSummary } from "shared"
+import type { FormSummary, ModuleSummary, SessionTemplateSummary } from "shared"
 import { createForm, listForms } from "./api.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
@@ -7,6 +7,11 @@ import { MigrationPlanner } from "./MigrationPlanner.js"
 import { ModuleBuilder } from "./ModuleBuilder.js"
 import { ModulesList } from "./ModulesList.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
+import { SessionTemplateBuilder } from "./SessionTemplateBuilder.js"
+import { SessionTemplateFill } from "./SessionTemplateFill.js"
+import { SessionTemplateVersionHistory } from "./SessionTemplateVersionHistory.js"
+import { SessionTemplateVersionView } from "./SessionTemplateVersionView.js"
+import { SessionTemplatesList } from "./SessionTemplatesList.js"
 import { SubmissionEdit } from "./SubmissionEdit.js"
 import { SubmissionHistory } from "./SubmissionHistory.js"
 import { SubmissionList } from "./SubmissionList.js"
@@ -17,6 +22,18 @@ type View =
   | { mode: "list" }
   | { mode: "modules" }
   | { mode: "build-module"; mod: ModuleSummary }
+  | { mode: "session-templates" }
+  | { mode: "build-session-template"; sessionTemplate: SessionTemplateSummary }
+  | { mode: "fill-session-template"; sessionTemplate: SessionTemplateSummary }
+  | {
+      mode: "session-template-history"
+      sessionTemplate: SessionTemplateSummary
+    }
+  | {
+      mode: "session-template-version"
+      sessionTemplate: SessionTemplateSummary
+      versionId: string
+    }
   | { mode: "build"; form: FormSummary }
   | { mode: "fill"; form: FormSummary }
   | { mode: "submissions"; form: FormSummary }
@@ -74,6 +91,75 @@ export function App() {
         moduleId={view.mod.id}
         moduleName={view.mod.name}
         onBack={() => setView({ mode: "modules" })}
+      />
+    )
+  }
+
+  if (view.mode === "session-templates") {
+    return (
+      <SessionTemplatesList
+        onBack={() => setView({ mode: "list" })}
+        onBuild={(sessionTemplate) =>
+          setView({ mode: "build-session-template", sessionTemplate })
+        }
+        onFill={(sessionTemplate) =>
+          setView({ mode: "fill-session-template", sessionTemplate })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "build-session-template") {
+    const { sessionTemplate } = view
+    return (
+      <SessionTemplateBuilder
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        onBack={() => setView({ mode: "session-templates" })}
+        onViewHistory={() =>
+          setView({ mode: "session-template-history", sessionTemplate })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "fill-session-template") {
+    const { sessionTemplate } = view
+    return (
+      <SessionTemplateFill
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        onBack={() => setView({ mode: "session-templates" })}
+      />
+    )
+  }
+
+  if (view.mode === "session-template-history") {
+    const { sessionTemplate } = view
+    return (
+      <SessionTemplateVersionHistory
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        onBack={() =>
+          setView({ mode: "build-session-template", sessionTemplate })
+        }
+        onSelectVersion={(versionId) =>
+          setView({ mode: "session-template-version", sessionTemplate, versionId })
+        }
+      />
+    )
+  }
+
+  if (view.mode === "session-template-version") {
+    const { sessionTemplate, versionId } = view
+    return (
+      <SessionTemplateVersionView
+        sessionTemplateId={sessionTemplate.id}
+        sessionTemplateName={sessionTemplate.name}
+        versionId={versionId}
+        onBack={() =>
+          setView({ mode: "session-template-history", sessionTemplate })
+        }
       />
     )
   }
@@ -202,6 +288,12 @@ export function App() {
         </button>
         <button type="button" onClick={() => setView({ mode: "modules" })}>
           Modules
+        </button>
+        <button
+          type="button"
+          onClick={() => setView({ mode: "session-templates" })}
+        >
+          Session templates
         </button>
       </nav>
       <ul>

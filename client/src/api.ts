@@ -10,6 +10,12 @@ import type {
   ModuleSchema,
   ModuleSummary,
   ModuleVersion,
+  SessionTemplateModule,
+  SessionTemplateSchema,
+  SessionTemplateSubmission,
+  SessionTemplateSummary,
+  SessionTemplateVersion,
+  SessionTemplateVersionSummary,
   Submission,
   SubmissionDetail,
   SubmissionHistory,
@@ -346,4 +352,154 @@ export function migrateVersion(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetVersionId, fieldMappings }),
   }).then((res) => json<MigrationResult>(res))
+}
+
+// US-8.6: non-archived session templates, optionally narrowed by a
+// substring, case-insensitive search over name.
+export function listSessionTemplates(
+  query?: string,
+): Promise<SessionTemplateSummary[]> {
+  const search = query?.trim()
+  const qs = search ? `?q=${encodeURIComponent(search)}` : ""
+  return fetch(`/api/session-templates${qs}`).then((res) =>
+    json<SessionTemplateSummary[]>(res),
+  )
+}
+
+export function createSessionTemplate(
+  name: string,
+  description?: string,
+): Promise<SessionTemplateSummary> {
+  return fetch("/api/session-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  }).then((res) => json<SessionTemplateSummary>(res))
+}
+
+export function archiveSessionTemplate(
+  sessionTemplateId: string,
+): Promise<SessionTemplateSummary> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/archive`, {
+    method: "POST",
+  }).then((res) => json<SessionTemplateSummary>(res))
+}
+
+// The template's current composition, in order (US-8.2).
+export function getSessionTemplateModules(
+  sessionTemplateId: string,
+): Promise<SessionTemplateModule[]> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/modules`).then(
+    (res) => json<SessionTemplateModule[]>(res),
+  )
+}
+
+// Thrown when the composition includes a module id twice, or one with no
+// published version (US-8.2).
+export class InvalidCompositionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "InvalidCompositionError"
+  }
+}
+
+// Replaces the template's whole composition in one call, positioned by
+// array order (US-8.2).
+export async function setSessionTemplateModules(
+  sessionTemplateId: string,
+  moduleIds: string[],
+): Promise<SessionTemplateModule[]> {
+  const res = await fetch(`/api/session-templates/${sessionTemplateId}/modules`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ moduleIds }),
+  })
+  if (res.status === 400) {
+    const body = (await res.json()) as { message: string }
+    throw new InvalidCompositionError(body.message)
+  }
+  return json<SessionTemplateModule[]>(res)
+}
+
+// US-8.3: the combined fields resolved from the template's current
+// composition, each module at its *current* published version.
+export function previewSessionTemplate(
+  sessionTemplateId: string,
+): Promise<SessionTemplateSchema> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/preview`).then(
+    (res) => json<SessionTemplateSchema>(res),
+  )
+}
+
+// Thrown when the server refuses to publish -- its composition is empty,
+// or (defensively) references a module with no published version (US-8.4).
+// Carries the server's own message rather than a fixed one, since either
+// cause maps to this same status.
+export class CannotPublishSessionTemplateError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "CannotPublishSessionTemplateError"
+  }
+}
+
+export async function publishSessionTemplate(
+  sessionTemplateId: string,
+): Promise<SessionTemplateVersion> {
+  const res = await fetch(`/api/session-templates/${sessionTemplateId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  })
+  if (res.status === 409) {
+    const body = (await res.json()) as { message: string }
+    throw new CannotPublishSessionTemplateError(body.message)
+  }
+  return json<SessionTemplateVersion>(res)
+}
+
+export function getSessionTemplateActiveVersion(
+  sessionTemplateId: string,
+): Promise<SessionTemplateVersion | null> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/active`).then(
+    (res) => json<SessionTemplateVersion | null>(res),
+  )
+}
+
+// The template's published version history, most recent first (US-8.7).
+export function listSessionTemplateVersions(
+  sessionTemplateId: string,
+): Promise<SessionTemplateVersionSummary[]> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/versions`).then(
+    (res) => json<SessionTemplateVersionSummary[]>(res),
+  )
+}
+
+// One specific past version, with the exact module versions it snapshotted
+// (US-8.8).
+export function getSessionTemplateVersion(
+  sessionTemplateId: string,
+  versionId: string,
+): Promise<SessionTemplateVersion | null> {
+  return fetch(
+    `/api/session-templates/${sessionTemplateId}/versions/${versionId}`,
+  ).then((res) => json<SessionTemplateVersion | null>(res))
+}
+
+export async function submitSessionTemplate(
+  sessionTemplateId: string,
+  data: Record<string, unknown>,
+): Promise<SessionTemplateSubmission> {
+  const res = await fetch(
+    `/api/session-templates/${sessionTemplateId}/submissions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data }),
+    },
+  )
+  if (res.status === 400) {
+    const body = (await res.json()) as SubmissionValidationError
+    throw new SubmissionRejectedError(body.missingFieldIds)
+  }
+  return json<SessionTemplateSubmission>(res)
 }

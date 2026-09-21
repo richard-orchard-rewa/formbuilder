@@ -74,8 +74,19 @@ test("create, build, and publish a module", async ({ page, request }) => {
   const active = (await activeResponse.json()) as { status: string }
   expect(active.status).toBe("published")
 
-  // Archive (US-7.4): the module drops out of the (non-archived) list.
   await page.getByRole("button", { name: "← Back" }).click()
+
+  // Search (US-7.4): substring, case-insensitive, with a no-matches state.
+  await expect(moduleRow).toBeVisible()
+  await page.getByLabel("Search").fill(moduleName.slice(0, 8).toUpperCase())
+  await expect(moduleRow).toBeVisible()
+  await page.getByLabel("Search").fill(`no such module ${Date.now()}`)
+  await expect(page.getByText("No matches.")).toBeVisible()
+  await expect(moduleRow).not.toBeVisible()
+  await page.getByLabel("Search").fill("")
+
+  // Archive (US-7.4): the module drops out of the (non-archived) list.
+  await expect(moduleRow).toBeVisible()
   await moduleRow.getByRole("button", { name: "Archive" }).click()
   await expect(moduleRow).not.toBeVisible()
 })

@@ -104,4 +104,41 @@ export type {
   ModuleVersion,
   PublishModuleVersion,
 } from "./schemas/module-version.js"
+export {
+  CreateSessionTemplateSchema,
+  SessionTemplateSummarySchema,
+  SessionTemplateListSchema,
+} from "./schemas/session-template.js"
+export type {
+  CreateSessionTemplate,
+  SessionTemplateSummary,
+} from "./schemas/session-template.js"
+export {
+  SessionTemplateModuleSchema,
+  SessionTemplateModulesSchema,
+  SetSessionTemplateModulesSchema,
+  SessionTemplateSchemaSchema,
+  SessionTemplateModuleSnapshotSchema,
+  SessionTemplateVersionSchema,
+  PublishSessionTemplateSchema,
+  SessionTemplateVersionSummarySchema,
+  SessionTemplateVersionHistorySchema,
+} from "./schemas/session-template-version.js"
+export type {
+  SessionTemplateModule,
+  SetSessionTemplateModules,
+  SessionTemplateSchema,
+  SessionTemplateModuleSnapshot,
+  SessionTemplateVersion,
+  PublishSessionTemplate,
+  SessionTemplateVersionSummary,
+} from "./schemas/session-template-version.js"
+export {
+  SubmitSessionTemplateSchema,
+  SessionTemplateSubmissionSchema,
+} from "./schemas/session-template-submission.js"
+export type {
+  SubmitSessionTemplate,
+  SessionTemplateSubmission,
+} from "./schemas/session-template-submission.js"
 export { buildSubmissionSchema, toJsonSchema } from "./json-schema.js"

@@ -71,6 +71,9 @@ export function moduleBuilderPlugin(
         return reply.code(201).send({
           ...row,
           archivedAt: row.archivedAt?.toISOString() ?? null,
+          // A module is always created with no published version yet
+          // (US-7.1) -- publishing is a separate step (US-7.3).
+          hasPublishedVersion: false,
           createdAt: row.createdAt.toISOString(),
         })
       },
@@ -87,9 +90,11 @@ export function moduleBuilderPlugin(
       async (request, reply) => {
         try {
           const row = await service.archiveModule(request.params.moduleId)
+          const active = await versionsService.getActiveVersion(row.id)
           return reply.code(200).send({
             ...row,
             archivedAt: row.archivedAt?.toISOString() ?? null,
+            hasPublishedVersion: active !== null,
             createdAt: row.createdAt.toISOString(),
           })
         } catch (error) {
