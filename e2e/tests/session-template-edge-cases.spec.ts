@@ -46,9 +46,7 @@ test("refuses to publish a session template with no modules", async ({ page }) =
     page.getByRole("button", { name: "Publish" }).click(),
   ])
   expect(publishResponse.status()).toBe(409)
-  await expect(
-    page.getByText("This session template has no modules to publish"),
-  ).toBeVisible()
+  await expect(page.getByText(/has no modules to publish/)).toBeVisible()
 })
 
 test("tells a respondent a session template hasn't been published yet", async ({
