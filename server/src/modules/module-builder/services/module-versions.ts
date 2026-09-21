@@ -18,4 +18,8 @@ export class ModuleVersionsService {
   getActiveVersion(moduleId: string) {
     return this.repo.getActiveVersion(moduleId)
   }
+
+  getVersionById(versionId: string) {
+    return this.repo.getVersionById(versionId)
+  }
 }

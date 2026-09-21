@@ -45,4 +45,10 @@ export interface ModuleVersionsRepository {
   // nothing has been published yet. Throws if the module itself doesn't
   // exist.
   getActiveVersion(moduleId: string): Promise<ModuleVersionRow | null>
+
+  // Returns one specific version by id (from any module), or null if it
+  // doesn't exist. Used by session templates (Epic US-8) to resolve a
+  // snapshotted module version -- possibly since superseded -- rather than
+  // "the draft" or "the active version".
+  getVersionById(versionId: string): Promise<ModuleVersionRow | null>
 }

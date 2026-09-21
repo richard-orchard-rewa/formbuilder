@@ -10,6 +10,7 @@ const modules: ModuleSummary[] = [
     name: "Attendance",
     description: null,
     archivedAt: null,
+    hasPublishedVersion: false,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -17,6 +18,7 @@ const modules: ModuleSummary[] = [
     name: "Counselling notes",
     description: null,
     archivedAt: null,
+    hasPublishedVersion: true,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ]

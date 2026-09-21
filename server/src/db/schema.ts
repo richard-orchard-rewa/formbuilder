@@ -189,6 +189,114 @@ export const moduleVersions = pgTable(
   ],
 )
 
+// A session template is a new top-level entity (US-8.1) -- a named,
+// ordered composition of modules, distinct from a form. Unlike forms/
+// modules, it has no field-level draft schema of its own to edit: what an
+// admin edits is *which modules, in what order* (session_template_modules
+// below), and publishing snapshots that into an immutable version.
+export const sessionTemplates = pgTable("session_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+// The template's current, always-mutable composition (US-8.2): which
+// modules it references and in what order. Resolving this always uses each
+// module's *current* published version -- the "live reference" decision in
+// docs/proposals/modules-and-session-templates.md -- so improving a module
+// updates every draft template that uses it. `unique(sessionTemplateId,
+// moduleId)` enforces one instance of a module per template.
+export const sessionTemplateModules = pgTable(
+  "session_template_modules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionTemplateId: uuid("session_template_id")
+      .notNull()
+      .references(() => sessionTemplates.id, { onDelete: "cascade" }),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => modules.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("session_template_modules_template_id_module_id_key").on(
+      table.sessionTemplateId,
+      table.moduleId,
+    ),
+  ],
+)
+
+// Publishing a session template (US-8.4) snapshots which module *version*
+// each reference pointed to at that moment -- unlike form_versions/
+// module_versions, a row here is only ever created already "published"
+// (there's no field schema to hold in draft beforehand), so there's no
+// "draft" status and no published-at-matches-status check needed.
+export const sessionTemplateVersions = pgTable(
+  "session_template_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionTemplateId: uuid("session_template_id")
+      .notNull()
+      .references(() => sessionTemplates.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    // Ordered snapshot: [{ moduleId, moduleVersionId }, ...]. Kept
+    // denormalized (not a join table) so a past version's exact composition
+    // is preserved even if session_template_modules later changes.
+    modules: jsonb("modules").notNull(),
+    status: text("status", { enum: ["published", "superseded"] })
+      .notNull()
+      .default("published"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedBy: text("published_by"),
+  },
+  (table) => [
+    unique("session_template_versions_template_id_version_key").on(
+      table.sessionTemplateId,
+      table.version,
+    ),
+    uniqueIndex("session_template_versions_one_published_per_template")
+      .on(table.sessionTemplateId)
+      .where(sql`${table.status} = 'published'`),
+  ],
+)
+
+// A respondent's fill-out of a published session template (US-8.5),
+// mirroring `submissions` but against a session template version instead
+// of a form version. No draft-save/migration support -- out of scope for
+// Epic US-8 (see docs/proposals/modules-and-session-templates.md).
+export const sessionTemplateSubmissions = pgTable("session_template_submissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionTemplateId: uuid("session_template_id")
+    .notNull()
+    .references(() => sessionTemplates.id, { onDelete: "restrict" }),
+  sessionTemplateVersionId: uuid("session_template_version_id")
+    .notNull()
+    .references(() => sessionTemplateVersions.id, { onDelete: "restrict" }),
+  data: jsonb("data").notNull(),
+  submittedBy: text("submitted_by"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  submittedAt: timestamp("submitted_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
 // An immutable audit trail of edits made to a submitted submission (US-5.2,
 // US-6.1): one row per edit, capturing a full snapshot of the row as it
 // stood immediately before the edit applied. Populated by a Postgres

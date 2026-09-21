@@ -168,4 +168,12 @@ export class DrizzleModuleVersionsRepository
 
     return null
   }
+
+  async getVersionById(versionId: string): Promise<ModuleVersionRow | null> {
+    const [version] = await this.db
+      .select(VERSION_COLUMNS)
+      .from(moduleVersions)
+      .where(eq(moduleVersions.id, versionId))
+    return version ?? null
+  }
 }

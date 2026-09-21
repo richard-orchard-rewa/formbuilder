@@ -6,6 +6,7 @@ import {
 import type { Logger } from "pino"
 import { formBuilderPlugin } from "./modules/form-builder/routes.js"
 import { moduleBuilderPlugin } from "./modules/module-builder/routes.js"
+import { sessionTemplatesPlugin } from "./modules/session-templates/routes.js"
 import { submissionsPlugin } from "./modules/submissions/routes.js"
 import type { AppDeps } from "./deps.js"
 
@@ -20,6 +21,13 @@ export function buildApp(deps: AppDeps, logger: Logger) {
   )
   app.register(
     moduleBuilderPlugin(deps.moduleBuilderService, deps.moduleVersionsService),
+  )
+  app.register(
+    sessionTemplatesPlugin(
+      deps.sessionTemplatesService,
+      deps.sessionTemplateVersionsService,
+      deps.sessionTemplateSubmissionsService,
+    ),
   )
   app.register(submissionsPlugin(deps.submissionsService))
 
