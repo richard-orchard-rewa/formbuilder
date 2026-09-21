@@ -115,3 +115,50 @@ describe("SessionTemplateSubmissionsService.submit (US-8.5)", () => {
     ])
   })
 })
+
+describe("SessionTemplateSubmissionsService.list / getDetail", () => {
+  it("lists only submissions captured against the given template", async () => {
+    const { templatesRepo, versions, submissions } = buildServices()
+    templatesRepo.compositions.set("template-1", [
+      { moduleId: "mod-a", name: "Module A", position: 0 },
+    ])
+    await versions.publish("template-1")
+    await submissions.submit("template-1", { name: "Ada Lovelace" })
+    await submissions.submit("template-1", { name: "Grace Hopper" })
+
+    const list = await submissions.list("template-1")
+
+    expect(list).toHaveLength(2)
+    expect(list.every((s) => s.sessionTemplateVersionNumber === 1)).toBe(true)
+  })
+
+  it("resolves a submission's detail with the exact schema/version it was captured against", async () => {
+    const { templatesRepo, versions, submissions } = buildServices()
+    templatesRepo.compositions.set("template-1", [
+      { moduleId: "mod-a", name: "Module A", position: 0 },
+    ])
+    await versions.publish("template-1")
+    const created = await submissions.submit("template-1", {
+      name: "Ada Lovelace",
+    })
+
+    const detail = await submissions.getDetail("template-1", created.id)
+
+    expect(detail?.sessionTemplateVersionNumber).toBe(1)
+    expect(detail?.schema.fields.map((f) => f.id)).toEqual(["name", "notes"])
+    expect(detail?.data).toEqual({ name: "Ada Lovelace" })
+  })
+
+  it("returns null for a submission id that belongs to a different template", async () => {
+    const { templatesRepo, versions, submissions } = buildServices()
+    templatesRepo.compositions.set("template-1", [
+      { moduleId: "mod-a", name: "Module A", position: 0 },
+    ])
+    await versions.publish("template-1")
+    const created = await submissions.submit("template-1", {
+      name: "Ada Lovelace",
+    })
+
+    expect(await submissions.getDetail("template-2", created.id)).toBeNull()
+  })
+})

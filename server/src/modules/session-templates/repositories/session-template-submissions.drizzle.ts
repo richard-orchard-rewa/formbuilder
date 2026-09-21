@@ -1,9 +1,14 @@
+import { and, desc, eq } from "drizzle-orm"
 import type { Db } from "../../../db/client.js"
-import { sessionTemplateSubmissions } from "../../../db/schema.js"
+import {
+  sessionTemplateSubmissions,
+  sessionTemplateVersions,
+} from "../../../db/schema.js"
 import type {
   CreateSessionTemplateSubmissionInput,
   SessionTemplateSubmissionRow,
   SessionTemplateSubmissionsRepository,
+  SessionTemplateSubmissionSummaryRow,
 } from "./session-template-submissions.js"
 
 const SUBMISSION_COLUMNS = {
@@ -33,5 +38,43 @@ export class DrizzleSessionTemplateSubmissionsRepository
       })
       .returning(SUBMISSION_COLUMNS)
     return row
+  }
+
+  async list(
+    sessionTemplateId: string,
+  ): Promise<SessionTemplateSubmissionSummaryRow[]> {
+    return this.db
+      .select({
+        id: sessionTemplateSubmissions.id,
+        sessionTemplateVersionNumber: sessionTemplateVersions.version,
+        submittedBy: sessionTemplateSubmissions.submittedBy,
+        submittedAt: sessionTemplateSubmissions.submittedAt,
+      })
+      .from(sessionTemplateSubmissions)
+      .innerJoin(
+        sessionTemplateVersions,
+        eq(
+          sessionTemplateSubmissions.sessionTemplateVersionId,
+          sessionTemplateVersions.id,
+        ),
+      )
+      .where(eq(sessionTemplateSubmissions.sessionTemplateId, sessionTemplateId))
+      .orderBy(desc(sessionTemplateSubmissions.submittedAt))
+  }
+
+  async getById(
+    sessionTemplateId: string,
+    submissionId: string,
+  ): Promise<SessionTemplateSubmissionRow | null> {
+    const [row] = await this.db
+      .select(SUBMISSION_COLUMNS)
+      .from(sessionTemplateSubmissions)
+      .where(
+        and(
+          eq(sessionTemplateSubmissions.id, submissionId),
+          eq(sessionTemplateSubmissions.sessionTemplateId, sessionTemplateId),
+        ),
+      )
+    return row ?? null
   }
 }

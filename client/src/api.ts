@@ -13,6 +13,8 @@ import type {
   SessionTemplateModule,
   SessionTemplateSchema,
   SessionTemplateSubmission,
+  SessionTemplateSubmissionDetail,
+  SessionTemplateSubmissionSummary,
   SessionTemplateSummary,
   SessionTemplateVersion,
   SessionTemplateVersionSummary,
@@ -502,4 +504,25 @@ export async function submitSessionTemplate(
     throw new SubmissionRejectedError(body.missingFieldIds)
   }
   return json<SessionTemplateSubmission>(res)
+}
+
+// A session template's submissions for review, most recent first.
+export function listSessionTemplateSubmissions(
+  sessionTemplateId: string,
+): Promise<SessionTemplateSubmissionSummary[]> {
+  return fetch(`/api/session-templates/${sessionTemplateId}/submissions`).then(
+    (res) => json<SessionTemplateSubmissionSummary[]>(res),
+  )
+}
+
+// One submission plus the exact schema (and version number) it was
+// captured against, so it renders correctly even if the template has
+// since been republished with a different composition.
+export function getSessionTemplateSubmission(
+  sessionTemplateId: string,
+  submissionId: string,
+): Promise<SessionTemplateSubmissionDetail> {
+  return fetch(
+    `/api/session-templates/${sessionTemplateId}/submissions/${submissionId}`,
+  ).then((res) => json<SessionTemplateSubmissionDetail>(res))
 }

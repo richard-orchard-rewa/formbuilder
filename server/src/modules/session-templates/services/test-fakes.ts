@@ -211,4 +211,29 @@ export class FakeSessionTemplateSubmissionsRepository
       submittedAt: new Date(),
     }
   }
+
+  async list(sessionTemplateId: string) {
+    return this.created
+      .filter((c) => c.sessionTemplateId === sessionTemplateId)
+      .map((c, index) => ({
+        id: `sub-${index + 1}`,
+        sessionTemplateVersionNumber: 1,
+        submittedBy: c.submittedBy ?? null,
+        submittedAt: new Date(),
+      }))
+  }
+
+  async getById(sessionTemplateId: string, submissionId: string) {
+    const index = Number(submissionId.replace("sub-", "")) - 1
+    const created = this.created[index]
+    if (!created || created.sessionTemplateId !== sessionTemplateId) return null
+    return {
+      id: submissionId,
+      sessionTemplateId: created.sessionTemplateId,
+      sessionTemplateVersionId: created.sessionTemplateVersionId,
+      data: created.data,
+      submittedBy: created.submittedBy ?? null,
+      submittedAt: new Date(),
+    }
+  }
 }

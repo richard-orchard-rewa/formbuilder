@@ -10,6 +10,7 @@ interface SessionTemplatesListProps {
   onBack: () => void
   onBuild: (sessionTemplate: SessionTemplateSummary) => void
   onFill: (sessionTemplate: SessionTemplateSummary) => void
+  onSubmissions: (sessionTemplate: SessionTemplateSummary) => void
 }
 
 type Status = "loading" | "ready" | "error"
@@ -20,6 +21,7 @@ export function SessionTemplatesList({
   onBack,
   onBuild,
   onFill,
+  onSubmissions,
 }: SessionTemplatesListProps) {
   const [sessionTemplates, setSessionTemplates] = useState<
     SessionTemplateSummary[]
@@ -95,6 +97,9 @@ export function SessionTemplatesList({
               </button>
               <button type="button" onClick={() => onFill(template)}>
                 Fill out
+              </button>
+              <button type="button" onClick={() => onSubmissions(template)}>
+                Submissions
               </button>
               <button type="button" onClick={() => handleArchive(template.id)}>
                 Archive

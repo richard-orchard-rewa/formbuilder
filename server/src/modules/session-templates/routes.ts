@@ -7,6 +7,8 @@ import {
   SessionTemplateListSchema,
   SessionTemplateModulesSchema,
   SessionTemplateSchemaSchema,
+  SessionTemplateSubmissionDetailSchema,
+  SessionTemplateSubmissionListSchema,
   SessionTemplateSubmissionSchema,
   SessionTemplateSummarySchema,
   SessionTemplateVersionHistorySchema,
@@ -37,6 +39,9 @@ import type { SessionTemplateSubmissionRow } from "./repositories/session-templa
 const SessionTemplateParamsSchema = z.object({ sessionTemplateId: z.string() })
 const VersionParamsSchema = SessionTemplateParamsSchema.extend({
   versionId: z.string(),
+})
+const SubmissionParamsSchema = SessionTemplateParamsSchema.extend({
+  submissionId: z.string(),
 })
 const ListQuerySchema = z.object({ q: z.string().optional() })
 const ErrorResponseSchema = z.object({ message: z.string() })
@@ -355,6 +360,54 @@ export function sessionTemplatesPlugin(
           }
           throw error
         }
+      },
+    )
+
+    typed.get(
+      "/api/session-templates/:sessionTemplateId/submissions",
+      {
+        schema: {
+          params: SessionTemplateParamsSchema,
+          response: { 200: SessionTemplateSubmissionListSchema },
+        },
+      },
+      async (request) => {
+        const rows = await submissionsService.list(
+          request.params.sessionTemplateId,
+        )
+        return rows.map((row) => ({
+          ...row,
+          submittedAt: row.submittedAt.toISOString(),
+        }))
+      },
+    )
+
+    typed.get(
+      "/api/session-templates/:sessionTemplateId/submissions/:submissionId",
+      {
+        schema: {
+          params: SubmissionParamsSchema,
+          response: {
+            200: SessionTemplateSubmissionDetailSchema,
+            404: ErrorResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const detail = await submissionsService.getDetail(
+          request.params.sessionTemplateId,
+          request.params.submissionId,
+        )
+        if (!detail) {
+          return reply
+            .code(404)
+            .send({ message: "No submission found with that id" })
+        }
+        return reply.code(200).send({
+          ...detail,
+          data: detail.data as Record<string, unknown>,
+          submittedAt: detail.submittedAt.toISOString(),
+        })
       },
     )
   }
