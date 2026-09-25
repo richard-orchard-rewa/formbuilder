@@ -1,4 +1,11 @@
 import type {
+  AnchorContext,
+  BindingAnchor,
+  BindingDescriptor,
+  BindingOptions,
+  ClientAnchor,
+  ResolveResponse,
+  SubmissionBindingContext,
   Field,
   FieldMapping,
   FormSchema,
@@ -105,11 +112,12 @@ export async function submitForm(
   formId: string,
   data: Record<string, unknown>,
   submissionId?: string,
+  binding?: SubmissionBindingContext,
 ): Promise<Submission> {
   const res = await fetch(`/api/forms/${formId}/submissions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data, submissionId }),
+    body: JSON.stringify({ data, submissionId, binding }),
   })
   if (res.status === 400) {
     const body = (await res.json()) as SubmissionValidationError
@@ -525,4 +533,46 @@ export function getSessionTemplateSubmission(
   return fetch(
     `/api/session-templates/${sessionTemplateId}/submissions/${submissionId}`,
   ).then((res) => json<SessionTemplateSubmissionDetail>(res))
+}
+
+// --- Data Binding Service (docs/proposals/databound-fields.md), relayed
+// through form-builder's own server. ---
+
+// The dictionary of fields an admin can bind a control to.
+export function listBindings(
+  anchor?: BindingAnchor,
+): Promise<BindingDescriptor[]> {
+  const qs = anchor ? `?anchor=${anchor}` : ""
+  return fetch(`/api/bindings${qs}`).then((res) =>
+    json<BindingDescriptor[]>(res),
+  )
+}
+
+export function getBindingOptions(key: string): Promise<BindingOptions> {
+  return fetch(`/api/bindings/${encodeURIComponent(key)}/options`).then(
+    (res) => json<BindingOptions>(res),
+  )
+}
+
+// Finds the client a form's bound fields should read from/write to, by
+// client number. Resolves null when there's no (unambiguous) match.
+export async function findClient(
+  clientNumber: string,
+): Promise<ClientAnchor | null> {
+  const res = await fetch(
+    `/api/anchors/client?clientNumber=${encodeURIComponent(clientNumber)}`,
+  )
+  if (res.status === 404) return null
+  return json<ClientAnchor>(res)
+}
+
+export function resolveBindings(
+  anchor: AnchorContext,
+  bindings: string[],
+): Promise<ResolveResponse> {
+  return fetch("/api/bindings/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ anchor, bindings }),
+  }).then((res) => json<ResolveResponse>(res))
 }

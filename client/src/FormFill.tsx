@@ -1,16 +1,27 @@
 import { useEffect, useMemo, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
 import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
-import type { FormVersion } from "shared"
 import {
+  isBoundField,
+  type BindingCommitResult,
+  type BoundField,
+  type BoundValues,
+  type ClientAnchor,
+  type FieldOption,
+  type FormVersion,
+} from "shared"
+import {
+  findClient,
   getActiveVersion,
   getDraftSubmission,
+  resolveBindings,
   saveDraftSubmission,
   submitForm,
   SubmissionRejectedError,
 } from "./api.js"
 import { formCells } from "./schema/formCells.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
+import { useBindingOptions } from "./schema/useBindingOptions.js"
 
 interface FormFillProps {
   formId: string
@@ -69,6 +80,16 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submissionId, setSubmissionId] = useState<string | null>(null)
   const [draftMessage, setDraftMessage] = useState<string | null>(null)
+  // Data-bound fields (docs/proposals/databound-fields.md): the client the
+  // form is being filled for, what their bound values were when loaded
+  // (so a change made in ICIS since isn't silently overwritten), and what
+  // happened to each bound value on submit.
+  const [client, setClient] = useState<ClientAnchor | null>(null)
+  const [baseline, setBaseline] = useState<BoundValues | undefined>()
+  const [bindingResults, setBindingResults] = useState<Record<
+    string,
+    BindingCommitResult
+  > | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -110,10 +131,32 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
     }
   }, [formId])
 
-  const { schema, uiSchema } = useMemo(
-    () => toJsonSchema(version?.schema ?? { fields: [] }),
+  const boundFields = useMemo(
+    () => (version?.schema.fields ?? []).filter(isBoundField),
     [version],
   )
+  const bindingOptions = useBindingOptions(version?.schema.fields ?? [])
+  const { schema, uiSchema } = useMemo(
+    () => toJsonSchema(version?.schema ?? { fields: [] }, { bindingOptions }),
+    [version, bindingOptions],
+  )
+
+  // Selecting a client replaces every bound field's value with that
+  // client's current one -- the form is now "about" them.
+  async function handleClientLoaded(found: ClientAnchor) {
+    const { values } = await resolveBindings({ client: found.id }, [
+      ...new Set(boundFields.map((field) => field.binding.key)),
+    ])
+    const next = { ...data }
+    for (const field of boundFields) {
+      const value = values[field.binding.key]
+      if (value === null || value === undefined) delete next[field.id]
+      else next[field.id] = value
+    }
+    setClient(found)
+    setBaseline(values)
+    setData(next)
+  }
 
   async function handleSaveDraft() {
     setSubmitError(null)
@@ -139,8 +182,14 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
     }
     setSubmitError(null)
     try {
-      await submitForm(formId, data, submissionId ?? undefined)
+      const submission = await submitForm(
+        formId,
+        data,
+        submissionId ?? undefined,
+        client ? { anchor: { client: client.id }, baseline } : undefined,
+      )
       clearSavedDraftId(formId)
+      setBindingResults(submission.bindingResults ?? null)
       setStatus("submitted")
     } catch (error) {
       if (error instanceof SubmissionRejectedError) {
@@ -166,11 +215,21 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
         <p role="alert">This form hasn't been published yet.</p>
       )}
       {status === "submitted" && <p>Thanks — your response was recorded.</p>}
+      {status === "submitted" && bindingResults && (
+        <BindingResultsSummary
+          fields={boundFields}
+          results={bindingResults}
+          options={bindingOptions}
+        />
+      )}
       {submitError && <p role="alert">{submitError}</p>}
       {draftMessage && <p>{draftMessage}</p>}
 
       {status === "ready" && version && (
         <>
+          {boundFields.length > 0 && (
+            <ClientPicker client={client} onLoaded={handleClientLoaded} />
+          )}
           <JsonForms
             schema={schema}
             uischema={uiSchema}
@@ -195,5 +254,139 @@ export function FormFill({ formId, formName, onBack }: FormFillProps) {
         </>
       )}
     </main>
+  )
+}
+
+// Chooses which client a form's data-bound fields read from and write to.
+// In the real system the embedding session-notes app supplies this
+// (requirements §9); the prototype asks for an ICIS client number.
+function ClientPicker({
+  client,
+  onLoaded,
+}: {
+  client: ClientAnchor | null
+  onLoaded: (client: ClientAnchor) => Promise<void>
+}) {
+  const [clientNumber, setClientNumber] = useState("")
+  const [state, setState] = useState<
+    "idle" | "loading" | "not-found" | "error"
+  >("idle")
+
+  async function load() {
+    setState("loading")
+    try {
+      const found = await findClient(clientNumber.trim())
+      if (!found) {
+        setState("not-found")
+        return
+      }
+      await onLoaded(found)
+      setState("idle")
+    } catch {
+      setState("error")
+    }
+  }
+
+  return (
+    <section className="client-picker" aria-label="Client">
+      {client ? (
+        <p className="client-picker__current">
+          Filling in for <strong>{client.displayName}</strong>
+          {client.clientNumber && <> ({client.clientNumber})</>}
+        </p>
+      ) : (
+        <p className="client-picker__current">
+          Some fields on this form are linked to a client record. Load a
+          client to fill them in from ICIS.
+        </p>
+      )}
+      <form
+        className="client-picker__form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (clientNumber.trim()) void load()
+        }}
+      >
+        <label>
+          ICIS client number
+          <input
+            type="text"
+            inputMode="numeric"
+            value={clientNumber}
+            onChange={(event) => setClientNumber(event.target.value)}
+          />
+        </label>
+        <button type="submit" disabled={state === "loading"}>
+          {state === "loading"
+            ? "Loading…"
+            : client
+              ? "Change client"
+              : "Load client"}
+        </button>
+      </form>
+      {state === "not-found" && (
+        <p role="alert">No client found with that number.</p>
+      )}
+      {state === "error" && (
+        <p role="alert">Couldn't reach the Data Binding Service.</p>
+      )}
+    </section>
+  )
+}
+
+const RESULT_TEXT: Record<BindingCommitResult["status"], string> = {
+  written: "Saved to ICIS",
+  unchanged: "Unchanged",
+  conflict: "Not saved — changed in ICIS since the form was opened",
+  readOnly: "Display only",
+  failed: "Not saved",
+  skipped: "Not sent",
+}
+
+// After submit: what happened to each data-bound value. The submission
+// itself is always recorded; a bound value that couldn't be written is
+// reported here rather than failing the form.
+function BindingResultsSummary({
+  fields,
+  results,
+  options,
+}: {
+  fields: BoundField[]
+  results: Record<string, BindingCommitResult>
+  options: Record<string, FieldOption[]>
+}) {
+  const labelFor = (key: string, value: string | null | undefined) =>
+    options[key]?.find((option) => option.value === value)?.label ??
+    value ??
+    "blank"
+
+  return (
+    <section className="binding-results" aria-label="Client record updates">
+      <h2>Client record</h2>
+      <ul>
+        {fields
+          .filter((field) => results[field.binding.key])
+          .map((field) => {
+            const result = results[field.binding.key]
+            return (
+              <li
+                key={field.id}
+                className={`binding-results__item binding-results__item--${result.status}`}
+              >
+                <strong>{field.label}:</strong> {RESULT_TEXT[result.status]}
+                {result.status === "conflict" && (
+                  <> (ICIS now has “{labelFor(field.binding.key, result.current)}”)</>
+                )}
+                {result.message && result.status !== "conflict" && (
+                  <span className="binding-results__message">
+                    {" "}
+                    — {result.message}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+      </ul>
+    </section>
   )
 }

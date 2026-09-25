@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { FIELD_TYPE_LABELS } from "shared"
-import type { FieldMapping, MigrationPlan } from "shared"
+import type { FieldMapping, MigrationFieldSummary, MigrationPlan } from "shared"
 import {
   getActiveVersion,
   getMigrationPlan,
@@ -34,6 +34,10 @@ type Status = "loading" | "ready" | "error" | "no-target"
 // another appearing). Whatever isn't mapped, or can't be safely converted
 // once it is, is never silently discarded -- the server keeps it as legacy
 // data on the migrated submission.
+function typeLabel(type: MigrationFieldSummary["type"]) {
+  return type === "bound" ? "Data bound" : FIELD_TYPE_LABELS[type]
+}
+
 export function MigrationPlanner({
   formId,
   formName,
@@ -170,7 +174,7 @@ export function MigrationPlanner({
               <ul>
                 {plan.autoMappedFields.map((field) => (
                   <li key={field.id}>
-                    {field.label} ({FIELD_TYPE_LABELS[field.type]})
+                    {field.label} ({typeLabel(field.type)})
                   </li>
                 ))}
               </ul>
@@ -186,7 +190,7 @@ export function MigrationPlanner({
               const decision = decisions[field.id] ?? { action: "drop" as const }
               return (
                 <label key={field.id} className="field-inspector__field">
-                  {field.label} ({FIELD_TYPE_LABELS[field.type]})
+                  {field.label} ({typeLabel(field.type)})
                   <select
                     value={
                       decision.action === "map" ? decision.targetFieldId : ""
@@ -204,7 +208,7 @@ export function MigrationPlanner({
                     <option value="">Drop (keep as legacy data)</option>
                     {plan.targetFields.map((target) => (
                       <option key={target.id} value={target.id}>
-                        Map to "{target.label}" ({FIELD_TYPE_LABELS[target.type]})
+                        Map to "{target.label}" ({typeLabel(target.type)})
                       </option>
                     ))}
                   </select>

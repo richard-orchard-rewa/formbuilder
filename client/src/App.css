@@ -444,3 +444,119 @@ form[aria-label="Filter submissions"] label {
   font: var(--fw-medium) 13px var(--font-sans);
   color: var(--fg-on-surface-muted);
 }
+
+/* --- Data-bound fields (docs/proposals/databound-fields.md) --- */
+
+.field-palette h2 + ul + h2 {
+  margin-top: var(--s-6);
+}
+
+.field-palette__item--bound {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-2);
+  background: var(--rawa-aqua-pale);
+  border-left: 3px solid var(--rawa-aqua);
+}
+
+.field-palette__badge {
+  font: var(--fw-bold) var(--fs-tag-sm) / 1 var(--font-sans);
+  color: var(--fg-on-surface-muted);
+}
+
+.field-palette__note {
+  font-size: var(--fs-body-sm);
+  color: var(--fg-on-surface-muted);
+}
+
+.field-inspector__binding {
+  margin: var(--s-4) 0;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  background: var(--rawa-aqua-pale);
+  font-size: var(--fs-body-sm);
+  color: var(--fg-on-surface-body);
+}
+
+.field-inspector__binding dt {
+  font-weight: var(--fw-bold);
+  color: var(--fg-on-surface);
+  margin-top: var(--s-2);
+}
+
+.field-inspector__binding dt:first-child {
+  margin-top: 0;
+}
+
+.field-inspector__binding dd {
+  margin: 0;
+}
+
+.field-inspector__binding-note {
+  margin-top: var(--s-2) !important;
+  color: var(--fg-on-surface-muted);
+}
+
+.client-picker {
+  margin-bottom: var(--s-6);
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--rawa-aqua-pale);
+  border-left: 3px solid var(--rawa-aqua);
+}
+
+.client-picker__current {
+  margin: 0 0 var(--s-3);
+}
+
+.client-picker__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+
+.client-picker__form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-weight: var(--fw-semibold);
+}
+
+.binding-results {
+  margin-top: var(--s-4);
+}
+
+.binding-results h2 {
+  font: var(--fw-extrabold) var(--fs-tag-sm) / 1 var(--font-sans);
+  letter-spacing: var(--tracking-tag);
+  text-transform: uppercase;
+  color: var(--fg-on-surface-muted);
+}
+
+.binding-results ul {
+  list-style: none;
+  padding: 0;
+}
+
+.binding-results__item {
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-2);
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--rawa-grey-300);
+  background: var(--bg-surface-2);
+}
+
+.binding-results__item--written {
+  border-left-color: var(--rawa-success);
+}
+
+.binding-results__item--conflict,
+.binding-results__item--failed {
+  border-left-color: var(--rawa-error);
+}
+
+.binding-results__message {
+  color: var(--fg-on-surface-muted);
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { Field } from "shared"
+import type { BoundField, Field } from "shared"
 
 interface FieldInspectorProps {
   field: Field | null
@@ -81,12 +81,20 @@ export function FieldInspector({
         <input
           type="checkbox"
           checked={field.required}
+          // A bound field's dictionary entry says whether "required" is the
+          // builder's to set -- never for a read-only value.
+          disabled={
+            field.type === "bound" &&
+            !field.binding.overridable.includes("required")
+          }
           onChange={(event) =>
             onChange({ ...field, required: event.target.checked })
           }
         />
         Required
       </label>
+
+      {field.type === "bound" && <BoundFieldDetails field={field} />}
 
       {field.type === "text" && (
         <>
@@ -267,6 +275,34 @@ export function FieldInspector({
         Delete field
       </button>
     </aside>
+  )
+}
+
+// What a data-bound field is bound to, and what the Data Binding Service's
+// dictionary fixes about it -- shown rather than editable, since those
+// properties aren't the builder's to change (requirements §7).
+function BoundFieldDetails({ field }: { field: BoundField }) {
+  const { binding } = field
+  return (
+    <dl className="field-inspector__binding">
+      <dt>Bound to</dt>
+      <dd>
+        <code>{binding.key}</code> (v{binding.version})
+      </dd>
+      <dt>Control</dt>
+      <dd>
+        {binding.control.kind === "lookup"
+          ? "Dropdown, options from the source system"
+          : `Text${binding.control.maxLength ? `, up to ${binding.control.maxLength} characters` : ""}`}
+      </dd>
+      <dt>Editable on the form</dt>
+      <dd>
+        {binding.access === "read"
+          ? "No — displays the record's value"
+          : "Yes — changes are saved back to the record"}
+      </dd>
+      <dd className="field-inspector__binding-note">{binding.description}</dd>
+    </dl>
   )
 }
 

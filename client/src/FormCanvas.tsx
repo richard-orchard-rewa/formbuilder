@@ -1,6 +1,10 @@
 import { useRef, useState } from "react"
-import { FIELD_TYPE_LABELS, FieldTypeSchema, type Field, type FieldType } from "shared"
-import { FIELD_REORDER_DRAG_KEY, FIELD_TYPE_DRAG_KEY } from "./dnd.js"
+import { FieldTypeSchema, fieldTypeLabel, type Field, type FieldType } from "shared"
+import {
+  FIELD_BINDING_DRAG_KEY,
+  FIELD_REORDER_DRAG_KEY,
+  FIELD_TYPE_DRAG_KEY,
+} from "./dnd.js"
 
 interface FormCanvasProps {
   fields: Field[]
@@ -8,6 +12,9 @@ interface FormCanvasProps {
   onDrop: (type: FieldType, index: number) => void
   onReorder: (fieldId: string, index: number) => void
   onSelect: (id: string) => void
+  // Adding a data-bound field from the palette's DBS section. Builders
+  // that don't offer bound fields leave it unset, and such drops are ignored.
+  onDropBinding?: (bindingKey: string, index: number) => void
 }
 
 // The drop target for the field palette (US-2.1) and for reordering fields
@@ -21,6 +28,7 @@ export function FormCanvas({
   onDrop,
   onReorder,
   onSelect,
+  onDropBinding,
 }: FormCanvasProps) {
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -42,7 +50,11 @@ export function FormCanvas({
   }
 
   function isNewFieldDrag(event: React.DragEvent) {
-    return event.dataTransfer.types.includes(FIELD_TYPE_DRAG_KEY)
+    return (
+      event.dataTransfer.types.includes(FIELD_TYPE_DRAG_KEY) ||
+      (onDropBinding !== undefined &&
+        event.dataTransfer.types.includes(FIELD_BINDING_DRAG_KEY))
+    )
   }
 
   function isReorderDrag(event: React.DragEvent) {
@@ -72,6 +84,13 @@ export function FormCanvas({
           event.preventDefault()
           const fieldId = event.dataTransfer.getData(FIELD_REORDER_DRAG_KEY)
           if (fieldId) onReorder(fieldId, index)
+        } else if (
+          onDropBinding &&
+          event.dataTransfer.types.includes(FIELD_BINDING_DRAG_KEY)
+        ) {
+          event.preventDefault()
+          const key = event.dataTransfer.getData(FIELD_BINDING_DRAG_KEY)
+          if (key) onDropBinding(key, index)
         } else if (isNewFieldDrag(event)) {
           event.preventDefault()
           const parsed = FieldTypeSchema.safeParse(
@@ -111,7 +130,7 @@ export function FormCanvas({
               onClick={() => onSelect(field.id)}
             >
               <span className="form-canvas__field-type">
-                {FIELD_TYPE_LABELS[field.type]}
+                {fieldTypeLabel(field)}
               </span>
               <span className="form-canvas__field-label">{field.label}</span>
               {field.required && (

@@ -1,5 +1,25 @@
 import { z } from "zod"
-import type { Field } from "./schemas/field.js"
+import type { Field, FieldOption } from "./schemas/field.js"
+
+// Runtime inputs a data-bound field needs that its definition deliberately
+// doesn't carry: a lookup binding's options are served live by the Data
+// Binding Service (keyed by binding key), not copied into the form.
+export interface SchemaContext {
+  bindingOptions?: Record<string, FieldOption[]>
+}
+
+// A labeled union of literals (rather than a plain `z.enum`) so each
+// option's label -- not just its value -- survives into the JSON Schema,
+// for a renderer to show instead of the raw value.
+function optionsSchema(options: FieldOption[]): z.ZodType {
+  return options.length > 0
+    ? z.union(
+        options.map((option) =>
+          z.literal(option.value).meta({ title: option.label }),
+        ),
+      )
+    : z.string()
+}
 
 // Builds the Zod schema for one field's own answer value -- what a
 // submission's value for this field must look like -- from its definition
@@ -7,7 +27,7 @@ import type { Field } from "./schemas/field.js"
 // shape). This is the piece US-0.3 wires up: everything downstream (the
 // JSON Schema handed to the renderer, and the rule a submission is
 // validated against) is derived from this, not hand-authored per type.
-function fieldValueSchema(field: Field): z.ZodType {
+function fieldValueSchema(field: Field, context: SchemaContext): z.ZodType {
   const withRequired = <T extends z.ZodType>(schema: T) =>
     field.required ? schema : schema.optional()
 
@@ -20,18 +40,7 @@ function fieldValueSchema(field: Field): z.ZodType {
     }
     case "dropdown":
     case "radio": {
-      // A labeled union of literals (rather than a plain `z.enum`) so each
-      // option's label -- not just its value -- survives into the JSON
-      // Schema, for a renderer to show instead of the raw value.
-      let schema: z.ZodType =
-        field.options.length > 0
-          ? z.union(
-              field.options.map((option) =>
-                z.literal(option.value).meta({ title: option.label }),
-              ),
-            )
-          : z.string()
-      schema = schema.meta({ title: field.label })
+      let schema = optionsSchema(field.options).meta({ title: field.label })
       if (field.defaultValue !== undefined) {
         schema = schema.default(field.defaultValue)
       }
@@ -63,6 +72,26 @@ function fieldValueSchema(field: Field): z.ZodType {
       if (field.step) schema = schema.multipleOf(field.step)
       return withRequired(schema.meta({ title: field.label }))
     }
+    case "bound": {
+      const { binding } = field
+      let schema: z.ZodType
+      if (binding.control.kind === "lookup") {
+        schema = optionsSchema(context.bindingOptions?.[binding.key] ?? [])
+      } else {
+        let text = z.string()
+        if (binding.control.maxLength) text = text.max(binding.control.maxLength)
+        schema = text
+      }
+      schema = schema.meta({
+        title: field.label,
+        // A value pulled from another record that the form displays but
+        // doesn't let the respondent change (requirements §3 "Editable").
+        ...(binding.access === "read" ? { readOnly: true } : {}),
+      })
+      // A read-only value is never the respondent's to supply, so it can't
+      // be required of them.
+      return binding.access === "read" ? schema.optional() : withRequired(schema)
+    }
   }
 }
 
@@ -71,10 +100,13 @@ function fieldValueSchema(field: Field): z.ZodType {
 // `form_versions.schema`) rather than a fixed set of columns, so this is
 // both the rule a submission is validated against and, via `toJsonSchema`
 // below, what a JSON Schema-driven renderer renders from (US-0.3).
-export function buildSubmissionSchema(fields: Field[]) {
+export function buildSubmissionSchema(
+  fields: Field[],
+  context: SchemaContext = {},
+) {
   const shape: Record<string, z.ZodType> = {}
   for (const field of fields) {
-    shape[field.id] = fieldValueSchema(field)
+    shape[field.id] = fieldValueSchema(field, context)
   }
   return z.object(shape)
 }
@@ -90,8 +122,8 @@ export function buildSubmissionSchema(fields: Field[]) {
 // default; JSON Forms specifically looks for `oneOf` to treat it as an
 // enum-with-labels control (`isOneOfEnumSchema`), so every literal-union
 // branch is renamed from `anyOf` to `oneOf` on the way out.
-export function toJsonSchema(fields: Field[]) {
-  return z.toJSONSchema(buildSubmissionSchema(fields), {
+export function toJsonSchema(fields: Field[], context: SchemaContext = {}) {
+  return z.toJSONSchema(buildSubmissionSchema(fields, context), {
     target: "draft-07",
     override: (ctx) => {
       const json = ctx.jsonSchema as { anyOf?: unknown[]; oneOf?: unknown[] }

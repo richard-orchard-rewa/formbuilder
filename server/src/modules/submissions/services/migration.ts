@@ -28,6 +28,17 @@ export function coerceValue(
     return { ok: true, value }
   }
 
+  // A data-bound value only means something against the binding it was
+  // captured for, so it carries over to another field bound to the same
+  // key and nowhere else.
+  if (sourceField.type === "bound" || targetField.type === "bound") {
+    return sourceField.type === "bound" &&
+      targetField.type === "bound" &&
+      sourceField.binding.key === targetField.binding.key
+      ? { ok: true, value }
+      : { ok: false }
+  }
+
   if (sourceField.type === targetField.type) {
     return { ok: true, value }
   }

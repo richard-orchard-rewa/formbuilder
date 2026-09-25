@@ -1,4 +1,7 @@
 import type { Db } from "./db/client.js"
+import type { BindingClient } from "./modules/bindings/binding-client.js"
+import { DrizzleSubmissionBindingsRepository } from "./modules/bindings/repositories/submission-bindings.drizzle.js"
+import { BoundFieldsService } from "./modules/bindings/services/bound-fields.js"
 import { DrizzleFormsRepository } from "./modules/form-builder/repositories/forms.drizzle.js"
 import { DrizzleFormVersionsRepository } from "./modules/form-builder/repositories/form-versions.drizzle.js"
 import { FormBuilderService } from "./modules/form-builder/services/form-builder.js"
@@ -17,6 +20,7 @@ import { DrizzleSubmissionsRepository } from "./modules/submissions/repositories
 import { SubmissionsService } from "./modules/submissions/services/submissions.js"
 
 export interface AppDeps {
+  bindingClient: BindingClient
   formBuilderService: FormBuilderService
   formVersionsService: FormVersionsService
   moduleBuilderService: ModuleBuilderService
@@ -27,7 +31,7 @@ export interface AppDeps {
   submissionsService: SubmissionsService
 }
 
-export function buildDeps(db: Db): AppDeps {
+export function buildDeps(db: Db, bindingClient: BindingClient): AppDeps {
   const formVersionsService = new FormVersionsService(
     new DrizzleFormVersionsRepository(db),
   )
@@ -48,6 +52,7 @@ export function buildDeps(db: Db): AppDeps {
     moduleVersionsService,
   )
   return {
+    bindingClient,
     formBuilderService: new FormBuilderService(new DrizzleFormsRepository(db)),
     formVersionsService,
     moduleBuilderService,
@@ -61,6 +66,10 @@ export function buildDeps(db: Db): AppDeps {
     submissionsService: new SubmissionsService(
       formVersionsService,
       new DrizzleSubmissionsRepository(db),
+      new BoundFieldsService(
+        bindingClient,
+        new DrizzleSubmissionBindingsRepository(db),
+      ),
     ),
   }
 }

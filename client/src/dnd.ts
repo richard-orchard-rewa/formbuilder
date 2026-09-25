@@ -6,3 +6,7 @@ export const FIELD_TYPE_DRAG_KEY = "application/x-formbuilder-field-type"
 // distinct from FIELD_TYPE_DRAG_KEY so the canvas can tell "new field from
 // the palette" apart from "move this existing field".
 export const FIELD_REORDER_DRAG_KEY = "application/x-formbuilder-field-id"
+
+// Drag payload key for adding a data-bound field from the palette's
+// Data Binding Service section; the payload is the binding's key.
+export const FIELD_BINDING_DRAG_KEY = "application/x-formbuilder-binding-key"
