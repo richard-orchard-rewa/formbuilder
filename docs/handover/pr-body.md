@@ -1,61 +1,63 @@
 ## Summary
 
-Prototypes **data-bound fields**: form controls that read from, and can save back to, a client's ICIS record. They work through a separate **Data Binding Service** (DBS); form-builder never talks to ICIS directly.
-- Design: `docs/proposals/databound-fields.md`
-- Where it got to and what's next: `docs/handover/databound-fields.md`
-- Demo walkthrough: `docs/demo/databound-fields-demo.md`
+Follow-up to richard-orchard-rewa/formbuilder#81, which merged the data-bound fields prototype up to its handover (`6950adc`). This PR carries the work done after that:
+- making binding descriptors self-describing
+- validating lookup values at commit
+- presenting lookups as radio buttons
+- the Data Binding Service (DBS) owning the identities forms see
+- the DBS keeping all its data in its own database
 
-### The Data Binding Service (`binding-service/`, new workspace)
-- **Runtime API:** resolve a client's bound values, and commit changes back. Commits write only what changed, in one conditional update. They report conflicts instead of overwriting, and check every value against its binding's rules at the boundary, including that a lookup value is one of the store's current options.
-- **Self-describing descriptors:** each binding says how it may be shown (text box, dropdown, radio buttons), where its options come from, its validation rules and store-required flag, and links to the resolve/commit operations.
-- **Binding creator (`/admin`):** data stewards create bindings on an allow-list of ICIS attributes, with no developer involved. Type and length come from ICIS metadata, and a request can only narrow them. The service's own ICIS privileges cap what a binding can offer, re-checked at publish. Published versions are immutable.
-- **DBS-owned identities:** clients are anchored by DBS-issued IDs, and lookup values are logical codes (`mr`, `not-stated`). Both are mapped to each store's IDs, so nothing in form-builder holds a Dataverse ID, and moving data off ICIS later doesn't strand stored submissions.
-- **Its own Postgres database** (`binding_service`, never form-builder's) holds identities and configured bindings. Unique indexes and advisory locks make issuing IDs race-safe, and a trigger makes published binding versions immutable. The service refuses to start against a real store without it.
-- **ICIS adapter:** plain fetch + MSAL against the Dataverse Web API, the only code that knows ICIS column names or OData. A fake in-memory store sits alongside it.
+Design: `docs/proposals/databound-fields.md`. Status and next steps: `docs/handover/databound-fields.md`.
 
-### form-builder
-- **Builder:** a `bound` field type that snapshots its descriptor, a *Data bound* palette section, and inspector details, including **Show as** (Dropdown / Radio buttons).
-- **Fill page:** a client picker that pre-fills bound values; after submit, a per-field outcome (saved / unchanged / conflict / refused).
-- **Data bindings page:** where stewards create bindings.
-- **Server:** relays the DBS to the browser and records each commit in a new `submission_bindings` table (migration `0011`).
+### Self-describing descriptors, validation, radio buttons (`8a660bc`)
+- **Descriptors now say how to handle each value.** Each gives how it may be shown (`presentations`: text box, dropdown, radio buttons), where its options come from (`options.href`), its `validation` (a typed rule list plus the store's own required flag), and links to its resolve/commit `operations`. The DBS fills these in centrally for built-in and configured bindings. They're optional in the schema, so forms snapshotted earlier still load.
+- **The DBS runs every rule at commit**, through one checks table (`validators.ts`): `maxLength`, and `oneOfOptions`. `oneOfOptions` means a lookup value must be one of the store's current options; before, a caller could bypass that. A value the store requires can't be cleared. form-builder mirrors the same rules in the rendered form.
+- **Form admins choose Dropdown or Radio buttons** per form (**Show as** in the inspector), from what the binding allows. Stewards can narrow that in the binding creator. *Required* is forced on where ICIS requires a value.
 
-### `mock-icis/` (new workspace)
-A Dataverse Web API look-alike covering the subset the adapter uses, with 20 made-up clients.
-- Its screens let a demo play ICIS staff, the ICIS admin (granting the service's privileges live) and an observer (the API log).
-- `npm run demo` runs everything against it.
-- A contract test runs the DBS's real adapter against it.
+### DBS-owned identities (`aa2492b`)
+- **Clients are anchored by DBS-issued IDs**, mapped to each store's record (`{ refs: { icis: <contact guid> } }`). resolve and commit refuse a store's own record ID.
+- **Lookup values are logical codes** (`mr`, `not-stated`), derived from the label on first sight and kept thereafter, and mapped to each store's row IDs.
+- **Nothing in form-builder holds a Dataverse ID any more**, so moving client data off ICIS later won't strand stored submissions. Stores are named (`RecordStore.name`), which keys those references.
+
+### The DBS's own database (`991d359`, `3a83798`)
+- **Identities and configured bindings are in the DBS's own Postgres database** (`binding_service` / `binding_service_demo`), never form-builder's. The schema and migrations are in `binding-service/src/db/`. `npm run db:migrate -w binding-service` creates the database if needed, then migrates.
+- **Race-safe identity issuing:** a transaction-scoped advisory lock, backed by unique indexes, so concurrent requests (and DBS instances) agree on one ID or code.
+- **Published binding versions are immutable**, enforced by a database trigger (no update or delete, even from hand-run SQL). There's at most one draft per binding, a key's attribute is fixed, and an attribute has one binding.
+- **The DBS refuses to start against a real store without its database.** Only `ADAPTER=fake` runs in memory.
+- **Bindings from the old JSON file** are imported by `db:migrate` once, and the file is renamed `.imported`.
+- `npm run demo` migrates the demo database, and `npm run demo:reset` empties it; the reset refuses anything not `*_demo` or `*_test`.
 
 ### Docs
-The proposal, the handover, the demo walkthrough, a setup guide for a dedicated read-only ICIS account (`docs/setup/`), and `CLAUDE.md` / `README.md`.
+- The proposal gains "The descriptor as built", "Adding validation rules" (named library patterns rather than steward-authored regex, per §3; hard vs advisory rules), "Beyond Dataverse" and "Where the DBS keeps its data".
+- The handover, `CLAUDE.md`, `README.md` and the demo script are updated.
 
 ## Worth reviewing closely
 
-- **Credentials:** against real test ICIS, the DBS currently uses `feedback`'s test app registration, borrowed by agreement as a stopgap. It lives only in the gitignored `binding-service/.env`. That identity can't write contacts, so real-ICIS writes come back as clean per-field "Not saved" results.
-- **The allow-list** (`binding-service/src/allow-list.ts`) is the security boundary for the binding creator.
-- **Demo mode** accepts a static token, and refuses it for any non-localhost URL.
-- **The DBS database's durability:** losing it would orphan stored client anchors and codes. See "Where the DBS keeps its data" in the proposal.
+- **The two migrations for the DBS database**, especially `0002_published_binding_versions_are_immutable.sql` (the trigger).
+- **The `.github/workflows/ci.yml` change.** CI's e2e job, which has Postgres, now also migrates a DBS test database and runs the 13 Postgres tests. The unit-test job has no database, so they're skipped there.
+- **The boundary translation in `binding-service/src/service.ts`.** Anchor IDs and codes go in and out; store IDs never cross it.
 
-## Setup
+## Setup after pulling
 
 ```bash
-docker compose up -d
-npm run db:migrate -w server
-npm run db:migrate -w binding-service   # the DBS's own database
-npm run demo                            # or `npm run dev` against binding-service/.env
+npm install
+npm run db:migrate -w binding-service   # creates the DBS's own database
 ```
+
+`npm run demo` does the demo database's migration itself.
 
 ## Test plan
 
 - [x] `npm run typecheck`: all six workspaces
 - [x] `npm test`: 136 tests, including 13 Postgres tests with `BINDING_TEST_DATABASE_URL` set (CI's e2e job runs these)
 - [x] `npm audit --omit=dev`: 0 vulnerabilities
-- [x] Manual, against test ICIS: prefill for client 00152076; the write is refused cleanly (missing `prvWriteContact`); binding creator live metadata and privilege checks
 - [x] Manual, against the mock:
-  - create, publish and use bindings
-  - Title as radio buttons
-  - write-back, and a conflict with a staff edit
-  - the privilege ceiling
+  - Title as radio buttons, pre-filled and saved back
+  - a Title that isn't in ICIS's list refused before anything is sent
   - form-builder storing only DBS anchor IDs and option codes
-- [ ] Playwright e2e suite: CI
+  - identities and bindings served from the DBS database
+  - the old JSON bindings imported
+  - a second binding on the same attribute refused
+- [ ] Playwright e2e suite and the DBS database tests: CI
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
