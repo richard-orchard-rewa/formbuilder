@@ -19,8 +19,8 @@
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server && npm run typecheck -w binding-service && npm run typecheck -w mock-icis",
     "test": "npm run test -w shared && npm run test -w client && npm run test -w server && npm run test -w binding-service && npm run test -w mock-icis",
     "test:e2e": "npm run build -w shared && npx playwright test --config=e2e/playwright.config.ts",
-    "demo": "npm run build -w shared && concurrently -n icis,dbs,server,client -c yellow,magenta,blue,green \"npm run dev -w mock-icis\" \"npm run demo -w binding-service\" \"npm run dev -w server\" \"npm run dev -w client\"",
-    "demo:reset": "node -e \"for (const f of ['bindings','identity']) require('fs').rmSync('binding-service/data/'+f+'.demo.json',{force:true})\""
+    "demo": "npm run build -w shared && npm run db:migrate:demo -w binding-service && concurrently -n icis,dbs,server,client -c yellow,magenta,blue,green \"npm run dev -w mock-icis\" \"npm run demo -w binding-service\" \"npm run dev -w server\" \"npm run dev -w client\"",
+    "demo:reset": "node -e \"require('fs').rmSync('binding-service/data/bindings.demo.json',{force:true})\" && npm run db:reset:demo -w binding-service"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

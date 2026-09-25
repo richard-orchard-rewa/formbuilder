@@ -4,10 +4,7 @@ import { describe, expect, it } from "vitest"
 // and walks the demo's whole story in-process.
 import { IcisRecordStore } from "../../binding-service/src/adapters/icis.js"
 import { BindingCreator } from "../../binding-service/src/creator.js"
-import {
-  IdentityRegistry,
-  InMemoryIdentityRepository,
-} from "../../binding-service/src/identity.js"
+import { InMemoryIdentityRegistry } from "../../binding-service/src/identity.js"
 import {
   BindingRegistry,
   InMemoryConfiguredBindingRepository,
@@ -38,7 +35,7 @@ function build() {
   }) as typeof fetch
   const store = new IcisRecordStore(ORG, async () => SERVICE_ACCOUNT.token, fetchImpl, 0)
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
-  const identities = new IdentityRegistry(new InMemoryIdentityRepository())
+  const identities = new InMemoryIdentityRegistry()
   const service = new BindingService(store, registry, identities)
   return {
     state,

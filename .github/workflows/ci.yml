@@ -101,6 +101,17 @@ jobs:
       - name: Run database migrations
         run: npm run db:migrate -w server
 
+      # The Data Binding Service's identity registry against a real Postgres
+      # (its own database, never form-builder's). The unit-tests job has no
+      # database, so these run here; elsewhere they're skipped.
+      - name: Data Binding Service database tests
+        run: |
+          npm run db:migrate -w binding-service
+          npx vitest run --root binding-service src/identity.test.ts
+        env:
+          DATABASE_URL: postgresql://formbuilder:formbuilder@localhost:5432/binding_service_test
+          BINDING_TEST_DATABASE_URL: postgresql://formbuilder:formbuilder@localhost:5432/binding_service_test
+
       - name: Cache Playwright browsers
         id: cache-playwright
         uses: actions/cache@v6

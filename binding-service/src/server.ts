@@ -10,7 +10,12 @@ import {
   BindingRegistry,
   JsonFileConfiguredBindingRepository,
 } from "./registry.js"
-import { IdentityRegistry, JsonFileIdentityRepository } from "./identity.js"
+import { createDb } from "./db/client.js"
+import {
+  InMemoryIdentityRegistry,
+  PostgresIdentityRegistry,
+  type IdentityRegistry,
+} from "./identity.js"
 import { BindingService } from "./service.js"
 
 const logger = pino()
@@ -75,11 +80,21 @@ const registry = new BindingRegistry(
   new JsonFileConfiguredBindingRepository(bindingsFile),
 )
 // DBS-owned identities (client anchor IDs, option codes) and how they map
-// to this store's IDs -- as durable as the submissions that hold them.
-const identityFile =
-  process.env.IDENTITY_FILE ??
-  fileURLToPath(new URL(`../data/identity.${adapter}.json`, import.meta.url))
-const identities = new IdentityRegistry(new JsonFileIdentityRepository(identityFile))
+// to this store's IDs, kept in the DBS's own database -- as durable as the
+// submissions that hold them. Only the in-memory fake store may run
+// without one, since its records vanish on restart anyway.
+function identityRegistry(): IdentityRegistry {
+  const databaseUrl = process.env.DATABASE_URL
+  if (databaseUrl) return new PostgresIdentityRegistry(createDb(databaseUrl))
+  if (adapter !== "fake") {
+    logger.error(
+      "DATABASE_URL is not set: the identity registry must be durable for a real store (run `npm run db:migrate -w binding-service` first)",
+    )
+    process.exit(1)
+  }
+  return new InMemoryIdentityRegistry()
+}
+const identities = identityRegistry()
 const app = buildApp(
   new BindingService(store, registry, identities),
   new BindingCreator(store, registry),

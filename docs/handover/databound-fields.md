@@ -64,7 +64,7 @@ npm run dev       # the same, but the DBS uses binding-service/.env (ADAPTER=fak
 - **Where bindings made in the creator live:**
   - `binding-service/data/bindings.<adapter>.json` (gitignored).
   - Demo runs use `bindings.demo.json`; clear it with `npm run demo:reset`.
-  - DBS-owned identities (anchor IDs, option codes) live alongside, in `identity.<adapter>.json` (`identity.demo.json` for demos, also cleared by `npm run demo:reset`).
+  - DBS-owned identities (anchor IDs, option codes) are in the DBS's **own Postgres database**, `binding_service` (real ICIS) or `binding_service_demo` (demo). `npm run db:migrate -w binding-service` creates and migrates it; `npm run demo` does this for the demo database, and `npm run demo:reset` empties it.
   - The mock's own data resets with its **Reset demo** button, or on restart.
 - **Test ICIS contact used throughout:** Bob McGee, client number `00152076`. He's also in the mock, alongside 19 made-up clients `00152077`–`00152095`.
 
@@ -96,7 +96,7 @@ The steward can narrow the presentations in the binding creator. See the proposa
 **Identities now belong to the DBS.**
 - Clients are anchored by DBS-issued IDs, and lookup values are logical codes (`mr`, `not-stated`), each mapped to per-store IDs by `binding-service/src/identity.ts`.
 - form-builder stores no Dataverse IDs at all.
-- The registry lives in `binding-service/data/identity.<adapter>.json`, gitignored. Treat it as durable as the submissions: losing it orphans stored anchors and codes.
+- The registry is the DBS's own Postgres database (`binding-service/src/db/`), never form-builder's. The DBS won't start against a real store without `DATABASE_URL`, because the data is as durable as the submissions that reference it.
 
 ## Next steps, in rough order
 
@@ -105,11 +105,12 @@ The steward can narrow the presentations in the binding creator. See the proposa
 3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
 5. **An outbox for commits** (a queue with retries, like `feedback`'s ICIS sync), so an ICIS or DBS outage never blocks finalising.
-6. **Move the identity registry into a database** before any real data, since it's as durable as the submissions that reference it.
-7. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
-8. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
-9. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
-10. **Steward permissions** on the Data bindings page, which is currently open to anyone.
+6. **Move configured bindings into the DBS's database too.** They're still a JSON file (`binding-service/data/bindings.<adapter>.json`). Losing it would break saves for every configured binding, so it deserves the same durability as the identities.
+7. **Show when a list's options fail to load.** Today the field renders with no control and no message (e.g. if the DBS is briefly unreachable).
+8. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
+9. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
+10. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
+11. **Steward permissions** on the Data bindings page, which is currently open to anyone.
 
 ## Gotchas hit along the way
 

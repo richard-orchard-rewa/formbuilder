@@ -336,7 +336,9 @@ The eventual reason for the DBS is less "talk to ICIS" than *move client data of
   - Moving a list to another store means mapping codes to the new rows. Nothing in form-builder changes.
   - Codes could later be curated rather than derived. For DEX-coded lists (gender, for instance), a developer-maintained code list that matches the funder's codes is the better source.
 - **Stores are named** (`RecordStore.name`: `icis`, `fake`); `refs` are keyed by that name, which is the first step towards more than one store.
-- The registry is stored by the DBS itself: a JSON file per adapter in the prototype, `data/identity.<adapter>.json`; demo mode uses `identity.demo.json`. In a real DBS it's a database table, **as durable as the submissions that reference it**. Losing it would orphan every stored anchor and code.
+- **The registry is the DBS's own Postgres database**, never form-builder's. Locally that's `binding_service` (or `binding_service_demo`) on the same Postgres server; `npm run db:migrate -w binding-service` creates and migrates it. The tables are `anchors`, `anchor_refs`, `option_codes` and `option_code_refs`, in `binding-service/src/db/schema.ts`.
+  - Issuing an identity takes a transaction-scoped advisory lock on what it's for (one store record, or one lookup list). Unique indexes back that up, so concurrent requests, even across DBS instances, agree on one ID or code.
+  - The data is **as durable as the submissions that reference it**: losing a row orphans the anchors and codes they hold. That's why the DBS refuses to start against a real store without `DATABASE_URL`. Only the in-memory fake store runs with an in-memory registry.
 - **Prototype data from before the change** holds GUIDs. Those submissions won't pre-select their old Title values. There's no real data, so nothing was migrated.
 
 ## Phase 1 and beyond (sketch)

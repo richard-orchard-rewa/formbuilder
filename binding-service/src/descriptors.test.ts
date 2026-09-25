@@ -1,18 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
 import { BindingCreator, BindingRuleError } from "./creator.js"
-import { IdentityRegistry, InMemoryIdentityRepository } from "./identity.js"
+import { InMemoryIdentityRegistry } from "./identity.js"
 import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
 import { BindingService } from "./service.js"
 
 function build() {
   const store = new FakeRecordStore()
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
-  const service = new BindingService(
-    store,
-    registry,
-    new IdentityRegistry(new InMemoryIdentityRepository()),
-  )
+  const service = new BindingService(store, registry, new InMemoryIdentityRegistry())
   return { store, service, creator: new BindingCreator(store, registry) }
 }
 

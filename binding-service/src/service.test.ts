@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { StoreWriteError } from "./adapters/adapter.js"
 import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
 import { BindingCreator } from "./creator.js"
-import { IdentityRegistry, InMemoryIdentityRepository } from "./identity.js"
+import { InMemoryIdentityRegistry } from "./identity.js"
 import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
 import { AnchorNotFoundError, BindingService, UnknownBindingError } from "./service.js"
 
@@ -14,7 +14,7 @@ const MS = "ms"
 async function build() {
   const store = new FakeRecordStore()
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
-  const identities = new IdentityRegistry(new InMemoryIdentityRepository())
+  const identities = new InMemoryIdentityRegistry()
   const service = new BindingService(store, registry, identities)
   const found = await service.findClient("00152076")
   return {

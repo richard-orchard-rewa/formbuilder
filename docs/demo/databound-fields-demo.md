@@ -32,7 +32,7 @@ npm run db:migrate -w server
 npm run demo
 ```
 
-`npm run demo` starts all four processes. Open, in separate tabs:
+`npm run demo` creates and migrates the Data Binding Service's demo database (`binding_service_demo`, its own, beside form-builder's), then starts all four processes. Open, in separate tabs:
 
 | Tab | URL | Who uses it |
 |---|---|---|
@@ -42,7 +42,7 @@ npm run demo
 
 To start from a clean slate:
 - **Mock ICIS:** click **Reset demo** in its header. That restores clients and privileges and clears the log. Restarting it does the same.
-- **Bindings the steward created:** `npm run demo:reset`.
+- **Bindings the steward created, and the service's issued client IDs and option codes:** `npm run demo:reset`.
 - **Forms built in a previous run:** these stay in Postgres. Create a new form each time, or reuse one.
 
 It helps to leave the mock's **API log** open on a second screen throughout. The point *everything goes through an API* makes itself.
