@@ -14,7 +14,7 @@ All of it is a prototype on one branch, not yet merged.
 ## Branch and PR status
 
 - **Branch:** `claude/databound-field-design-e44228` (worktree `.claude/worktrees/issue-21-37f6d0`), cut from `main`. `main` had no new commits as of this handover.
-- **PR status:** [richard-orchard-rewa/formbuilder#81](https://github.com/richard-orchard-rewa/formbuilder/pull/81) **merged** the prototype up to the handover commit (`6950adc`). Everything after that is in a follow-up PR from the same branch, whose description is [`pr-body.md`](pr-body.md).
+- **PR status:** [richard-orchard-rewa/formbuilder#81](https://github.com/richard-orchard-rewa/formbuilder/pull/81) **merged** the prototype up to the handover commit (`6950adc`). Everything after that is in the follow-up, [richard-orchard-rewa/formbuilder#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82), from the same branch; its description is [`pr-body.md`](pr-body.md).
 - **Commits, oldest first:**
 
   | Commit | What |
@@ -34,7 +34,7 @@ All of it is a prototype on one branch, not yet merged.
   - Typecheck clean in all six workspaces.
   - 136 unit tests pass: shared 12, server 22, binding-service 72, mock-icis 7, client 23. That includes 13 Postgres tests for the DBS's database; they need `BINDING_TEST_DATABASE_URL`, and CI's e2e job runs them.
   - `npm audit --omit=dev` is clean.
-  - CI (including the Playwright e2e suite and the DBS database tests) runs on the follow-up PR.
+  - CI (including the Playwright e2e suite and the DBS database tests) runs on #82.
 
 ## What exists
 
@@ -108,7 +108,7 @@ The steward can narrow the presentations in the binding creator. See the proposa
 
 ## Next steps, in rough order
 
-1. **Get the follow-up PR reviewed and merged** once CI is green (see Branch and PR status).
+1. **Get [#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82) reviewed and merged** once CI is green.
 2. **Get the DBS its own ICIS account**, per the [setup guide](../setup/icis-binding-service-account.md). Start read-only; add Write, Append and Append To to see real writes land in test ICIS. Then update `binding-service/.env`, the note in `CLAUDE.md`, and the proposal's findings.
 3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
