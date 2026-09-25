@@ -179,7 +179,7 @@ The queued values go in one PATCH with `If-Match` on the row version it just rea
   - **can't read `csg_salutation`** (`prvReadCsg_salutation`), so the DBS serves the five salutations observed on contacts (Miss/Mr/Mrs/Ms/Not Stated) as a flagged `fallback` list.
 
   Verified end to end: live reads and prefill work. The write path is proven against the fake store, including a conflict. Against ICIS, the write reaches Dataverse and comes back as a clean privilege error with principal IDs stripped.
-- **Next step to see a real write land in ICIS:** a dedicated DBS app registration and application user in test ICIS, with Read/Write on `contact` and Read on `csg_salutation`. That also stops form-builder borrowing `feedback`'s identity, which CLAUDE.md's standalone rule wants gone before this goes further.
+- **Next step to see a real write land in ICIS:** a dedicated DBS app registration and application user in test ICIS, with Read/Write on `contact` and Read on `csg_salutation`. Setup steps: [docs/setup/icis-binding-service-account.md](../setup/icis-binding-service-account.md). That also stops form-builder borrowing `feedback`'s identity, which CLAUDE.md's standalone rule wants gone before this goes further.
 
 ### Still out of the prototype
 
