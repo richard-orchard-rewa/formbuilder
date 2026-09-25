@@ -24,13 +24,17 @@ All of it is a prototype on one branch, not yet merged.
   | `94df491` | Setup guide for a dedicated read-only ICIS account |
   | `54c8ffd` | Mock ICIS, demo mode, contract test, and the demo walkthrough |
   | `eb6969b` | Creator keeps limits current (re-checks on tab focus), and Save and publish |
-  | *(this commit)* | This handover |
+  | `6950adc` | This handover, and the PR description |
+  | `8a660bc` | Self-describing descriptors (presentations, options link, validation rules, operations); options validated at commit; Dropdown/Radio per form |
+  | `aa2492b` | DBS-issued client anchor IDs and logical option codes; nothing in form-builder holds a Dataverse ID |
+  | `991d359` | Identity registry moved into the DBS's own Postgres database |
+  | *(latest)* | Configured bindings moved into that database too, with immutable published versions; docs and handover brought up to date |
 
-- **Checks at handover:**
+- **Checks at the latest commit:**
   - Typecheck clean in all six workspaces.
-  - 94 unit tests pass: shared 10, server 22, binding-service 38, mock-icis 6, client 19.
+  - 136 unit tests pass: shared 12, server 22, binding-service 72, mock-icis 7, client 23. That includes 13 Postgres tests for the DBS's database; they need `BINDING_TEST_DATABASE_URL`, and CI's e2e job runs them.
   - `npm audit --omit=dev` is clean.
-  - **The Playwright e2e suite has not been run** on this branch. The existing e2e tests don't start the DBS; the palette then just shows "not available" and custom fields work as before, but that hasn't been confirmed by a run.
+  - CI (including the Playwright e2e suite) runs on every push to PR #81, with Auto-fix on.
 
 ## What exists
 
@@ -39,7 +43,7 @@ All of it is a prototype on one branch, not yet merged.
 | Design | [`docs/proposals/databound-fields.md`](../proposals/databound-fields.md) | Why an API; the contract; the strategies vs configuration model; guardrails; what Phases 0 and 0.5 built and found |
 | Demo script | [`docs/demo/databound-fields-demo.md`](../demo/databound-fields-demo.md) | ~20 min, by role: developer, ICIS admin, data steward, form admin, practitioner |
 | ICIS account setup | [`docs/setup/icis-binding-service-account.md`](../setup/icis-binding-service-account.md) | Entra app registration + Dataverse application user with a read-only role |
-| DBS | `binding-service/` | `dictionary.ts` (built-in bindings), `allow-list.ts`, `creator.ts`, `service.ts`, `registry.ts`, `adapters/icis.ts` (the only ICIS-aware code), `adapters/fake.ts` |
+| DBS | `binding-service/` | `dictionary.ts` (built-in bindings), `allow-list.ts`, `creator.ts`, `service.ts`, `registry.ts` (configured bindings), `identity.ts` (anchor IDs, option codes), `descriptors.ts`, `validators.ts`, `db/` (its own Postgres: schema, migrations), `adapters/icis.ts` (the only ICIS-aware code), `adapters/fake.ts` |
 | Contracts | `shared/src/schemas/binding.ts`; `bound` field in `shared/src/schemas/field.ts` | Bound fields render through the normal `toJsonSchema` → JSON Forms path |
 | form-builder server | `server/src/modules/bindings/` | Relays the DBS to the browser; commits bound values after a submission is saved; `submission_bindings` table (migration `0011`) |
 | form-builder client | `FieldPalette`, `FieldInspector`, `FormFill` (client picker, results), `DataBindings.tsx` (creator page), `schema/useBindingOptions.ts` | |
@@ -61,10 +65,12 @@ npm run dev       # the same, but the DBS uses binding-service/.env (ADAPTER=fak
   - It currently holds `ADAPTER=icis` plus the **test-ICIS credentials copied from `feedback`** (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `DYNAMICS_URL`). That borrowing was agreed as a stopgap.
   - For no ICIS at all, use `ADAPTER=fake`; `.env.sample` shows the shape.
 - **`binding-service/.env.demo`** is committed and holds no secrets. It's what `npm run demo` uses.
-- **Where bindings made in the creator live:**
-  - `binding-service/data/bindings.<adapter>.json` (gitignored).
-  - Demo runs use `bindings.demo.json`; clear it with `npm run demo:reset`.
-  - DBS-owned identities (anchor IDs, option codes) are in the DBS's **own Postgres database**, `binding_service` (real ICIS) or `binding_service_demo` (demo). `npm run db:migrate -w binding-service` creates and migrates it; `npm run demo` does this for the demo database, and `npm run demo:reset` empties it.
+- **Where the DBS's own data lives** (bindings stewards create, client anchor IDs, option codes): its **own Postgres database**, never form-builder's.
+  - The databases are `binding_service` (real ICIS) and `binding_service_demo` (demo), on the local Postgres from `docker compose`.
+  - `npm run db:migrate -w binding-service` creates and migrates `binding_service`; `npm run demo` does the same for the demo database.
+  - `npm run demo:reset` empties the demo database only.
+  - The old JSON files were imported and renamed `binding-service/data/*.json.imported`.
+  - With `ADAPTER=fake` and no `DATABASE_URL`, everything is in memory.
   - The mock's own data resets with its **Reset demo** button, or on restart.
 - **Test ICIS contact used throughout:** Bob McGee, client number `00152076`. He's also in the mock, alongside 19 made-up clients `00152077`–`00152095`.
 
@@ -93,6 +99,8 @@ Descriptors now say how to show, list, check, read and write each value:
 
 The steward can narrow the presentations in the binding creator. See the proposal: "The descriptor as built", "Adding validation rules", and "Beyond Dataverse".
 
+**The DBS keeps all its data in its own database.** Configured bindings, client anchor IDs and option codes are all in Postgres (`binding-service/src/db/`), never form-builder's; see "Where the DBS keeps its data" in the proposal. Published binding versions are immutable at the database level.
+
 **Identities now belong to the DBS.**
 - Clients are anchored by DBS-issued IDs, and lookup values are logical codes (`mr`, `not-stated`), each mapped to per-store IDs by `binding-service/src/identity.ts`.
 - form-builder stores no Dataverse IDs at all.
@@ -105,12 +113,11 @@ The steward can narrow the presentations in the binding creator. See the proposa
 3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
 5. **An outbox for commits** (a queue with retries, like `feedback`'s ICIS sync), so an ICIS or DBS outage never blocks finalising.
-6. **Move configured bindings into the DBS's database too.** They're still a JSON file (`binding-service/data/bindings.<adapter>.json`). Losing it would break saves for every configured binding, so it deserves the same durability as the identities.
-7. **Show when a list's options fail to load.** Today the field renders with no control and no message (e.g. if the DBS is briefly unreachable).
-8. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
-9. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
-10. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
-11. **Steward permissions** on the Data bindings page, which is currently open to anyone.
+6. **Show when a list's options fail to load.** Today the field renders with no control and no message (e.g. if the DBS is briefly unreachable).
+7. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
+8. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
+9. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
+10. **Steward permissions** on the Data bindings page, which is currently open to anyone.
 
 ## Gotchas hit along the way
 

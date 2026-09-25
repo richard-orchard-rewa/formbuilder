@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm"
 import {
   foreignKey,
+  integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -67,5 +70,45 @@ export const optionCodeRefs = pgTable(
       columns: [table.target, table.code],
       foreignColumns: [optionCodes.target, optionCodes.code],
     }).onDelete("restrict"),
+  ],
+)
+
+// Bindings a data steward created in the binding creator (built-in ones
+// are code, in src/dictionary.ts). The source -- which store attribute the
+// key maps to -- is fixed once created; each attribute has one binding.
+export const configuredBindings = pgTable(
+  "configured_bindings",
+  {
+    key: text("key").primaryKey(),
+    strategy: text("strategy", { enum: ["attribute", "lookup"] }).notNull(),
+    entity: text("entity").notNull(),
+    attribute: text("attribute").notNull(),
+    target: text("target"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("configured_bindings_attribute").on(table.entity, table.attribute)],
+)
+
+// Every version of a configured binding. Published versions are immutable --
+// forms snapshot them -- which a trigger enforces (see the
+// published_binding_versions_are_immutable migration); at most one draft
+// exists per binding.
+export const bindingVersions = pgTable(
+  "binding_versions",
+  {
+    key: text("key")
+      .notNull()
+      .references(() => configuredBindings.key, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    status: text("status", { enum: ["draft", "published"] }).notNull(),
+    descriptor: jsonb("descriptor").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.key, table.version] }),
+    uniqueIndex("binding_versions_one_draft")
+      .on(table.key)
+      .where(sql`${table.status} = 'draft'`),
   ],
 )

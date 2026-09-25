@@ -261,7 +261,7 @@ The `attribute` and `lookup` strategies only, `client` anchor only:
 - An allow-list of `contact` attributes, with the Phase 0 code bindings unchanged alongside.
 - `GET /admin/attributes?anchor=client`: each allow-listed attribute with its live store metadata (type, max length, required level, lookup target), what the service account can do with it, and whether a binding already uses it.
 - `POST /admin/bindings` to create a draft. The strategy and limits are derived from metadata; the request can only narrow them. `POST /admin/bindings/:key/publish` makes it an immutable version.
-- Configured bindings are stored by the DBS itself, not in form-builder's database. For the prototype that's a JSON file, which keeps `ADAPTER=fake` zero-setup.
+- Configured bindings are stored by the DBS itself, in its own database, never form-builder's. With `ADAPTER=fake` they're held in memory, which keeps it zero-setup.
 - A "Data bindings" admin page in form-builder (relayed through its server like the rest) to browse attributes, create, and publish. A published binding appears in the form palette with no other change.
 
 Out of this slice: the `set-membership` and `child-collection` strategies, the validation-type library, retiring bindings, and steward permissions.
@@ -275,7 +275,7 @@ Out of this slice: the `set-membership` and `child-collection` strategies, the v
   - The built-in Phase 0 bindings now share the same `strategy + source attribute` shape, and runtime reads and writes go through one generic path.
 - **Enforcement.**
   - Commits re-check a text binding's max length at the API boundary.
-  - Configured bindings are stored in `binding-service/data/bindings.<adapter>.json`, which is gitignored.
+  - Configured bindings are stored in the DBS's own Postgres database: `configured_bindings` and `binding_versions`. They were first a JSON file; see "Where the DBS keeps its data" below.
 - **Verified against test ICIS.**
   - Live metadata comes back per attribute, e.g. `csg_alias` = "Preferred Name", text, 100.
   - The live privilege check works. The borrowed account lacks `prvWriteContact`, so *every* attribute is capped at display-only, and the page says so once, as a banner.
@@ -340,6 +340,20 @@ The eventual reason for the DBS is less "talk to ICIS" than *move client data of
   - Issuing an identity takes a transaction-scoped advisory lock on what it's for (one store record, or one lookup list). Unique indexes back that up, so concurrent requests, even across DBS instances, agree on one ID or code.
   - The data is **as durable as the submissions that reference it**: losing a row orphans the anchors and codes they hold. That's why the DBS refuses to start against a real store without `DATABASE_URL`. Only the in-memory fake store runs with an in-memory registry.
 - **Prototype data from before the change** holds GUIDs. Those submissions won't pre-select their old Title values. There's no real data, so nothing was migrated.
+
+## Where the DBS keeps its data
+
+Everything the DBS owns is in **its own Postgres database**, never form-builder's. Locally that's `binding_service` (real ICIS) or `binding_service_demo` (demo) on the same Postgres server; in production it would be its own. It's created and migrated with `npm run db:migrate -w binding-service`, and the schema is `binding-service/src/db/schema.ts`.
+
+| Tables | What | Protections |
+|---|---|---|
+| `anchors`, `anchor_refs` | DBS-issued client IDs and the record each is in each store | One anchor per store record (unique index); issuing takes an advisory lock |
+| `option_codes`, `option_code_refs` | Option codes and each store's row per code | One code per store row (unique index); issuing takes an advisory lock per list |
+| `configured_bindings`, `binding_versions` | Bindings stewards create, and every version | A key's attribute never changes, and an attribute has one binding (unique index). **Published versions are immutable**: a database trigger refuses any update or delete of one, so not even hand-run SQL can rewrite a version forms depend on. At most one draft per binding. |
+
+- All of it is as durable as the submissions that reference it: losing a row orphans stored anchors or codes, or breaks saves under a binding. The DBS therefore refuses to start against a real store without `DATABASE_URL`. Only `ADAPTER=fake` runs in memory.
+- `npm run demo:reset` empties the demo database only; the reset refuses any database not named `*_demo` or `*_test`.
+- Bindings created while they were still a JSON file (`binding-service/data/bindings.<adapter>.json`) are imported by `db:migrate` the first time it runs, and the file is renamed `.imported`.
 
 ## Phase 1 and beyond (sketch)
 

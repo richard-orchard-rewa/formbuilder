@@ -1,7 +1,15 @@
+import { existsSync } from "node:fs"
+import { readFile, rename } from "node:fs/promises"
+import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Client, Pool } from "pg"
+import type { Db } from "./client.js"
+import {
+  PostgresConfiguredBindingRepository,
+  type ConfiguredBinding,
+} from "../registry.js"
 
 // Creates the Data Binding Service's database if it doesn't exist yet, then
 // applies its migrations. Its own database: on the same Postgres server as
@@ -40,10 +48,29 @@ try {
 
 const pool = new Pool({ connectionString: url })
 try {
-  await migrate(drizzle(pool), {
+  const db = drizzle(pool)
+  await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("./migrations", import.meta.url)),
   })
   console.log(`Database ${name} is up to date`)
+  await importLegacyBindings(db)
 } finally {
   await pool.end()
+}
+
+// Before configured bindings moved into this database they were a JSON file
+// per adapter. If one is still there, bring its bindings across (saving is
+// idempotent) and rename the file so it's only ever imported once.
+async function importLegacyBindings(db: Db) {
+  const packageDir = fileURLToPath(new URL("../../", import.meta.url))
+  const file = resolve(
+    packageDir,
+    process.env.BINDINGS_FILE ?? `data/bindings.${process.env.ADAPTER ?? "fake"}.json`,
+  )
+  if (!existsSync(file)) return
+  const bindings = JSON.parse(await readFile(file, "utf8")) as ConfiguredBinding[]
+  const repo = new PostgresConfiguredBindingRepository(db)
+  for (const binding of bindings) await repo.save(binding)
+  await rename(file, `${file}.imported`)
+  console.log(`Imported ${bindings.length} configured binding(s) from ${file}`)
 }

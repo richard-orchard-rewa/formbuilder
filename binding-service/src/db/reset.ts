@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm"
 import { createDb } from "./client.js"
 
-// Empties the identity tables -- for resetting a demo, never a real
-// environment. `npm run db:reset:demo -w binding-service` (part of
-// `npm run demo:reset`) runs it against .env.demo's database only.
+// Empties the DBS's tables (identities and configured bindings) -- for
+// resetting a demo, never a real environment.
+// `npm run db:reset:demo -w binding-service` (part of `npm run demo:reset`)
+// runs it against .env.demo's database only.
 
 const url = process.env.DATABASE_URL
 if (!url) {
@@ -18,8 +19,10 @@ if (!name.endsWith("_demo") && !name.endsWith("_test")) {
 
 const db = createDb(url)
 try {
-  await db.execute(sql`truncate option_code_refs, option_codes, anchor_refs, anchors`)
-  console.log(`Reset identities in ${name}`)
+  await db.execute(
+    sql`truncate binding_versions, configured_bindings, option_code_refs, option_codes, anchor_refs, anchors`,
+  )
+  console.log(`Reset ${name}`)
 } finally {
   await db.$client.end()
 }

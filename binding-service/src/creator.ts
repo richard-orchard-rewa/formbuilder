@@ -13,7 +13,11 @@ import type {
 import { ALLOW_LIST, ANCHOR_ENTITIES, allowedAttribute } from "./allow-list.js"
 import { completeDescriptor, STRATEGY_PRESENTATIONS } from "./descriptors.js"
 import { CODE_BINDINGS } from "./dictionary.js"
-import type { BindingRegistry, ConfiguredBinding } from "./registry.js"
+import {
+  BindingSourceConflictError,
+  type BindingRegistry,
+  type ConfiguredBinding,
+} from "./registry.js"
 
 // A request the creator's rules won't allow. `message` explains why, for
 // the steward.
@@ -227,7 +231,7 @@ export class BindingCreator {
       ...published,
       { version, status: "draft", descriptor, createdAt: now, publishedAt: null },
     ]
-    await this.registry.saveConfigured(binding)
+    await this.save(binding)
     return toManaged(binding)
   }
 
@@ -258,8 +262,21 @@ export class BindingCreator {
 
     draft.status = "published"
     draft.publishedAt = new Date().toISOString()
-    await this.registry.saveConfigured(binding)
+    await this.save(binding)
     return toManaged(binding)
+  }
+
+  // A concurrent steward may have taken the key or attribute since this
+  // request checked; the store's own constraints are the final word.
+  private async save(binding: ConfiguredBinding) {
+    try {
+      await this.registry.saveConfigured(binding)
+    } catch (error) {
+      if (error instanceof BindingSourceConflictError) {
+        throw new BindingRuleError(error.message)
+      }
+      throw error
+    }
   }
 
   private async boundAttributes(): Promise<Map<string, string>> {

@@ -1,6 +1,5 @@
 import { ConfidentialClientApplication } from "@azure/msal-node"
 import { pino } from "pino"
-import { fileURLToPath } from "node:url"
 import type { RecordStore } from "./adapters/adapter.js"
 import { FakeRecordStore } from "./adapters/fake.js"
 import { IcisRecordStore } from "./adapters/icis.js"
@@ -8,7 +7,8 @@ import { buildApp } from "./app.js"
 import { BindingCreator } from "./creator.js"
 import {
   BindingRegistry,
-  JsonFileConfiguredBindingRepository,
+  InMemoryConfiguredBindingRepository,
+  PostgresConfiguredBindingRepository,
 } from "./registry.js"
 import { createDb } from "./db/client.js"
 import {
@@ -70,31 +70,25 @@ function icisStore(): RecordStore {
 const adapter = process.env.ADAPTER ?? "fake"
 const store = adapter === "icis" ? icisStore() : new FakeRecordStore()
 
-// Bindings created in the binding creator, kept by the DBS itself. One file
-// per adapter, so bindings made against the fake store don't appear when
-// running against ICIS (or vice versa).
-const bindingsFile =
-  process.env.BINDINGS_FILE ??
-  fileURLToPath(new URL(`../data/bindings.${adapter}.json`, import.meta.url))
-const registry = new BindingRegistry(
-  new JsonFileConfiguredBindingRepository(bindingsFile),
-)
-// DBS-owned identities (client anchor IDs, option codes) and how they map
-// to this store's IDs, kept in the DBS's own database -- as durable as the
-// submissions that hold them. Only the in-memory fake store may run
-// without one, since its records vanish on restart anyway.
-function identityRegistry(): IdentityRegistry {
-  const databaseUrl = process.env.DATABASE_URL
-  if (databaseUrl) return new PostgresIdentityRegistry(createDb(databaseUrl))
-  if (adapter !== "fake") {
-    logger.error(
-      "DATABASE_URL is not set: the identity registry must be durable for a real store (run `npm run db:migrate -w binding-service` first)",
-    )
-    process.exit(1)
-  }
-  return new InMemoryIdentityRegistry()
+// The DBS's own database (never form-builder's): the identities it issues
+// (client anchor IDs, option codes) and the bindings stewards create. Both
+// are as durable as the submissions that reference them, so a real store
+// requires it. Only the in-memory fake store may run without one, since its
+// records vanish on restart anyway.
+const databaseUrl = process.env.DATABASE_URL
+if (!databaseUrl && adapter !== "fake") {
+  logger.error(
+    "DATABASE_URL is not set: a real store needs the DBS's own database (run `npm run db:migrate -w binding-service` first)",
+  )
+  process.exit(1)
 }
-const identities = identityRegistry()
+const db = databaseUrl ? createDb(databaseUrl) : null
+const registry = new BindingRegistry(
+  db ? new PostgresConfiguredBindingRepository(db) : new InMemoryConfiguredBindingRepository(),
+)
+const identities: IdentityRegistry = db
+  ? new PostgresIdentityRegistry(db)
+  : new InMemoryIdentityRegistry()
 const app = buildApp(
   new BindingService(store, registry, identities),
   new BindingCreator(store, registry),
@@ -104,7 +98,12 @@ const app = buildApp(
 const port = Number(process.env.PORT ?? 3100)
 app
   .listen({ port, host: "127.0.0.1" })
-  .then(() => logger.info({ adapter, bindingsFile }, "data binding service ready"))
+  .then(() =>
+    logger.info(
+      { adapter, database: db ? new URL(databaseUrl!).pathname.slice(1) : "in memory" },
+      "data binding service ready",
+    ),
+  )
   .catch((err: unknown) => {
     logger.error({ err }, "failed to start data binding service")
     process.exit(1)

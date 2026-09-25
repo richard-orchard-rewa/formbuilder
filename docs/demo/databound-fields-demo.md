@@ -42,7 +42,7 @@ npm run demo
 
 To start from a clean slate:
 - **Mock ICIS:** click **Reset demo** in its header. That restores clients and privileges and clears the log. Restarting it does the same.
-- **Bindings the steward created, and the service's issued client IDs and option codes:** `npm run demo:reset`.
+- **Bindings the steward created, and the service's issued client IDs and option codes:** `npm run demo:reset`. It empties the service's demo database, never form-builder's.
 - **Forms built in a previous run:** these stay in Postgres. Create a new form each time, or reuse one.
 
 It helps to leave the mock's **API log** open on a second screen throughout. The point *everything goes through an API* makes itself.
