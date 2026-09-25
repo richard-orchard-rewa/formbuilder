@@ -64,6 +64,7 @@ npm run dev       # the same, but the DBS uses binding-service/.env (ADAPTER=fak
 - **Where bindings made in the creator live:**
   - `binding-service/data/bindings.<adapter>.json` (gitignored).
   - Demo runs use `bindings.demo.json`; clear it with `npm run demo:reset`.
+  - DBS-owned identities (anchor IDs, option codes) live alongside, in `identity.<adapter>.json` (`identity.demo.json` for demos, also cleared by `npm run demo:reset`).
   - The mock's own data resets with its **Reset demo** button, or on restart.
 - **Test ICIS contact used throughout:** Bob McGee, client number `00152076`. He's also in the mock, alongside 19 made-up clients `00152077`–`00152095`.
 
@@ -90,7 +91,12 @@ Descriptors now say how to show, list, check, read and write each value:
 - `validation`: a typed rule list, enforced by the DBS at commit, including that a lookup value is one of the live options.
 - `operations`.
 
-The steward can narrow the presentations in the binding creator. See the proposal: "The descriptor as built", "Adding validation rules", and "Beyond Dataverse", which covers two identity problems (anchor IDs and lookup option IDs are ICIS GUIDs) that should be fixed before real data accumulates.
+The steward can narrow the presentations in the binding creator. See the proposal: "The descriptor as built", "Adding validation rules", and "Beyond Dataverse".
+
+**Identities now belong to the DBS.**
+- Clients are anchored by DBS-issued IDs, and lookup values are logical codes (`mr`, `not-stated`), each mapped to per-store IDs by `binding-service/src/identity.ts`.
+- form-builder stores no Dataverse IDs at all.
+- The registry lives in `binding-service/data/identity.<adapter>.json`, gitignored. Treat it as durable as the submissions: losing it orphans stored anchors and codes.
 
 ## Next steps, in rough order
 
@@ -99,7 +105,7 @@ The steward can narrow the presentations in the binding creator. See the proposa
 3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
 5. **An outbox for commits** (a queue with retries, like `feedback`'s ICIS sync), so an ICIS or DBS outage never blocks finalising.
-6. **Stable identities:** DBS-issued anchor IDs (or the client number) instead of Contact GUIDs, and logical option codes instead of Dataverse row IDs. See "Beyond Dataverse" in the proposal.
+6. **Move the identity registry into a database** before any real data, since it's as durable as the submissions that reference it.
 7. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
 8. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
 9. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.

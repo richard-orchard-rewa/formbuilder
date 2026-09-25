@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest"
 import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
 import { BindingCreator, BindingRuleError } from "./creator.js"
+import { IdentityRegistry, InMemoryIdentityRepository } from "./identity.js"
 import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
 import { BindingService } from "./service.js"
 
 function build() {
   const store = new FakeRecordStore()
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
-  return {
+  const service = new BindingService(
     store,
-    service: new BindingService(store, registry),
-    creator: new BindingCreator(store, registry),
-  }
+    registry,
+    new IdentityRegistry(new InMemoryIdentityRepository()),
+  )
+  return { store, service, creator: new BindingCreator(store, registry) }
 }
+
+const bob = async (service: BindingService) => ({
+  client: (await service.findClient("00152076"))!.id,
+})
 
 describe("self-describing descriptors", () => {
   it("tell a consumer how to show, list, check, read and write a lookup", async () => {
@@ -37,13 +43,12 @@ describe("self-describing descriptors", () => {
 })
 
 describe("validation at commit", () => {
-  const anchor = { client: FAKE_CLIENT_ID }
-
   it("refuses a lookup value that isn't one of the options, without writing", async () => {
     const { service, store } = build()
+    const anchor = await bob(service)
     const { results } = await service.commit({
       anchor,
-      values: { "client.title": "11111111-1111-1111-1111-111111111111" },
+      values: { "client.title": "duke" },
     })
     expect(results["client.title"]).toEqual({
       status: "failed",
@@ -58,14 +63,15 @@ describe("validation at commit", () => {
   it("accepts one of the options", async () => {
     const { service } = build()
     const { results } = await service.commit({
-      anchor,
-      values: { "client.title": KNOWN_TITLES[3].value },
+      anchor: await bob(service),
+      values: { "client.title": "ms" },
     })
     expect(results["client.title"]).toEqual({ status: "written" })
   })
 
   it("refuses to clear a value the store requires", async () => {
     const { store, service, creator } = build()
+    const anchor = await bob(service)
     // Pretend ICIS requires a gender, so the binding inherits that.
     const describe = store.describe.bind(store)
     store.describe = async (entity, attributes) =>

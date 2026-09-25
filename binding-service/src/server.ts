@@ -10,6 +10,7 @@ import {
   BindingRegistry,
   JsonFileConfiguredBindingRepository,
 } from "./registry.js"
+import { IdentityRegistry, JsonFileIdentityRepository } from "./identity.js"
 import { BindingService } from "./service.js"
 
 const logger = pino()
@@ -73,8 +74,14 @@ const bindingsFile =
 const registry = new BindingRegistry(
   new JsonFileConfiguredBindingRepository(bindingsFile),
 )
+// DBS-owned identities (client anchor IDs, option codes) and how they map
+// to this store's IDs -- as durable as the submissions that hold them.
+const identityFile =
+  process.env.IDENTITY_FILE ??
+  fileURLToPath(new URL(`../data/identity.${adapter}.json`, import.meta.url))
+const identities = new IdentityRegistry(new JsonFileIdentityRepository(identityFile))
 const app = buildApp(
-  new BindingService(store, registry),
+  new BindingService(store, registry, identities),
   new BindingCreator(store, registry),
   logger,
 )

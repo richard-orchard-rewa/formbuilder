@@ -324,11 +324,20 @@ The eventual reason for the DBS is less "talk to ICIS" than *move client data of
 3. While anything still depends on ICIS (the DEX export pipeline, above all), the **new system is the system of record and syncs back to ICIS** through an outbox, the way `feedback` already syncs to ICIS. Avoid dual-writing from the DBS, which turns one failure into two inconsistent stores.
 4. Cut over when nothing reads the ICIS copy.
 
-**Two identity problems to fix before real data accumulates:**
-- **Anchor IDs are ICIS GUIDs.** A form fill anchors on the contact's Dataverse ID, and `submission_bindings.anchor` stores it. Once client records live elsewhere, those IDs mean nothing. The DBS should issue its own stable anchor identifiers, or anchor on a business key such as the client number, and keep the per-store ID mapping itself.
-- **Lookup values are ICIS GUIDs.** A submission's raw JSON stores Title as `8c8b6ce9-…`, the salutation row's Dataverse ID. After migration, those values need mapping, or they're unreadable. Better: **options have logical codes** (`"ms"`, `"mx"`), and the DBS maps codes to each store's IDs. The alternative is migrating reference tables with their IDs unchanged, which ties the new system to Dataverse's keys forever.
+**Identities that belong to the DBS, not the store (fixed 2026-09-25).** Two things tied forms to Dataverse's keys. Both now use DBS-owned identities, managed by `binding-service/src/identity.ts`:
 
-Both are cheap to change now and expensive once submissions exist.
+- **Anchor IDs.**
+  - Before: a form fill anchored on the contact's Dataverse GUID, and `submission_bindings.anchor` stored it.
+  - Now: `GET /anchors/client` returns a **DBS-issued ID**, and resolve and commit accept only that; a store's own record ID is refused. The registry maps each DBS ID to the record's ID *in each store*: `{ "id": "faf2…", "refs": { "icis": "de30…" } }`.
+  - Moving a client to another store means adding a `refs` entry, keyed by the client number during migration. No submission changes.
+- **Lookup values.**
+  - Before: a submission stored Title as the salutation row's Dataverse GUID.
+  - Now: options are served and accepted as **logical codes** (`mr`, `ms`, `not-stated`), and the DBS translates to and from each store's row IDs. A code comes from the row's label the first time the DBS sees it and is kept from then on, so renaming a label never changes stored data.
+  - Moving a list to another store means mapping codes to the new rows. Nothing in form-builder changes.
+  - Codes could later be curated rather than derived. For DEX-coded lists (gender, for instance), a developer-maintained code list that matches the funder's codes is the better source.
+- **Stores are named** (`RecordStore.name`: `icis`, `fake`); `refs` are keyed by that name, which is the first step towards more than one store.
+- The registry is stored by the DBS itself: a JSON file per adapter in the prototype, `data/identity.<adapter>.json`; demo mode uses `identity.demo.json`. In a real DBS it's a database table, **as durable as the submissions that reference it**. Losing it would orphan every stored anchor and code.
+- **Prototype data from before the change** holds GUIDs. Those submissions won't pre-select their old Title values. There's no real data, so nothing was migrated.
 
 ## Phase 1 and beyond (sketch)
 

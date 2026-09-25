@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest"
 import { IcisRecordStore } from "../../binding-service/src/adapters/icis.js"
 import { BindingCreator } from "../../binding-service/src/creator.js"
 import {
+  IdentityRegistry,
+  InMemoryIdentityRepository,
+} from "../../binding-service/src/identity.js"
+import {
   BindingRegistry,
   InMemoryConfiguredBindingRepository,
 } from "../../binding-service/src/registry.js"
@@ -12,7 +16,9 @@ import { BindingService } from "../../binding-service/src/service.js"
 import { buildMockIcis } from "./app.js"
 import { LOOKUP_ROWS, SERVICE_ACCOUNT } from "./data.js"
 
+// Contacts' Dataverse IDs, as the mock holds them. Consumers never see these.
 const BOB = "2c616f0e-d741-f011-8779-000d3ad0ea14"
+const MINH_RECORD = "de300000-0000-4000-8000-000000152078"
 const ORG = "http://mock-icis"
 
 function build() {
@@ -32,25 +38,35 @@ function build() {
   }) as typeof fetch
   const store = new IcisRecordStore(ORG, async () => SERVICE_ACCOUNT.token, fetchImpl, 0)
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
+  const identities = new IdentityRegistry(new InMemoryIdentityRepository())
+  const service = new BindingService(store, registry, identities)
   return {
     state,
-    service: new BindingService(store, registry),
+    identities,
+    service,
     creator: new BindingCreator(store, registry),
+    // Consumers anchor on DBS IDs, got by finding the client.
+    anchorOf: async (clientNumber: string) => ({
+      client: (await service.findClient(clientNumber))!.id,
+    }),
   }
 }
 
-const gender = (name: string) => LOOKUP_ROWS.csg_gender.find((r) => r.name === name)!.id
 
 describe("the Data Binding Service against the mock ICIS", () => {
-  it("finds a client and resolves built-in bindings", async () => {
-    const { service } = build()
-    expect(await service.findClient("00152078")).toMatchObject({ displayName: "Minh Tran" })
+  it("finds a client and resolves built-in bindings, in DBS terms only", async () => {
+    const { service, anchorOf } = build()
+    const minh = await service.findClient("00152078")
+    expect(minh).toMatchObject({ displayName: "Minh Tran" })
+    // The anchor is the DBS's own ID, not the contact's Dataverse GUID.
+    expect(minh?.id).not.toBe(MINH_RECORD)
     const { values } = await service.resolve({
-      anchor: { client: BOB },
+      anchor: await anchorOf("00152076"),
       bindings: ["client.title", "client.firstName", "client.clientNumber"],
     })
     expect(values).toEqual({
-      "client.title": "8a8b6ce9-e68f-df11-aff9-0050569f692b",
+      // A code, not the salutation row's Dataverse GUID.
+      "client.title": "mr",
       "client.firstName": "Bob",
       "client.clientNumber": "00152076",
     })
@@ -68,9 +84,9 @@ describe("the Data Binding Service against the mock ICIS", () => {
   })
 
   it("refuses a write the account isn't allowed, with the missing privilege named", async () => {
-    const { service } = build()
+    const { service, anchorOf } = build()
     const { results } = await service.commit({
-      anchor: { client: BOB },
+      anchor: await anchorOf("00152076"),
       values: { "client.firstName": "Robert" },
     })
     expect(results["client.firstName"]).toMatchObject({
@@ -80,7 +96,7 @@ describe("the Data Binding Service against the mock ICIS", () => {
   })
 
   it("walks the demo: grant privileges, create and publish bindings, save back, hit a conflict", async () => {
-    const { state, service, creator } = build()
+    const { state, service, creator, anchorOf } = build()
 
     // ICIS admin grants the service what it needs.
     for (const p of [
@@ -115,32 +131,33 @@ describe("the Data Binding Service against the mock ICIS", () => {
     )
 
     // Practitioner opens a form for Minh Tran, edits, submits.
-    const minh = (await service.findClient("00152078"))!.id
+    const minh = await anchorOf("00152078")
     const opened = await service.resolve({
-      anchor: { client: minh },
+      anchor: minh,
       bindings: ["client.preferredName", "client.gender"],
     })
     expect(opened.values["client.preferredName"]).toBe("Tony")
+    expect(opened.values["client.gender"]).toBe("male")
     const saved = await service.commit({
-      anchor: { client: minh },
-      values: { "client.preferredName": "Tony T", "client.gender": gender("Male") },
+      anchor: minh,
+      values: { "client.preferredName": "Tony T", "client.gender": "male" },
       baseline: opened.values,
     })
     expect(saved.results).toEqual({
       "client.preferredName": { status: "written" },
       "client.gender": { status: "unchanged" },
     })
-    expect(state.contacts.get(minh)?.values.csg_alias).toBe("Tony T")
+    expect(state.contacts.get(MINH_RECORD)?.values.csg_alias).toBe("Tony T")
 
     // Meanwhile, reception changes the preferred name in ICIS...
     const reopened = await service.resolve({
-      anchor: { client: minh },
+      anchor: minh,
       bindings: ["client.preferredName"],
     })
-    state.updateAsStaff(minh, { csg_alias: "Anthony" })
+    state.updateAsStaff(MINH_RECORD, { csg_alias: "Anthony" })
     // ...so the practitioner's stale edit is reported, not written.
     const stale = await service.commit({
-      anchor: { client: minh },
+      anchor: minh,
       values: { "client.preferredName": "Tone" },
       baseline: reopened.values,
     })
@@ -148,7 +165,7 @@ describe("the Data Binding Service against the mock ICIS", () => {
       status: "conflict",
       current: "Anthony",
     })
-    expect(state.contacts.get(minh)?.values.csg_alias).toBe("Anthony")
+    expect(state.contacts.get(MINH_RECORD)?.values.csg_alias).toBe("Anthony")
 
     // Every call went through the Web API, and was logged.
     expect(state.log.some((e) => e.method === "PATCH" && e.status === 204)).toBe(true)
@@ -179,19 +196,22 @@ describe("the creator's ceiling for lookups", () => {
 
 describe("validation against the mock's live lists", () => {
   it("refuses a title that isn't in ICIS's salutation list, and never sends the PATCH", async () => {
-    const { state, service } = build()
+    const { state, service, anchorOf } = build()
     state.privileges.add("prvWriteContact")
     state.privileges.add("prvAppendContact")
     state.privileges.add("prvAppendToCsg_salutation")
-    const { results } = await service.commit({
-      anchor: { client: BOB },
-      values: { "client.title": "de301000-0000-4000-8000-000000000999" },
-    })
-    expect(results["client.title"]).toMatchObject({ message: "Not one of the allowed options" })
+    const bob = await anchorOf("00152076")
+    // A store row ID is not a valid value either: only codes are.
+    for (const value of ["duke", LOOKUP_ROWS.csg_salutation[0].id]) {
+      const { results } = await service.commit({ anchor: bob, values: { "client.title": value } })
+      expect(results["client.title"]).toMatchObject({ message: "Not one of the allowed options" })
+    }
     expect(state.log.some((e) => e.method === "PATCH")).toBe(false)
 
-    const mx = LOOKUP_ROWS.csg_salutation.find((r) => r.name === "Mx")!.id
-    const ok = await service.commit({ anchor: { client: BOB }, values: { "client.title": mx } })
+    const ok = await service.commit({ anchor: bob, values: { "client.title": "mx" } })
     expect(ok.results["client.title"]).toEqual({ status: "written" })
+    // ...and ICIS got the Mx row's own ID.
+    const mxRow = LOOKUP_ROWS.csg_salutation.find((r) => r.name === "Mx")!.id
+    expect(state.contacts.get(BOB)?.values.csg_salutationid).toBe(mxRow)
   })
 })
