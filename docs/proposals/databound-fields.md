@@ -192,6 +192,71 @@ The queued values go in one PATCH with `If-Match` on the row version it just rea
 - Binding-version migration beyond "same key carries over".
 - The "changed in ICIS since" indicator when re-viewing a submission (decision 1).
 
+## Creating bindings without a developer
+
+Phase 0's dictionary is code, so every new bound field needs a developer. That doesn't scale: most requests will be "let this form show/edit the client's X". The answer is to split what a developer must write from what a data steward can configure.
+
+### Strategies are code; bindings are configuration
+
+How a value is written varies little across bindings. Developers write a small, fixed set of **write strategies** once:
+
+| Strategy | What it does | Example bindings |
+|---|---|---|
+| `attribute` | One text value on the anchor record | Preferred name, mobile phone, email |
+| `lookup` | One reference-table ID on the anchor record | Title, gender, home language |
+| `set-membership` | A set of library items linked to the anchor via a junction table (§7 example 2) | Presenting needs, risk factors |
+| `child-collection` | Child records per participant, re-presented when the session is edited (§7 example 1) | Referrals |
+
+A **binding** is a strategy plus configuration: which allow-listed attribute or tables, a label, read-only or writable, narrower limits. A steward creates bindings in the DBS; no developer is involved unless a new *strategy* is needed. §7's "developer-maintained rules for referential integrity" live in the strategies, where they belong. The doc's own suggestion ("a function that takes in the library table and the many-to-many table") is exactly the `set-membership` strategy.
+
+### Who defines what
+
+| Owned by | What | Why |
+|---|---|---|
+| **Store metadata**, read, never typed in | Data type, max length, store-required level, lookup target | ICIS already knows; retyping it is how the two drift apart |
+| **The binding**, created in the DBS | Logical key, label, read-only vs writable, narrower limits, validation type (§3 library), allowed anchors | These are properties of the *concept*, the same on every form (§6) |
+| **The form control** | Audience wording, validation severity (assist/warn/block), required-on-this-form | §3 and §6: severity and wording vary by audience, so they belong to the control on a given form |
+
+A binding can only **narrow** what the store allows: a shorter max length, a stricter validation type, read-only instead of writable. It never widens past what ICIS accepts, and a form control never loosens its binding.
+
+### Guardrails
+
+1. **An allow-list of attributes per anchor.** This is approved by a data owner and kept as code, and it's the real security boundary. A probe of test ICIS shows why it can't be skipped: `contact`'s *updatable* attributes include `adx_identity_passwordhash` and `adx_identity_securitystamp` (portal credentials), `csg_dssid` (the DEX client ID), and `csg_health_care_card_id` / `csg_pension_card_id`. None of those should ever be one click from a form. FDR content (§17), DEX-reported fields (locked modules, §4) and §13 structural identity fields stay off the list or read-only.
+2. **The service account is the ceiling.** The DBS checks its own privileges in the store (Dataverse `RetrieveUserPrivileges`). If it can't write the entity, it won't offer "writable". If it can't read a lookup's reference table, a lookup binding can't be published, because it would render with no options. The creator shows *why*, rather than failing at first submit.
+3. **Versioned and immutable once published**, like modules. Editing a published binding creates a new draft version. Forms keep the descriptor snapshot they were built with, and narrowing is a *conflicting* change for them (§5).
+4. **Logical keys, not store names.** Forms reference `client.preferredName`. The mapping to `contact.csg_alias` lives only in the DBS, so replacing ICIS means remapping bindings, not rewriting forms.
+5. **A steward role, not the form builder.** Creating bindings requires knowing what the field means and who reports on it. That's a different person from the one assembling modules, and it will need its own permission once auth exists.
+
+### Phase 0.5 — binding creator slice
+
+The `attribute` and `lookup` strategies only, `client` anchor only:
+
+- An allow-list of `contact` attributes, with the Phase 0 code bindings unchanged alongside.
+- `GET /admin/attributes?anchor=client`: each allow-listed attribute with its live store metadata (type, max length, required level, lookup target), what the service account can do with it, and whether a binding already uses it.
+- `POST /admin/bindings` to create a draft. The strategy and limits are derived from metadata; the request can only narrow them. `POST /admin/bindings/:key/publish` makes it an immutable version.
+- Configured bindings are stored by the DBS itself, not in form-builder's database. For the prototype that's a JSON file, which keeps `ADAPTER=fake` zero-setup.
+- A "Data bindings" admin page in form-builder (relayed through its server like the rest) to browse attributes, create, and publish. A published binding appears in the form palette with no other change.
+
+Out of this slice: the `set-membership` and `child-collection` strategies, the validation-type library, retiring bindings, and steward permissions.
+
+**Built (2026-09-25).** Open **Data bindings** from the app's nav.
+
+- **Code layout.**
+  - The allow-list is [`binding-service/src/allow-list.ts`](../../binding-service/src/allow-list.ts): 12 `contact` attributes, with `csg_clientid` capped at display-only.
+  - The rules live in [`creator.ts`](../../binding-service/src/creator.ts).
+  - Code and configured bindings are merged in [`registry.ts`](../../binding-service/src/registry.ts). Forms only see a binding's latest *published* version.
+  - The built-in Phase 0 bindings now share the same `strategy + source attribute` shape, and runtime reads and writes go through one generic path.
+- **Enforcement.**
+  - Commits re-check a text binding's max length at the API boundary.
+  - Configured bindings are stored in `binding-service/data/bindings.<adapter>.json`, which is gitignored.
+- **Verified against test ICIS.**
+  - Live metadata comes back per attribute, e.g. `csg_alias` = "Preferred Name", text, 100.
+  - The live privilege check works. The borrowed account lacks `prvWriteContact`, so *every* attribute is capped at display-only, and the page says so once, as a banner.
+  - A **Preferred name** binding (`client.preferredName` → `csg_alias`, display-only, narrowed to 60) was created, published, and appeared in the form palette with no other change. It resolved on the fill page for Bob McGee; ICIS holds no preferred name for him, so it renders empty.
+  - A **Gender** lookup draft was **refused at publish**, because the account can't read `csg_gender`.
+  - An attempt on `adx_identity_passwordhash` was refused as not allow-listed.
+- **Found:** in test ICIS the borrowed account can read *none* of the custom reference tables behind `contact`'s lookups (gender, language, country, state, suburb, …). So no configured lookup can publish until the DBS has its own account.
+
 ## Phase 1 and beyond (sketch)
 
 - Session-anchored, read-only bindings from the booking (§8 "values pulled from other records … resolved and stored at finalisation") — likely the first *production* use.

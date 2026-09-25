@@ -1,16 +1,52 @@
-import type { BindingOptions } from "shared"
+import type { BindingOptions, BindingStrategy } from "shared"
 
-// The DBS's own, store-agnostic view of a client. The dictionary maps
-// bindings onto these properties; each adapter translates them to and from
-// its backing store. Nothing outside an adapter knows ICIS column names.
-export interface ClientRecord {
-  clientNumber: string | null
-  titleId: string | null
-  firstName: string | null
-  lastName: string | null
+// Where a binding's value lives in the backing store: the DBS-internal
+// mapping behind a logical binding key. Forms never see this -- swapping
+// the store means remapping these, never changing a form.
+export interface BindingSource {
+  strategy: BindingStrategy
+  entity: string
+  attribute: string
+  // For `lookup`: the reference table the attribute points at.
+  target?: string
 }
 
-export type ClientProperty = keyof ClientRecord
+// A store value: text, or a lookup's referenced ID. null means no value.
+export type StoreValue = string | null
+
+export interface StoredRecord {
+  // Keyed by store attribute name.
+  values: Record<string, StoreValue>
+  // The store's row version, used to make a write conditional on nothing
+  // having changed between the read and the write.
+  etag: string
+}
+
+export interface Change {
+  source: BindingSource
+  value: StoreValue
+}
+
+// What the store says about one of an entity's attributes.
+export interface AttributeMetadata {
+  attribute: string
+  displayName: string
+  kind: "text" | "lookup" | "other"
+  maxLength?: number
+  requiredLevel: "none" | "recommended" | "required"
+  // Whether the store accepts updates to it at all.
+  updatable: boolean
+  lookupTarget?: string
+}
+
+// What the DBS's own account may do in the store -- the ceiling on what any
+// binding can offer (docs/proposals/databound-fields.md, guardrail 2).
+export interface ServicePermissions {
+  readEntity: boolean
+  writeEntity: boolean
+  // Per lookup target: can the account read the reference table's rows?
+  readTargets: Record<string, boolean>
+}
 
 export interface ClientSummary {
   id: string
@@ -19,15 +55,8 @@ export interface ClientSummary {
   lastName: string | null
 }
 
-export interface StoredClient {
-  record: ClientRecord
-  // The backing store's row version, used to make the write conditional on
-  // nothing having changed between this read and the write.
-  etag: string
-}
-
-// The backing store refused a write because the row changed after it was
-// read (an If-Match mismatch).
+// The store refused a write because the row changed after it was read (an
+// If-Match mismatch).
 export class ConcurrentUpdateError extends Error {
   constructor() {
     super("The record changed while it was being saved")
@@ -35,8 +64,8 @@ export class ConcurrentUpdateError extends Error {
   }
 }
 
-// The backing store refused a write for any other reason (privileges,
-// plugin business rules, ...). `message` is safe to show a user.
+// The store refused a write for any other reason (privileges, plugin
+// business rules, ...). `message` is safe to show a user.
 export class StoreWriteError extends Error {
   constructor(message: string) {
     super(message)
@@ -44,14 +73,16 @@ export class StoreWriteError extends Error {
   }
 }
 
-export interface ClientStore {
-  // Human-facing client identifier (ICIS `csg_clientid`) -> the record.
-  findByClientNumber(clientNumber: string): Promise<ClientSummary | null>
-  get(id: string): Promise<StoredClient | null>
-  update(
+export interface RecordStore {
+  // Human-facing client identifier -> the record to anchor on.
+  findClientByNumber(clientNumber: string): Promise<ClientSummary | null>
+  read(
+    entity: string,
     id: string,
-    patch: Partial<Omit<ClientRecord, "clientNumber">>,
-    etag: string,
-  ): Promise<void>
-  listTitles(): Promise<BindingOptions>
+    sources: BindingSource[],
+  ): Promise<StoredRecord | null>
+  write(entity: string, id: string, changes: Change[], etag: string): Promise<void>
+  lookupOptions(target: string): Promise<BindingOptions>
+  describe(entity: string, attributes: string[]): Promise<AttributeMetadata[]>
+  permissions(entity: string, targets: string[]): Promise<ServicePermissions>
 }

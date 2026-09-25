@@ -173,6 +173,13 @@ export {
   CommitResponseSchema,
   BindingCommitStatusSchema,
   BindingCommitResultSchema,
+  BindingStrategySchema,
+  AttributeCandidateSchema,
+  AttributeCandidateListSchema,
+  BindingVersionSchema,
+  ManagedBindingSchema,
+  ManagedBindingListSchema,
+  CreateBindingRequestSchema,
 } from "./schemas/binding.js"
 export type {
   BindingAnchor,
@@ -188,4 +195,9 @@ export type {
   CommitResponse,
   BindingCommitStatus,
   BindingCommitResult,
+  BindingStrategy,
+  AttributeCandidate,
+  BindingVersion,
+  ManagedBinding,
+  CreateBindingRequest,
 } from "./schemas/binding.js"

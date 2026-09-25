@@ -13,10 +13,12 @@ import type {
 import {
   ConcurrentUpdateError,
   StoreWriteError,
-  type ClientRecord,
-  type ClientStore,
+  type Change,
+  type RecordStore,
 } from "./adapters/adapter.js"
-import { DICTIONARY, findEntry } from "./dictionary.js"
+import { ANCHOR_ENTITIES } from "./allow-list.js"
+import type { DictionaryEntry } from "./dictionary.js"
+import type { BindingRegistry } from "./registry.js"
 
 export class UnknownBindingError extends Error {
   constructor(public readonly keys: string[]) {
@@ -39,38 +41,44 @@ export class NoOptionsError extends Error {
   }
 }
 
-function entriesFor(keys: string[]) {
-  const unknown = keys.filter((key) => !findEntry(key))
-  if (unknown.length > 0) throw new UnknownBindingError(unknown)
-  return keys.map((key) => findEntry(key)!)
-}
-
 function displayName(first: string | null, last: string | null) {
   return [first, last].filter(Boolean).join(" ") || "(no name)"
 }
 
+// The runtime half of the DBS: what forms use to render, fill and submit
+// data-bound fields. The creator (creator.ts) is the build-time half.
 export class BindingService {
-  constructor(private readonly clients: ClientStore) {}
+  constructor(
+    private readonly store: RecordStore,
+    private readonly registry: BindingRegistry,
+  ) {}
 
-  listBindings(anchor?: BindingAnchor): BindingDescriptor[] {
-    return DICTIONARY.map((entry) => entry.descriptor).filter(
-      (descriptor) => !anchor || descriptor.anchor === anchor,
-    )
+  private async entriesFor(keys: string[]): Promise<DictionaryEntry[]> {
+    const published = await this.registry.published()
+    const byKey = new Map(published.map((e) => [e.descriptor.key, e]))
+    const unknown = keys.filter((key) => !byKey.has(key))
+    if (unknown.length > 0) throw new UnknownBindingError(unknown)
+    return keys.map((key) => byKey.get(key)!)
   }
 
-  getBinding(key: string): BindingDescriptor {
-    return entriesFor([key])[0].descriptor
+  async listBindings(anchor?: BindingAnchor): Promise<BindingDescriptor[]> {
+    return (await this.registry.published(anchor)).map((e) => e.descriptor)
+  }
+
+  async getBinding(key: string): Promise<BindingDescriptor> {
+    return (await this.entriesFor([key]))[0].descriptor
   }
 
   async getOptions(key: string): Promise<BindingOptions> {
-    const [entry] = entriesFor([key])
-    if (entry.descriptor.control.kind !== "lookup") throw new NoOptionsError(key)
-    // The only lookup in the prototype dictionary.
-    return this.clients.listTitles()
+    const [entry] = await this.entriesFor([key])
+    if (entry.source.strategy !== "lookup" || !entry.source.target) {
+      throw new NoOptionsError(key)
+    }
+    return this.store.lookupOptions(entry.source.target)
   }
 
   async findClient(clientNumber: string): Promise<ClientAnchor | null> {
-    const found = await this.clients.findByClientNumber(clientNumber)
+    const found = await this.store.findClientByNumber(clientNumber)
     if (!found) return null
     return {
       id: found.id,
@@ -80,37 +88,49 @@ export class BindingService {
   }
 
   async resolve(request: ResolveRequest): Promise<ResolveResponse> {
-    const entries = entriesFor(request.bindings)
-    const stored = await this.clients.get(request.anchor.client)
+    const entries = await this.entriesFor(request.bindings)
+    const stored = await this.store.read(
+      ANCHOR_ENTITIES.client,
+      request.anchor.client,
+      entries.map((e) => e.source),
+    )
     if (!stored) throw new AnchorNotFoundError("client", request.anchor.client)
 
     const values: BoundValues = {}
     for (const entry of entries) {
-      values[entry.descriptor.key] = stored.record[entry.property]
+      values[entry.descriptor.key] = stored.values[entry.source.attribute] ?? null
     }
     return { values, resolvedAt: new Date().toISOString() }
   }
 
   // Writes only what actually changed, and never overwrites a value that
   // changed in the store since the caller resolved it (reported as a
-  // conflict instead). Everything that is written goes in one conditional
-  // update, so a record changing mid-commit fails the whole write rather
-  // than half-applying it.
+  // conflict instead). Values are re-checked against the binding here, at
+  // the API boundary, not just in the rendered form (requirements §3).
+  // Everything written goes in one conditional update, so a record changing
+  // mid-commit fails the whole write rather than half-applying it.
   async commit(request: CommitRequest): Promise<CommitResponse> {
-    const entries = entriesFor(Object.keys(request.values))
-    const stored = await this.clients.get(request.anchor.client)
+    const entries = await this.entriesFor(Object.keys(request.values))
+    const stored = await this.store.read(
+      ANCHOR_ENTITIES.client,
+      request.anchor.client,
+      entries.map((e) => e.source),
+    )
     if (!stored) throw new AnchorNotFoundError("client", request.anchor.client)
 
     const results: Record<string, BindingCommitResult> = {}
-    const patch: Partial<Omit<ClientRecord, "clientNumber">> = {}
+    const changes: Change[] = []
     const pending: string[] = []
 
     for (const entry of entries) {
-      const key = entry.descriptor.key
+      const { descriptor, source } = entry
+      const key = descriptor.key
       const next = normalise(request.values[key])
-      const current = stored.record[entry.property]
+      const current = stored.values[source.attribute] ?? null
+      const maxLength =
+        descriptor.control.kind === "text" ? descriptor.control.maxLength : undefined
 
-      if (entry.descriptor.access === "read") {
+      if (descriptor.access === "read") {
         results[key] = { status: "readOnly" }
       } else if (next === current) {
         results[key] = { status: "unchanged" }
@@ -124,17 +144,25 @@ export class BindingService {
           message: "Changed in the source system since this form was opened",
           current,
         }
+      } else if (maxLength !== undefined && next !== null && next.length > maxLength) {
+        results[key] = {
+          status: "failed",
+          message: `Longer than the ${maxLength} characters this field allows`,
+        }
       } else {
-        // Only read-only entries map to clientNumber, handled above.
-        patch[entry.property as Exclude<typeof entry.property, "clientNumber">] =
-          next
+        changes.push({ source, value: next })
         pending.push(key)
       }
     }
 
-    if (pending.length > 0) {
+    if (changes.length > 0) {
       try {
-        await this.clients.update(request.anchor.client, patch, stored.etag)
+        await this.store.write(
+          ANCHOR_ENTITIES.client,
+          request.anchor.client,
+          changes,
+          stored.etag,
+        )
         for (const key of pending) results[key] = { status: "written" }
       } catch (error) {
         if (

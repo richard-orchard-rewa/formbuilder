@@ -1,4 +1,7 @@
 import type {
+  AttributeCandidate,
+  CreateBindingRequest,
+  ManagedBinding,
   AnchorContext,
   BindingAnchor,
   BindingDescriptor,
@@ -575,4 +578,52 @@ export function resolveBindings(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ anchor, bindings }),
   }).then((res) => json<ResolveResponse>(res))
+}
+
+// --- The binding creator (docs/proposals/databound-fields.md, "Creating
+// bindings without a developer"). ---
+
+// The Data Binding Service refused a binding-creator request; `message`
+// says why, for the steward.
+export class BindingRuleRejectedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "BindingRuleRejectedError"
+  }
+}
+
+async function bindingAdmin<T>(res: Response): Promise<T> {
+  if (res.status === 422 || res.status === 404) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null
+    throw new BindingRuleRejectedError(body?.message ?? "Request refused")
+  }
+  return json<T>(res)
+}
+
+export function listBindingCandidates(): Promise<AttributeCandidate[]> {
+  return fetch("/api/binding-admin/attributes?anchor=client").then((res) =>
+    json<AttributeCandidate[]>(res),
+  )
+}
+
+export function listManagedBindings(): Promise<ManagedBinding[]> {
+  return fetch("/api/binding-admin/bindings").then((res) =>
+    json<ManagedBinding[]>(res),
+  )
+}
+
+export function saveBindingDraft(
+  request: CreateBindingRequest,
+): Promise<ManagedBinding> {
+  return fetch("/api/binding-admin/bindings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  }).then((res) => bindingAdmin<ManagedBinding>(res))
+}
+
+export function publishBinding(key: string): Promise<ManagedBinding> {
+  return fetch(`/api/binding-admin/bindings/${encodeURIComponent(key)}/publish`, {
+    method: "POST",
+  }).then((res) => bindingAdmin<ManagedBinding>(res))
 }

@@ -1,20 +1,23 @@
 import type { BindingDescriptor } from "shared"
-import type { ClientProperty } from "./adapters/adapter.js"
+import type { BindingSource } from "./adapters/adapter.js"
 
 export interface DictionaryEntry {
   descriptor: BindingDescriptor
-  // Which property of the anchor record this binding reads/writes.
-  property: ClientProperty
+  source: BindingSource
 }
 
-// The dictionary of bindable fields (requirements §7). Developer-maintained
-// code rather than admin-editable data: the rules for keeping a bound value
-// consistent with its record live here, not in a form. Keys are stable,
-// store-agnostic names -- swapping ICIS for another store changes the
-// adapter, never these.
-export const DICTIONARY: DictionaryEntry[] = [
+// Bindings defined in code (requirements §7). Stewards add more through the
+// binding creator (see registry.ts); these are the ones the prototype
+// started with, kept in code so they can't be edited out from under forms.
+// Keys are store-agnostic; `source` is the only ICIS-specific part.
+export const CODE_BINDINGS: DictionaryEntry[] = [
   {
-    property: "titleId",
+    source: {
+      strategy: "lookup",
+      entity: "contact",
+      attribute: "csg_salutationid",
+      target: "csg_salutation",
+    },
     descriptor: {
       key: "client.title",
       version: 1,
@@ -27,7 +30,7 @@ export const DICTIONARY: DictionaryEntry[] = [
     },
   },
   {
-    property: "firstName",
+    source: { strategy: "attribute", entity: "contact", attribute: "firstname" },
     descriptor: {
       key: "client.firstName",
       version: 1,
@@ -40,7 +43,7 @@ export const DICTIONARY: DictionaryEntry[] = [
     },
   },
   {
-    property: "lastName",
+    source: { strategy: "attribute", entity: "contact", attribute: "lastname" },
     descriptor: {
       key: "client.lastName",
       version: 1,
@@ -53,7 +56,7 @@ export const DICTIONARY: DictionaryEntry[] = [
     },
   },
   {
-    property: "clientNumber",
+    source: { strategy: "attribute", entity: "contact", attribute: "csg_clientid" },
     descriptor: {
       key: "client.clientNumber",
       version: 1,
@@ -66,7 +69,3 @@ export const DICTIONARY: DictionaryEntry[] = [
     },
   },
 ]
-
-export function findEntry(key: string): DictionaryEntry | undefined {
-  return DICTIONARY.find((entry) => entry.descriptor.key === key)
-}

@@ -1,10 +1,14 @@
 import type { BindingOptions } from "shared"
 import {
   ConcurrentUpdateError,
-  type ClientRecord,
-  type ClientStore,
+  type AttributeMetadata,
+  type BindingSource,
+  type Change,
   type ClientSummary,
-  type StoredClient,
+  type RecordStore,
+  type ServicePermissions,
+  type StoreValue,
+  type StoredRecord,
 } from "./adapter.js"
 
 // Salutations as observed on contacts in test ICIS (2026-09-25). Also the
@@ -19,63 +23,147 @@ export const KNOWN_TITLES: BindingOptions["options"] = [
 
 export const FAKE_CLIENT_ID = "00000000-0000-0000-0000-000000152076"
 
-// An in-memory client store so development, unit tests and e2e run without
-// ICIS. Seeded with a stand-in for the test-ICIS contact the prototype uses.
-export class FakeClientStore implements ClientStore {
-  private readonly clients = new Map<string, { record: ClientRecord; version: number }>()
+// Metadata mirroring test ICIS's `contact` for the allow-listed attributes
+// (display names and lengths as probed on 2026-09-25).
+const text = (attribute: string, displayName: string, maxLength: number): AttributeMetadata => ({
+  attribute,
+  displayName,
+  kind: "text",
+  maxLength,
+  requiredLevel: "none",
+  updatable: true,
+})
+const lookup = (attribute: string, displayName: string, target: string): AttributeMetadata => ({
+  attribute,
+  displayName,
+  kind: "lookup",
+  requiredLevel: "none",
+  updatable: true,
+  lookupTarget: target,
+})
+
+export const FAKE_CONTACT_METADATA: AttributeMetadata[] = [
+  lookup("csg_salutationid", "Title", "csg_salutation"),
+  { ...text("firstname", "First Name", 50), requiredLevel: "recommended" },
+  text("middlename", "Middle Name", 50),
+  { ...text("lastname", "Last Name", 50), requiredLevel: "recommended" },
+  text("csg_alias", "Preferred Name", 100),
+  text("rawa_preferredgender", "Preferred Gender Term", 100),
+  lookup("csg_genderid", "Gender", "csg_gender"),
+  lookup("csg_home_languageid", "Home Language", "csg_language"),
+  text("mobilephone", "Mobile Phone", 50),
+  text("telephone2", "Home Phone", 50),
+  text("emailaddress1", "Email", 100),
+  text("csg_clientid", "Contact ID", 100),
+]
+
+const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
+  csg_salutation: KNOWN_TITLES,
+  csg_gender: [
+    { value: "7c1c5d2e-0000-4000-8000-000000000001", label: "Female" },
+    { value: "7c1c5d2e-0000-4000-8000-000000000002", label: "Male" },
+    { value: "7c1c5d2e-0000-4000-8000-000000000003", label: "Non-binary" },
+    { value: "7c1c5d2e-0000-4000-8000-000000000004", label: "Not stated" },
+  ],
+}
+
+// An in-memory store so development, unit tests and e2e run without ICIS.
+// Seeded with a stand-in for the test-ICIS contact the prototype uses. The
+// account's privileges are adjustable so the creator's ceilings can be
+// exercised; by default it may do everything except read the language list.
+export class FakeRecordStore implements RecordStore {
+  private readonly records = new Map<
+    string,
+    { values: Record<string, StoreValue>; version: number }
+  >()
 
   constructor(
-    seed: Array<{ id: string; record: ClientRecord }> = [
-      {
-        id: FAKE_CLIENT_ID,
-        record: {
-          clientNumber: "00152076",
-          titleId: KNOWN_TITLES[1].value,
-          firstName: "Bob",
-          lastName: "McGee",
-        },
-      },
-    ],
+    public privileges: {
+      writeEntity: boolean
+      readableTargets: Set<string>
+    } = { writeEntity: true, readableTargets: new Set(["csg_salutation", "csg_gender"]) },
   ) {
-    for (const { id, record } of seed) {
-      this.clients.set(id, { record: { ...record }, version: 1 })
-    }
+    this.records.set(FAKE_CLIENT_ID, {
+      version: 1,
+      values: {
+        csg_clientid: "00152076",
+        csg_salutationid: KNOWN_TITLES[1].value,
+        firstname: "Bob",
+        lastname: "McGee",
+        middlename: null,
+        csg_alias: "Bobby",
+        mobilephone: null,
+      },
+    })
   }
 
-  async findByClientNumber(clientNumber: string): Promise<ClientSummary | null> {
-    for (const [id, { record }] of this.clients) {
-      if (record.clientNumber === clientNumber) {
-        return {
-          id,
-          clientNumber: record.clientNumber,
-          firstName: record.firstName,
-          lastName: record.lastName,
-        }
-      }
+  private byClientNumber(clientNumber: string) {
+    for (const [id, record] of this.records) {
+      if (record.values.csg_clientid === clientNumber) return { id, record }
     }
     return null
   }
 
-  async get(id: string): Promise<StoredClient | null> {
-    const found = this.clients.get(id)
+  async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {
+    const found = this.byClientNumber(clientNumber)
     if (!found) return null
-    return { record: { ...found.record }, etag: String(found.version) }
+    const { values } = found.record
+    return {
+      id: found.id,
+      clientNumber: values.csg_clientid ?? null,
+      firstName: values.firstname ?? null,
+      lastName: values.lastname ?? null,
+    }
   }
 
-  async update(
+  async read(
+    _entity: string,
     id: string,
-    patch: Partial<Omit<ClientRecord, "clientNumber">>,
+    sources: BindingSource[],
+  ): Promise<StoredRecord | null> {
+    const found = this.records.get(id)
+    if (!found) return null
+    const values: Record<string, StoreValue> = {}
+    for (const source of sources) {
+      values[source.attribute] = found.values[source.attribute] ?? null
+    }
+    return { values, etag: String(found.version) }
+  }
+
+  async write(
+    _entity: string,
+    id: string,
+    changes: Change[],
     etag: string,
   ): Promise<void> {
-    const found = this.clients.get(id)
+    const found = this.records.get(id)
     if (!found || String(found.version) !== etag) {
       throw new ConcurrentUpdateError()
     }
-    found.record = { ...found.record, ...patch }
+    for (const change of changes) {
+      found.values[change.source.attribute] = change.value
+    }
     found.version += 1
   }
 
-  async listTitles(): Promise<BindingOptions> {
-    return { options: KNOWN_TITLES, source: "live" }
+  async lookupOptions(target: string): Promise<BindingOptions> {
+    if (!this.privileges.readableTargets.has(target) || !FAKE_OPTIONS[target]) {
+      return { options: [], source: "unavailable" }
+    }
+    return { options: FAKE_OPTIONS[target], source: "live" }
+  }
+
+  async describe(_entity: string, attributes: string[]): Promise<AttributeMetadata[]> {
+    return FAKE_CONTACT_METADATA.filter((m) => attributes.includes(m.attribute))
+  }
+
+  async permissions(_entity: string, targets: string[]): Promise<ServicePermissions> {
+    return {
+      readEntity: true,
+      writeEntity: this.privileges.writeEntity,
+      readTargets: Object.fromEntries(
+        targets.map((t) => [t, this.privileges.readableTargets.has(t)]),
+      ),
+    }
   }
 }

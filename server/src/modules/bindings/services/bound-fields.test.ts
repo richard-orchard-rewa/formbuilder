@@ -65,6 +65,10 @@ function fakeClient(commit: BindingClient["commit"]): BindingClient {
     findClient: unused,
     resolve: unused,
     commit,
+    listCandidates: unused,
+    listManaged: unused,
+    saveDraft: unused,
+    publish: unused,
   }
 }
 

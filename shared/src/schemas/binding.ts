@@ -54,9 +54,10 @@ export const BindingOptionSchema = z.object({
 
 export const BindingOptionsSchema = z.object({
   options: z.array(BindingOptionSchema),
-  // `fallback` means the backing store couldn't be queried for the live
-  // list and a known-good static list was served instead.
-  source: z.enum(["live", "fallback"]),
+  // `fallback`: the backing store couldn't be queried for the live list and
+  // a known-good static list was served instead. `unavailable`: neither --
+  // the DBS's account can't read the reference table.
+  source: z.enum(["live", "fallback", "unavailable"]),
 })
 
 export type BindingOptions = z.infer<typeof BindingOptionsSchema>
@@ -137,3 +138,74 @@ export const CommitResponseSchema = z.object({
 })
 
 export type CommitResponse = z.infer<typeof CommitResponseSchema>
+
+// --- Binding creator (docs/proposals/databound-fields.md, "Creating
+// bindings without a developer"). ---
+
+// How a binding's value is read and written. Strategies are code; a
+// binding is a strategy plus configuration.
+export const BindingStrategySchema = z.enum(["attribute", "lookup"])
+
+export type BindingStrategy = z.infer<typeof BindingStrategySchema>
+
+// One allow-listed store attribute a binding could be created on, with what
+// the store itself says about it and what the DBS's own account can do.
+export const AttributeCandidateSchema = z.object({
+  attribute: z.string(),
+  displayName: z.string(),
+  // null: the attribute's type has no strategy yet (e.g. dates).
+  strategy: BindingStrategySchema.nullable(),
+  maxLength: z.number().int().positive().nullable(),
+  storeRequired: z.boolean(),
+  lookupTarget: z.string().nullable(),
+  // The most a binding on this attribute may allow, after the allow-list,
+  // the store's metadata and the DBS account's privileges have had a say.
+  maxAccess: z.enum(["read", "readWrite"]),
+  // Why `maxAccess` is capped at read, if it is.
+  accessNotes: z.array(z.string()),
+  // What would stop a binding on this attribute being published.
+  problems: z.array(z.string()),
+  // The binding key already using this attribute, if any.
+  boundBy: z.string().nullable(),
+})
+
+export type AttributeCandidate = z.infer<typeof AttributeCandidateSchema>
+
+export const AttributeCandidateListSchema = z.array(AttributeCandidateSchema)
+
+export const BindingVersionSchema = z.object({
+  version: z.number().int().positive(),
+  status: z.enum(["draft", "published"]),
+  descriptor: BindingDescriptorSchema,
+  createdAt: z.iso.datetime(),
+  publishedAt: z.iso.datetime().nullable(),
+})
+
+export type BindingVersion = z.infer<typeof BindingVersionSchema>
+
+// A binding as the creator sees it: every version, where it came from, and
+// which store attribute it maps to (never exposed to forms).
+export const ManagedBindingSchema = z.object({
+  key: z.string(),
+  origin: z.enum(["code", "configured"]),
+  attribute: z.string(),
+  versions: z.array(BindingVersionSchema),
+})
+
+export type ManagedBinding = z.infer<typeof ManagedBindingSchema>
+
+export const ManagedBindingListSchema = z.array(ManagedBindingSchema)
+
+// Creates (or replaces) a binding's draft version. Strategy, control kind
+// and the store's limits are derived from metadata, not taken from here;
+// `maxLength` may only narrow the store's.
+export const CreateBindingRequestSchema = z.object({
+  key: z.string(),
+  label: z.string().trim().min(1),
+  description: z.string().trim().default(""),
+  attribute: z.string(),
+  access: z.enum(["read", "readWrite"]),
+  maxLength: z.number().int().positive().optional(),
+})
+
+export type CreateBindingRequest = z.infer<typeof CreateBindingRequestSchema>

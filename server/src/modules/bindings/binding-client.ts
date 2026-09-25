@@ -1,10 +1,13 @@
 import type {
+  AttributeCandidate,
   BindingAnchor,
   BindingDescriptor,
   BindingOptions,
   ClientAnchor,
   CommitRequest,
   CommitResponse,
+  CreateBindingRequest,
+  ManagedBinding,
   ResolveRequest,
   ResolveResponse,
 } from "shared"
@@ -30,6 +33,11 @@ export interface BindingClient {
   findClient(clientNumber: string): Promise<ClientAnchor>
   resolve(request: ResolveRequest): Promise<ResolveResponse>
   commit(request: CommitRequest): Promise<CommitResponse>
+  // The binding creator.
+  listCandidates(anchor: BindingAnchor): Promise<AttributeCandidate[]>
+  listManaged(): Promise<ManagedBinding[]>
+  saveDraft(request: CreateBindingRequest): Promise<ManagedBinding>
+  publish(key: string): Promise<ManagedBinding>
 }
 
 export class HttpBindingClient implements BindingClient {
@@ -86,5 +94,27 @@ export class HttpBindingClient implements BindingClient {
       method: "POST",
       body: JSON.stringify(request),
     })
+  }
+
+  listCandidates(anchor: BindingAnchor) {
+    return this.call<AttributeCandidate[]>(`/admin/attributes?anchor=${anchor}`)
+  }
+
+  listManaged() {
+    return this.call<ManagedBinding[]>("/admin/bindings")
+  }
+
+  saveDraft(request: CreateBindingRequest) {
+    return this.call<ManagedBinding>("/admin/bindings", {
+      method: "POST",
+      body: JSON.stringify(request),
+    })
+  }
+
+  publish(key: string) {
+    return this.call<ManagedBinding>(
+      `/admin/bindings/${encodeURIComponent(key)}/publish`,
+      { method: "POST", body: "{}" },
+    )
   }
 }

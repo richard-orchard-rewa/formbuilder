@@ -7,3 +7,6 @@ e2e/playwright-report/
 
 # Claude Code worktree checkouts (.claude/launch.json itself stays tracked).
 **/.claude/worktrees/
+
+# Data Binding Service prototype: bindings created in its binding creator.
+binding-service/data/

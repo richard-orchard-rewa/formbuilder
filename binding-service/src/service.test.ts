@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { StoreWriteError } from "./adapters/adapter.js"
-import { FAKE_CLIENT_ID, FakeClientStore, KNOWN_TITLES } from "./adapters/fake.js"
+import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
+import { BindingCreator } from "./creator.js"
+import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
 import { AnchorNotFoundError, BindingService, UnknownBindingError } from "./service.js"
 
 const anchor = { client: FAKE_CLIENT_ID }
@@ -8,14 +10,24 @@ const MR = KNOWN_TITLES[1].value
 const MS = KNOWN_TITLES[3].value
 
 function build() {
-  const store = new FakeClientStore()
-  return { store, service: new BindingService(store) }
+  const store = new FakeRecordStore()
+  const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
+  return {
+    store,
+    service: new BindingService(store, registry),
+    creator: new BindingCreator(store, registry),
+  }
 }
 
+const read = (store: FakeRecordStore, attribute: string) =>
+  store
+    .read("contact", FAKE_CLIENT_ID, [{ strategy: "attribute", entity: "contact", attribute }])
+    .then((r) => r?.values[attribute])
+
 describe("BindingService dictionary", () => {
-  it("describes every client binding, including which are read-only", () => {
+  it("describes every built-in client binding, including which are read-only", async () => {
     const { service } = build()
-    const bindings = service.listBindings("client")
+    const bindings = await service.listBindings("client")
     expect(bindings.map((b) => [b.key, b.access])).toEqual([
       ["client.title", "readWrite"],
       ["client.firstName", "readWrite"],
@@ -38,6 +50,24 @@ describe("BindingService dictionary", () => {
       displayName: "Bob McGee",
     })
     expect(await service.findClient("99999999")).toBeNull()
+  })
+
+  it("includes a configured binding only once it's published", async () => {
+    const { service, creator } = build()
+    await creator.saveDraft({
+      key: "client.preferredName",
+      label: "Preferred name",
+      description: "",
+      attribute: "csg_alias",
+      access: "readWrite",
+    })
+    expect((await service.listBindings()).map((b) => b.key)).not.toContain(
+      "client.preferredName",
+    )
+    await creator.publish("client.preferredName")
+    expect((await service.listBindings()).map((b) => b.key)).toContain(
+      "client.preferredName",
+    )
   })
 })
 
@@ -87,16 +117,13 @@ describe("BindingService.commit", () => {
       "client.lastName": { status: "written" },
       "client.clientNumber": { status: "readOnly" },
     })
-    expect((await store.get(FAKE_CLIENT_ID))?.record).toMatchObject({
-      titleId: MS,
-      lastName: "McGee-Smith",
-      clientNumber: "00152076",
-    })
+    expect(await read(store, "lastname")).toBe("McGee-Smith")
+    expect(await read(store, "csg_clientid")).toBe("00152076")
   })
 
   it("reports a conflict instead of overwriting a value changed since the form was opened", async () => {
     const { service, store } = build()
-    await store.update(FAKE_CLIENT_ID, { firstName: "Robert" }, "1")
+    await service.commit({ anchor, values: { "client.firstName": "Robert" } })
 
     const { results } = await service.commit({
       anchor,
@@ -108,18 +135,51 @@ describe("BindingService.commit", () => {
       current: "Robert",
     })
     expect(results["client.lastName"]).toEqual({ status: "written" })
-    expect((await store.get(FAKE_CLIENT_ID))?.record.firstName).toBe("Robert")
+    expect(await read(store, "firstname")).toBe("Robert")
+  })
+
+  it("re-checks a binding's length limit at the API boundary", async () => {
+    const { service, store } = build()
+    const { results } = await service.commit({
+      anchor,
+      values: { "client.firstName": "x".repeat(51) },
+    })
+    expect(results["client.firstName"].status).toBe("failed")
+    expect(await read(store, "firstname")).toBe("Bob")
+  })
+
+  it("writes a configured binding through its strategy", async () => {
+    const { service, creator, store } = build()
+    await creator.saveDraft({
+      key: "client.preferredName",
+      label: "Preferred name",
+      description: "",
+      attribute: "csg_alias",
+      access: "readWrite",
+      maxLength: 20,
+    })
+    await creator.publish("client.preferredName")
+
+    const { results } = await service.commit({
+      anchor,
+      values: { "client.preferredName": "Bobbo" },
+    })
+    expect(results["client.preferredName"]).toEqual({ status: "written" })
+    expect(await read(store, "csg_alias")).toBe("Bobbo")
   })
 
   it("treats blank text as clearing the value", async () => {
     const { service, store } = build()
     await service.commit({ anchor, values: { "client.title": "" } })
-    expect((await store.get(FAKE_CLIENT_ID))?.record.titleId).toBeNull()
+    const record = await store.read("contact", FAKE_CLIENT_ID, [
+      { strategy: "lookup", entity: "contact", attribute: "csg_salutationid" },
+    ])
+    expect(record?.values.csg_salutationid).toBeNull()
   })
 
   it("marks every pending write failed when the store refuses it", async () => {
     const { service, store } = build()
-    store.update = async () => {
+    store.write = async () => {
       throw new StoreWriteError("no write privilege")
     }
     const { results } = await service.commit({
