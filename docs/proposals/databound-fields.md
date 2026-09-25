@@ -4,7 +4,7 @@
 
 Exploratory concept proposal, not an ADR. Derived from `Form_Builder_Requirements_v1.1_1.docx` (17 September 2026, §7 "Data Binding", plus §3, §5, §8 and §20 where they constrain it), and from a read of how the sibling `feedback` app talks to ICIS (reference only — per [CLAUDE.md](../../CLAUDE.md), nothing here depends on or shares code with that repo).
 
-**Phase 0 (the prototype) is built** — see "Phase 0 — what was built" below. Everything after it is still proposal.
+**Phase 0 (the prototype) is built** — see "Phase 0 — what was built" below. Everything after it is still proposal. For where the work got to and what's next, see the [handover](../handover/databound-fields.md).
 
 This supersedes the "entity-linked / data bound fields … out of scope" line in [modules-and-session-templates.md](modules-and-session-templates.md) — that proposal deferred the idea; this one designs it.
 
