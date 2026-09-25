@@ -92,4 +92,29 @@ describe("DataBindings (binding creator)", () => {
     )
     expect(await within(editor).findByRole("alert")).toHaveTextContent("at most 100")
   })
+
+  it("can save and publish in one step, and re-checks the service's limits before editing", async () => {
+    vi.spyOn(api, "listManagedBindings").mockResolvedValue([])
+    const candidates = vi
+      .spyOn(api, "listBindingCandidates")
+      .mockResolvedValue([candidate({})])
+    const draft: ManagedBinding = {
+      key: "client.preferredName",
+      origin: "configured",
+      attribute: "csg_alias",
+      versions: [],
+    }
+    vi.spyOn(api, "saveBindingDraft").mockResolvedValue(draft)
+    const publish = vi.spyOn(api, "publishBinding").mockResolvedValue(draft)
+    render(<DataBindings onBack={() => {}} />)
+
+    await userEvent.click(await screen.findByRole("button", { name: "Create binding" }))
+    // Opening the editor fetched the limits again.
+    expect(candidates).toHaveBeenCalledTimes(2)
+    const editor = await screen.findByRole("form", { name: "Binding editor" })
+    await userEvent.click(within(editor).getByRole("button", { name: "Save and publish" }))
+
+    expect(publish).toHaveBeenCalledWith("client.preferredName")
+    expect(await screen.findByRole("status")).toHaveTextContent("Data bound palette")
+  })
 })

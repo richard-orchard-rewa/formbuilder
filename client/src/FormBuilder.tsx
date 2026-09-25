@@ -96,17 +96,28 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
 
   // The Data Binding Service's dictionary, for the palette. Best-effort: if
   // the DBS is down the palette says so and custom fields still work.
+  // Reloaded whenever the admin comes back to this tab, so a binding a
+  // steward has just published appears without reopening the form.
   useEffect(() => {
     let cancelled = false
-    listBindings("client")
-      .then((list) => {
-        if (!cancelled) setBindings({ status: "ready", bindings: list })
-      })
-      .catch(() => {
-        if (!cancelled) setBindings({ status: "unavailable" })
-      })
+    const load = () =>
+      listBindings("client")
+        .then((list) => {
+          if (!cancelled) setBindings({ status: "ready", bindings: list })
+        })
+        .catch(() => {
+          if (!cancelled) setBindings({ status: "unavailable" })
+        })
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load()
+    }
+    void load()
+    window.addEventListener("focus", onVisible)
+    document.addEventListener("visibilitychange", onVisible)
     return () => {
       cancelled = true
+      window.removeEventListener("focus", onVisible)
+      document.removeEventListener("visibilitychange", onVisible)
     }
   }, [])
 

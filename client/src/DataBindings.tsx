@@ -28,7 +28,9 @@ type Load =
 // store's limits and the service's reasons, and relays requests.
 export function DataBindings({ onBack }: DataBindingsProps) {
   const [load, setLoad] = useState<Load>({ status: "loading" })
-  const [editing, setEditing] = useState<AttributeCandidate | null>(null)
+  // The attribute being bound; its candidate is always read from the latest
+  // load, so the editor reflects the service's current limits.
+  const [editing, setEditing] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
@@ -42,6 +44,26 @@ export function DataBindings({ onBack }: DataBindingsProps) {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // What a binding may offer depends on the service's ICIS privileges,
+  // which can change in ICIS at any time (in a demo, in the next tab).
+  // Re-check whenever the steward comes back to this page.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh()
+    }
+    window.addEventListener("focus", onVisible)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", onVisible)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [refresh])
+
+  const editingCandidate =
+    load.status === "ready" && editing
+      ? load.candidates.find((c) => c.attribute === editing)
+      : undefined
 
   const existingFor = (candidate: AttributeCandidate) =>
     load.status === "ready"
@@ -84,22 +106,27 @@ export function DataBindings({ onBack }: DataBindingsProps) {
           <CandidatesTable
             candidates={load.candidates}
             bindings={load.bindings}
-            onCreate={(candidate) => {
+            onCreate={async (candidate) => {
               setNotice(null)
-              setEditing(candidate)
+              // Open the editor on the service's limits as they are now.
+              await refresh()
+              setEditing(candidate.attribute)
             }}
           />
 
-          {editing && (
+          {editingCandidate && (
             <BindingEditor
-              key={editing.attribute}
-              candidate={editing}
-              existing={existingFor(editing)}
+              key={editingCandidate.attribute}
+              candidate={editingCandidate}
+              existing={existingFor(editingCandidate)}
               onCancel={() => setEditing(null)}
-              onSaved={(binding) => {
+              onChanged={() => void refresh()}
+              onSaved={(binding, published) => {
                 setEditing(null)
                 setNotice(
-                  `Saved a draft of ${binding.key}. Publish it to use it on forms.`,
+                  published
+                    ? `Published ${binding.key}. It's now in the form builder's Data bound palette.`
+                    : `Saved a draft of ${binding.key}. Publish it (above) to use it on forms.`,
                 )
                 void refresh()
               }}
@@ -220,7 +247,7 @@ function CandidatesTable({
 }: {
   candidates: AttributeCandidate[]
   bindings: ManagedBinding[]
-  onCreate: (candidate: AttributeCandidate) => void
+  onCreate: (candidate: AttributeCandidate) => void | Promise<void>
 }) {
   // A note that applies to every attribute (e.g. the service's account
   // can't write client records at all) is about the service, not the row --
@@ -279,7 +306,7 @@ function CandidatesTable({
                 </td>
                 <td>
                   {!builtIn && candidate.strategy && (
-                    <button type="button" onClick={() => onCreate(candidate)}>
+                    <button type="button" onClick={() => void onCreate(candidate)}>
                       {existing ? "New version" : "Create binding"}
                     </button>
                   )}
@@ -310,12 +337,16 @@ function BindingEditor({
   candidate,
   existing,
   onCancel,
+  onChanged,
   onSaved,
 }: {
   candidate: AttributeCandidate
   existing: ManagedBinding | undefined
   onCancel: () => void
-  onSaved: (binding: ManagedBinding) => void
+  // Something was saved but the editor stays open (a draft saved, then
+  // publishing it refused).
+  onChanged: () => void
+  onSaved: (binding: ManagedBinding, published: boolean) => void
 }) {
   const base = existing ? latest(existing).descriptor : undefined
   const [key, setKey] = useState(existing?.key ?? suggestKey(candidate.displayName))
@@ -334,9 +365,16 @@ function BindingEditor({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  async function save() {
+  // If the service's limits tighten while the editor is open, don't leave
+  // an option selected that it would refuse.
+  useEffect(() => {
+    if (candidate.maxAccess === "read") setAccess("read")
+  }, [candidate.maxAccess])
+
+  async function save(publish: boolean) {
     setSaving(true)
     setError(null)
+    let draftSaved = false
     try {
       const saved = await saveBindingDraft({
         key: key.trim(),
@@ -348,13 +386,19 @@ function BindingEditor({
           ? { maxLength: Number(maxLength) }
           : {}),
       })
-      onSaved(saved)
+      draftSaved = true
+      if (publish) {
+        onSaved(await publishBinding(saved.key), true)
+      } else {
+        onSaved(saved, false)
+      }
     } catch (err) {
-      setError(
+      const reason =
         err instanceof BindingRuleRejectedError
           ? err.message
-          : "Couldn't save this binding.",
-      )
+          : "Couldn't save this binding."
+      setError(draftSaved ? `Saved as a draft, but not published: ${reason}` : reason)
+      if (draftSaved) onChanged()
     } finally {
       setSaving(false)
     }
@@ -366,7 +410,7 @@ function BindingEditor({
       aria-label="Binding editor"
       onSubmit={(event) => {
         event.preventDefault()
-        void save()
+        void save(false)
       }}
     >
       <h3>
@@ -455,8 +499,19 @@ function BindingEditor({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="primary" disabled={saving}>
-          {saving ? "Saving…" : "Save draft"}
+        <button type="submit" disabled={saving}>
+          Save draft
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={saving}
+          onClick={(event) => {
+            // The same checks the form's own submit runs (maximum length).
+            if (event.currentTarget.form?.reportValidity()) void save(true)
+          }}
+        >
+          {saving ? "Saving…" : "Save and publish"}
         </button>
       </div>
     </form>

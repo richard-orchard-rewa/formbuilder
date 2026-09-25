@@ -74,7 +74,7 @@ About 20 minutes. Each part is one role.
    - Gender: **Read** and **Append To**
 
    Then click **Save role**.
-4. Refresh **Data bindings**. Most attributes are now **Editable**, and Gender's problem has gone. Home language is still blocked, because its list is still unreadable. Leave it that way to show the rule.
+4. Switch back to **Data bindings**. It re-checks whenever you return to the tab. Most attributes are now **Editable**, and Gender's problem has gone. Home language is still blocked, because its list is still unreadable. Leave it that way to show the rule.
 
 ### 3. Data steward: create fields without a developer
 
@@ -85,7 +85,7 @@ About 20 minutes. Each part is one role.
    - The type and 100-character limit come from ICIS: "From ICIS: Text, up to 100".
    - Set the label to *Preferred name* and narrow the maximum length to **60**. The field won't go above 100: a binding can only narrow what ICIS allows. The service enforces this too, not just the page.
    - Keep **Editable**, then click **Save draft**.
-2. Click **Publish v1** on the new row.
+2. Click **Publish v1** on the new row. A draft never appears on forms, only published versions do. There's also **Save and publish** in the editor, for when a separate review step isn't needed.
 3. Create **Gender** (`csg_genderid`) the same way. It's a dropdown whose options come from ICIS. Publish it.
 4. *Optional:* create **Home Language** and try to publish it. It's refused, with the reason. The steward can't work around the ICIS admin.
 5. Show the mock's **Clients**, then open any client. The record also holds a DSS client ID, a health-care card number and a portal password hash, but none of them appear in **Data bindings**. The allow-list is the security boundary.
