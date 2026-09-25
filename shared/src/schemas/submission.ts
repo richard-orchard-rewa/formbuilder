@@ -1,5 +1,22 @@
 import { z } from "zod"
+import {
+  AnchorContextSchema,
+  BindingCommitResultSchema,
+  BoundValuesSchema,
+} from "./binding.js"
 import { FormSchemaSchema } from "./form-version.js"
+
+// Which record a form's data-bound fields read from and write to, plus what
+// they held when the form was opened (so the Data Binding Service can refuse
+// to overwrite a value changed since). See docs/proposals/databound-fields.md.
+export const SubmissionBindingContextSchema = z.object({
+  anchor: AnchorContextSchema,
+  baseline: BoundValuesSchema.optional(),
+})
+
+export type SubmissionBindingContext = z.infer<
+  typeof SubmissionBindingContextSchema
+>
 
 // Submitted values keyed by field id. Loosely typed for now, matching
 // FormSchemaSchema's own field looseness ahead of the full field-types
@@ -13,6 +30,7 @@ export const SubmitFormSchema = z.object({
   // When resuming a draft (US-4.3), finalizes that exact row instead of
   // inserting a new one. Omitted for a direct, one-shot submission.
   submissionId: z.string().optional(),
+  binding: SubmissionBindingContextSchema.optional(),
 })
 
 export type SubmitForm = z.infer<typeof SubmitFormSchema>
@@ -44,6 +62,9 @@ export const SubmissionSchema = z.object({
   migratedFromSubmissionId: z.string().nullable(),
   submittedBy: z.string().nullable(),
   submittedAt: z.iso.datetime().nullable(),
+  // Per data-bound field (keyed by binding key), what happened when its
+  // value was sent to the Data Binding Service on submit.
+  bindingResults: z.record(z.string(), BindingCommitResultSchema).optional(),
 })
 
 export type Submission = z.infer<typeof SubmissionSchema>

@@ -4,6 +4,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod"
 import type { Logger } from "pino"
+import { bindingsPlugin } from "./modules/bindings/routes.js"
 import { formBuilderPlugin } from "./modules/form-builder/routes.js"
 import { moduleBuilderPlugin } from "./modules/module-builder/routes.js"
 import { sessionTemplatesPlugin } from "./modules/session-templates/routes.js"
@@ -30,6 +31,7 @@ export function buildApp(deps: AppDeps, logger: Logger) {
     ),
   )
   app.register(submissionsPlugin(deps.submissionsService))
+  app.register(bindingsPlugin(deps.bindingClient))
 
   return app
 }

@@ -1,6 +1,7 @@
 # formbuilder
 
-A standalone npm-workspaces monorepo (`client/`, `server/`, `shared/`). Its
+A standalone npm-workspaces monorepo (`client/`, `server/`, `shared/`,
+`binding-service/`). Its
 structure and tooling choices (Fastify, one plugin per capability, Drizzle
 ORM, Zod-first contracts shared between client and server) take inspiration
 from the conventions of the `feedback` app, but this project is entirely
@@ -20,8 +21,15 @@ npm install
 docker compose up -d          # local Postgres on :5432
 cp server/.env.example server/.env
 npm run db:migrate -w server   # apply server/src/db/migrations to DATABASE_URL
-npm run dev                    # server on :3000, client on :5173
+cp binding-service/.env.sample binding-service/.env   # ADAPTER=fake needs no ICIS
+npm run dev                    # binding-service on :3100, server on :3000, client on :5173
 ```
+
+`binding-service/` is the prototype Data Binding Service behind data-bound
+fields — see [docs/proposals/databound-fields.md](docs/proposals/databound-fields.md).
+To demonstrate it end to end on made-up data, `npm run demo` runs it against
+`mock-icis/` instead of ICIS — walkthrough in
+[docs/demo/databound-fields-demo.md](docs/demo/databound-fields-demo.md).
 
 ## Testing
 

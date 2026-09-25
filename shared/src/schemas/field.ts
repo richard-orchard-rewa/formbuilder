@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { BindingDescriptorSchema } from "./binding.js"
 
 // Per-type configuration lands as each field-types epic issue is built.
 // This is a discriminated union (per US-3.4's "extensible type registry")
@@ -136,6 +137,22 @@ export const NumberFieldSchema = z.object({
 
 export type NumberField = z.infer<typeof NumberFieldSchema>
 
+// A field whose value is read from, and/or written to, a record in another
+// datastore via the Data Binding Service (docs/proposals/databound-fields.md).
+// Deliberately not one of FIELD_TYPES: it's added from the DBS's own
+// dictionary, not the custom-field palette. `binding` is a snapshot of the
+// dictionary entry taken when the field was added, so a published version
+// renders and validates the same way even if the DBS later revs it.
+export const BoundFieldSchema = z.object({
+  id: z.string(),
+  type: z.literal("bound"),
+  label: z.string(),
+  required: requiredFlag,
+  binding: BindingDescriptorSchema,
+})
+
+export type BoundField = z.infer<typeof BoundFieldSchema>
+
 export const FieldSchema = z.discriminatedUnion("type", [
   TextFieldSchema,
   TextAreaFieldSchema,
@@ -144,6 +161,19 @@ export const FieldSchema = z.discriminatedUnion("type", [
   RadioFieldSchema,
   DateFieldSchema,
   NumberFieldSchema,
+  BoundFieldSchema,
 ])
 
 export type Field = z.infer<typeof FieldSchema>
+
+// A display name for any field's type -- FIELD_TYPE_LABELS covers the
+// custom types; a bound field names what it's bound to.
+export function fieldTypeLabel(field: Field): string {
+  return field.type === "bound"
+    ? `Data bound · ${field.binding.label}`
+    : FIELD_TYPE_LABELS[field.type]
+}
+
+export function isBoundField(field: Field): field is BoundField {
+  return field.type === "bound"
+}

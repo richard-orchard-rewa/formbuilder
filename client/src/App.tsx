@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import type { FormSummary, ModuleSummary, SessionTemplateSummary } from "shared"
 import { createForm, listForms } from "./api.js"
+import { DataBindings } from "./DataBindings.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
 import { MigrationPlanner } from "./MigrationPlanner.js"
@@ -23,6 +24,7 @@ import { SubmissionView } from "./SubmissionView.js"
 type View =
   | { mode: "list" }
   | { mode: "modules" }
+  | { mode: "data-bindings" }
   | { mode: "build-module"; mod: ModuleSummary }
   | { mode: "session-templates" }
   | { mode: "build-session-template"; sessionTemplate: SessionTemplateSummary }
@@ -85,6 +87,10 @@ export function App() {
         <RendererSpike />
       </main>
     )
+  }
+
+  if (view.mode === "data-bindings") {
+    return <DataBindings onBack={() => setView({ mode: "list" })} />
   }
 
   if (view.mode === "modules") {
@@ -340,6 +346,9 @@ export function App() {
           onClick={() => setView({ mode: "session-templates" })}
         >
           Session templates
+        </button>
+        <button type="button" onClick={() => setView({ mode: "data-bindings" })}>
+          Data bindings
         </button>
       </nav>
       <ul>

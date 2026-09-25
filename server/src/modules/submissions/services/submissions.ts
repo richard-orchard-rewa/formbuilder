@@ -1,4 +1,10 @@
-import type { Field, FieldMapping, FormSchema } from "shared"
+import type {
+  Field,
+  FieldMapping,
+  FormSchema,
+  SubmissionBindingContext,
+} from "shared"
+import type { BoundFieldsService } from "../../bindings/services/bound-fields.js"
 import { FormVersionNotFoundError } from "../../form-builder/repositories/form-versions.js"
 import type { FormVersionsService } from "../../form-builder/services/form-versions.js"
 import type {
@@ -60,18 +66,24 @@ export class SubmissionsService {
   constructor(
     private readonly formVersions: FormVersionsService,
     private readonly repo: SubmissionsRepository,
+    // Optional so the data-bound-field prototype stays opt-in; without it,
+    // bound values are captured in the submission like any other answer.
+    private readonly boundFields?: BoundFieldsService,
   ) {}
 
   // Validates the submission against the form's active version before
   // recording it, so a required field can never be silently skipped even
   // if a client bypasses its own validation (US-3.5). If `submissionId`
   // resumes an existing draft, that row is finalized in place rather than
-  // inserting a duplicate (US-4.3).
+  // inserting a duplicate (US-4.3). Once recorded, any data-bound values
+  // are sent on to the Data Binding Service against `binding`'s record,
+  // and the per-field outcome returned alongside the submission.
   async submit(
     formId: string,
     data: Record<string, unknown>,
     submittedBy?: string | null,
     submissionId?: string,
+    binding?: SubmissionBindingContext,
   ) {
     const active = await this.formVersions.getActiveVersion(formId)
     if (!active) {
@@ -81,21 +93,29 @@ export class SubmissionsService {
     const fields = (active.schema as { fields: Field[] }).fields
     requireFields(fields, data)
 
+    let saved
     if (submissionId) {
-      const finalized = await this.repo.finalizeDraft(
+      saved = await this.repo.finalizeDraft(
         formId,
         submissionId,
         active.id,
         data,
         submittedBy,
       )
-      if (!finalized) {
+      if (!saved) {
         throw new DraftNotFoundError(formId, submissionId)
       }
-      return finalized
+    } else {
+      saved = await this.repo.create(formId, active.id, data, submittedBy)
     }
 
-    return this.repo.create(formId, active.id, data, submittedBy)
+    const bindingResults = await this.boundFields?.commit(
+      saved.id,
+      fields,
+      data,
+      binding,
+    )
+    return bindingResults ? { ...saved, bindingResults } : saved
   }
 
   // Saves an in-progress submission with no required-field validation --

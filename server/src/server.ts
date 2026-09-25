@@ -2,6 +2,7 @@ import { pino } from "pino"
 import { buildApp } from "./index.js"
 import { createDb } from "./db/client.js"
 import { buildDeps } from "./deps.js"
+import { HttpBindingClient } from "./modules/bindings/binding-client.js"
 
 const logger = pino()
 
@@ -12,7 +13,12 @@ if (!databaseUrl) {
 }
 
 const db = createDb(databaseUrl)
-const app = buildApp(buildDeps(db), logger)
+// The Data Binding Service (docs/proposals/databound-fields.md). If it isn't
+// running, forms without data-bound fields are unaffected.
+const bindingClient = new HttpBindingClient(
+  process.env.BINDING_SERVICE_URL ?? "http://localhost:3100",
+)
+const app = buildApp(buildDeps(db, bindingClient), logger)
 
 const port = Number(process.env.PORT ?? 3000)
 app

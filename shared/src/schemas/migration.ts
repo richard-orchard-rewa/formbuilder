@@ -26,7 +26,7 @@ export type FieldMapping = z.infer<typeof FieldMappingSchema>
 export const MigrationFieldSummarySchema = z.object({
   id: z.string(),
   label: z.string(),
-  type: FieldTypeSchema,
+  type: z.union([FieldTypeSchema, z.literal("bound")]),
 })
 
 export type MigrationFieldSummary = z.infer<typeof MigrationFieldSummarySchema>

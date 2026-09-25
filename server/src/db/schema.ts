@@ -339,3 +339,29 @@ export const submissionHistory = pgTable(
     index("submission_history_submission_id").on(table.submissionId),
   ],
 )
+
+// Each attempt to send a submission's data-bound values to the Data Binding
+// Service (docs/proposals/databound-fields.md): which record they were
+// bound to, what the form opened with, what was sent, and the per-binding
+// outcome. Kept beside `submissions` rather than on it so the submission's
+// own row -- and its history trigger -- stay exactly the record of what was
+// captured. A prototype table; it's the natural seed of a future outbox.
+export const submissionBindings = pgTable(
+  "submission_bindings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => submissions.id, { onDelete: "cascade" }),
+    anchor: jsonb("anchor"),
+    baseline: jsonb("baseline"),
+    values: jsonb("values").notNull(),
+    results: jsonb("results").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("submission_bindings_submission_id").on(table.submissionId),
+  ],
+)

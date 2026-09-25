@@ -17,20 +17,23 @@ It is **entirely separate** from the sibling `feedback` app — never edit, depe
 
 ## Monorepo structure
 
-npm workspaces, four packages:
+npm workspaces, six packages:
 
 ```
-shared/     # Zod schemas and types — single source of truth for API contracts
-server/     # Fastify backend
-client/     # Vite + React frontend
-e2e/        # Playwright feature tests, run against client + server together
+shared/           # Zod schemas and types — single source of truth for API contracts
+server/           # Fastify backend
+client/           # Vite + React frontend
+binding-service/  # Data Binding Service prototype — owns data-bound fields' dictionary and ICIS access
+mock-icis/        # Mock ICIS (Dataverse Web API subset + admin screens, made-up data) for demos and contract tests
+e2e/              # Playwright feature tests, run against client + server together
 ```
 
 ## Commands
 
 ```bash
 npm install                          # (or npm ci in CI)
-npm run dev                          # server on :3000, client on :5173
+npm run dev                          # binding-service on :3100, server on :3000, client on :5173
+npm run demo                         # the same, with the DBS pointed at mock-icis on :3200 — see docs/demo/
 npm run build                        # build all workspaces
 npm run typecheck                    # tsc --noEmit across all workspaces
 npm test                             # Vitest — shared + client
@@ -91,6 +94,10 @@ The UI follows the org-wide RAWA Design System: navy canvas, white cards, Plus J
 ### Shared contracts (ADR-0005)
 
 Zod schemas in `shared/src/schemas/` are the single source of truth for a form's field definitions and a submission's shape. `shared/src/json-schema.ts` converts a field list to JSON Schema (`toJsonSchema`) and builds the matching Zod schema a submission is validated against server-side (`buildSubmissionSchema`) — proven round-trip in `shared/src/json-schema.test.ts`. `fastify-type-provider-zod` wires the same schemas into Fastify route validation on the server; the client imports the inferred TS types directly from `shared`.
+
+### Data-bound fields — the Data Binding Service (prototype)
+
+See [docs/proposals/databound-fields.md](docs/proposals/databound-fields.md). A `bound` field reads/writes a value in another datastore (ICIS today) **only via the Data Binding Service** (`binding-service/`), never directly — form-builder's server reaches it over HTTP (`BINDING_SERVICE_URL`, default `http://localhost:3100`) through `server/src/modules/bindings/`. All ICIS knowledge (column names, OData, Dataverse errors) lives in `binding-service/src/adapters/icis.ts`; the dictionary of bindable fields is code in `binding-service/src/dictionary.ts`. `binding-service/.env` sets `ADAPTER=fake` (in-memory, no ICIS) or `ADAPTER=icis`. Data stewards create further bindings in the app's **Data bindings** page (the DBS's `/admin/...` API): only on attributes in `binding-service/src/allow-list.ts`, never beyond what the store's metadata and the DBS's own account's privileges allow, and stored by the DBS itself (`binding-service/data/`, gitignored) — adding an attribute to the allow-list is a data-owner decision, not a convenience. The ICIS adapter currently borrows `feedback`'s *test* app registration credentials by explicit agreement — a stopgap until the DBS has its own; don't extend that borrowing to any other code, data or database.
 
 ### Submission storage (ADR-0004)
 

@@ -150,3 +150,87 @@ describe("Zod-to-JSON-Schema round trip", () => {
     expect(submissionSchema.safeParse(submission).success).toBe(false)
   })
 })
+
+// Data-bound fields (docs/proposals/databound-fields.md): the control comes
+// from the snapshotted dictionary entry, a lookup's options are supplied at
+// render time by the caller, and a read-only binding is marked readOnly and
+// never required.
+describe("data-bound fields", () => {
+  const binding = {
+    version: 1,
+    description: "",
+    anchor: "client" as const,
+    overridable: ["label" as const, "required" as const],
+  }
+  const fields: Field[] = [
+    {
+      id: "first",
+      type: "bound",
+      label: "Given name",
+      required: true,
+      binding: {
+        ...binding,
+        key: "client.firstName",
+        label: "First name",
+        access: "readWrite",
+        control: { kind: "text", maxLength: 5 },
+      },
+    },
+    {
+      id: "title",
+      type: "bound",
+      label: "Title",
+      required: false,
+      binding: {
+        ...binding,
+        key: "client.title",
+        label: "Title",
+        access: "readWrite",
+        control: { kind: "lookup" },
+      },
+    },
+    {
+      id: "number",
+      type: "bound",
+      label: "Client number",
+      required: true,
+      binding: {
+        ...binding,
+        key: "client.clientNumber",
+        label: "Client number",
+        access: "read",
+        control: { kind: "text" },
+      },
+    },
+  ]
+  const context = {
+    bindingOptions: { "client.title": [{ value: "mr-id", label: "Mr" }] },
+  }
+  const json = toJsonSchema(fields, context) as {
+    properties: Record<string, Record<string, unknown>>
+    required?: string[]
+  }
+  const schema = buildSubmissionSchema(fields, context)
+
+  it("uses the builder's label and the dictionary's length limit", () => {
+    expect(json.properties.first).toMatchObject({
+      type: "string",
+      title: "Given name",
+      maxLength: 5,
+    })
+    expect(schema.safeParse({ first: "Alexandra" }).success).toBe(false)
+  })
+
+  it("renders a lookup from the options supplied at render time", () => {
+    expect(json.properties.title.oneOf).toEqual([
+      { type: "string", const: "mr-id", title: "Mr" },
+    ])
+    expect(schema.safeParse({ first: "Bob", title: "nope" }).success).toBe(false)
+  })
+
+  it("marks a read-only binding readOnly and never requires it", () => {
+    expect(json.properties.number.readOnly).toBe(true)
+    expect(json.required).toEqual(["first"])
+    expect(schema.safeParse({ first: "Bob" }).success).toBe(true)
+  })
+})

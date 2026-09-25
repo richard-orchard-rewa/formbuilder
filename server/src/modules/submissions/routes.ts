@@ -33,6 +33,7 @@ import type {
   SubmissionRow,
 } from "./repositories/submissions.js"
 import type { SubmissionsService } from "./services/submissions.js"
+import type { BindingResults } from "../bindings/services/bound-fields.js"
 
 const FormParamsSchema = z.object({ formId: z.string() })
 const SubmissionParamsSchema = z.object({
@@ -44,7 +45,9 @@ const SubmissionVersionParamsSchema = SubmissionParamsSchema.extend({
 })
 const ErrorResponseSchema = z.object({ message: z.string() })
 
-function serialize(submission: SubmissionRow) {
+function serialize(
+  submission: SubmissionRow & { bindingResults?: BindingResults },
+) {
   return {
     ...submission,
     data: submission.data as Record<string, unknown>,
@@ -113,6 +116,7 @@ export function submissionsPlugin(
             request.body.data,
             request.body.submittedBy,
             request.body.submissionId,
+            request.body.binding,
           )
           return reply.code(201).send(serialize(submission))
         } catch (error) {

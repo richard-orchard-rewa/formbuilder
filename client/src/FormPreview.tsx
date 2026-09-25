@@ -4,6 +4,7 @@ import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { Field } from "shared"
 import { formCells } from "./schema/formCells.js"
 import { toJsonSchema } from "./schema/toJsonSchema.js"
+import { useBindingOptions } from "./schema/useBindingOptions.js"
 
 interface FormPreviewProps {
   fields: Field[]
@@ -14,9 +15,10 @@ interface FormPreviewProps {
 // publishing (US-2.5). Input here is scratch state only — nothing is
 // persisted from the preview.
 export function FormPreview({ fields }: FormPreviewProps) {
+  const bindingOptions = useBindingOptions(fields)
   const { schema, uiSchema } = useMemo(
-    () => toJsonSchema({ fields }),
-    [fields],
+    () => toJsonSchema({ fields }, { bindingOptions }),
+    [fields, bindingOptions],
   )
   const [data, setData] = useState<Record<string, unknown>>({})
 

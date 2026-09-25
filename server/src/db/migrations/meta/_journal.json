@@ -78,6 +78,13 @@
       "when": 1789963787385,
       "tag": "0010_cloudy_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790311211321,
+      "tag": "0011_chemical_black_cat",
+      "breakpoints": true
     }
   ]
 }

@@ -4,14 +4,57 @@
     {
       "name": "client",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "client"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "client"
+      ],
       "port": 5173
     },
     {
       "name": "server",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "server"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "server"
+      ],
       "port": 3000
+    },
+    {
+      "name": "binding-service",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "binding-service"
+      ],
+      "port": 3100
+    },
+    {
+      "name": "mock-icis",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "mock-icis"
+      ],
+      "port": 3200
+    },
+    {
+      "name": "binding-service-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "demo",
+        "-w",
+        "binding-service"
+      ],
+      "port": 3100
     }
   ]
 }

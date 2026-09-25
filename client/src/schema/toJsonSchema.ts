@@ -1,5 +1,5 @@
 import type { JsonSchema } from "@jsonforms/core"
-import type { Field, FormSchema } from "shared"
+import type { Field, FormSchema, SchemaContext } from "shared"
 import { toJsonSchema as fieldsToJsonSchema } from "shared"
 
 // Converts a FormSchema into the JSON Schema + UI Schema pair JSON Forms
@@ -11,12 +11,14 @@ import { toJsonSchema as fieldsToJsonSchema } from "shared"
 // rather than this hand-authoring the same shape a second time. The UI
 // Schema half (layout/widget choice) has no Zod equivalent -- it's a JSON
 // Forms-specific, rendering-only concern -- so it's still built here.
-export function toJsonSchema(schema: FormSchema) {
+// `context` carries what data-bound fields need at render time (their
+// lookup options, served live by the Data Binding Service).
+export function toJsonSchema(schema: FormSchema, context: SchemaContext = {}) {
   return {
     // The shared conversion's output is a plain JSON Schema object; cast
     // across the boundary to JSON Forms' own (structurally compatible)
     // type rather than duplicating its shape here.
-    schema: fieldsToJsonSchema(schema.fields) as JsonSchema,
+    schema: fieldsToJsonSchema(schema.fields, context) as JsonSchema,
     uiSchema: {
       type: "VerticalLayout" as const,
       elements: schema.fields.map(toUiSchemaElement),
@@ -38,5 +40,8 @@ function toUiSchemaElement(field: Field) {
         }
       : {}),
     ...(field.type === "radio" ? { options: { format: "radio" } } : {}),
+    ...(field.type === "bound" && field.binding.access === "read"
+      ? { options: { readonly: true } }
+      : {}),
   }
 }

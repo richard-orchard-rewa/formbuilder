@@ -1,15 +1,21 @@
 import { useEffect, useState } from "react"
-import { FIELD_TYPE_LABELS, type Field, type FieldType } from "shared"
+import {
+  FIELD_TYPE_LABELS,
+  type BindingDescriptor,
+  type Field,
+  type FieldType,
+} from "shared"
 import {
   getActiveVersion,
   getDraft,
   getPublishedFieldIds,
+  listBindings,
   NoDraftToPublishError,
   publishForm,
   saveDraft,
 } from "./api.js"
 import { FieldInspector } from "./FieldInspector.js"
-import { FieldPalette } from "./FieldPalette.js"
+import { FieldPalette, type PaletteBindings } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
 import { FormPreview } from "./FormPreview.js"
 
@@ -52,6 +58,18 @@ function createField(type: FieldType): Field {
   }
 }
 
+// A data-bound field starts with the dictionary's own label and a snapshot
+// of its descriptor (docs/proposals/databound-fields.md).
+function createBoundField(binding: BindingDescriptor): Field {
+  return {
+    id: crypto.randomUUID(),
+    type: "bound",
+    label: binding.label,
+    required: false,
+    binding,
+  }
+}
+
 // Loads the form's current draft, then lets an admin drag field types from
 // the palette onto the canvas to build it visually (US-2.1), reorder them
 // (US-2.2), configure the selected field — including marking it required
@@ -72,6 +90,36 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     "idle" | "publishing" | "error"
   >("idle")
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [bindings, setBindings] = useState<PaletteBindings>({
+    status: "loading",
+  })
+
+  // The Data Binding Service's dictionary, for the palette. Best-effort: if
+  // the DBS is down the palette says so and custom fields still work.
+  // Reloaded whenever the admin comes back to this tab, so a binding a
+  // steward has just published appears without reopening the form.
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      listBindings("client")
+        .then((list) => {
+          if (!cancelled) setBindings({ status: "ready", bindings: list })
+        })
+        .catch(() => {
+          if (!cancelled) setBindings({ status: "unavailable" })
+        })
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load()
+    }
+    void load()
+    window.addEventListener("focus", onVisible)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      window.removeEventListener("focus", onVisible)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -118,6 +166,15 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
 
   function handleDrop(type: FieldType, index: number) {
     const field = createField(type)
+    persist([...fields.slice(0, index), field, ...fields.slice(index)])
+    setSelectedId(field.id)
+  }
+
+  function handleDropBinding(key: string, index: number) {
+    if (bindings.status !== "ready") return
+    const binding = bindings.bindings.find((b) => b.key === key)
+    if (!binding) return
+    const field = createBoundField(binding)
     persist([...fields.slice(0, index), field, ...fields.slice(index)])
     setSelectedId(field.id)
   }
@@ -197,11 +254,12 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
 
       {status === "ready" && mode === "edit" && (
         <div className="form-builder__workspace">
-          <FieldPalette />
+          <FieldPalette bindings={bindings} />
           <FormCanvas
             fields={fields}
             selectedId={selectedId}
             onDrop={handleDrop}
+            onDropBinding={handleDropBinding}
             onReorder={handleReorder}
             onSelect={setSelectedId}
           />
