@@ -7,6 +7,7 @@ import type {
   ManagedBinding,
 } from "shared"
 import type { BindingSource } from "./adapters/adapter.js"
+import { completeDescriptor } from "./descriptors.js"
 import { CODE_BINDINGS, type DictionaryEntry } from "./dictionary.js"
 
 // A binding created in the binding creator: its source mapping plus every
@@ -84,9 +85,12 @@ export class BindingRegistry {
         ? [{ descriptor: version.descriptor, source: binding.source }]
         : []
     })
-    return [...CODE_BINDINGS, ...configured].filter(
-      (entry) => !anchor || entry.descriptor.anchor === anchor,
-    )
+    return [...CODE_BINDINGS, ...configured]
+      .filter((entry) => !anchor || entry.descriptor.anchor === anchor)
+      .map((entry) => ({
+        ...entry,
+        descriptor: completeDescriptor(entry.descriptor, entry.source),
+      }))
   }
 
   async find(key: string): Promise<DictionaryEntry | undefined> {
@@ -99,14 +103,17 @@ export class BindingRegistry {
       key: entry.descriptor.key,
       origin: "code",
       attribute: entry.source.attribute,
-      versions: [codeVersion(entry.descriptor)],
+      versions: [codeVersion(completeDescriptor(entry.descriptor, entry.source))],
     }))
     const configured: ManagedBinding[] = (await this.configured.list()).map(
       (binding) => ({
         key: binding.key,
         origin: "configured",
         attribute: binding.source.attribute,
-        versions: binding.versions,
+        versions: binding.versions.map((v) => ({
+          ...v,
+          descriptor: completeDescriptor(v.descriptor, binding.source),
+        })),
       }),
     )
     return [...code, ...configured]

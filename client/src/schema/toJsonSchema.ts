@@ -1,5 +1,5 @@
 import type { JsonSchema } from "@jsonforms/core"
-import type { Field, FormSchema, SchemaContext } from "shared"
+import type { BoundField, Field, FormSchema, SchemaContext } from "shared"
 import { toJsonSchema as fieldsToJsonSchema } from "shared"
 
 // Converts a FormSchema into the JSON Schema + UI Schema pair JSON Forms
@@ -26,6 +26,17 @@ export function toJsonSchema(schema: FormSchema, context: SchemaContext = {}) {
   }
 }
 
+// A bound field's rendering: read-only when the binding is, and a lookup
+// shown as radio buttons when the form chose that presentation.
+function boundUiOptions(field: BoundField) {
+  const presentation = field.presentation ?? field.binding.presentations?.default
+  const options = {
+    ...(field.binding.access === "read" ? { readonly: true } : {}),
+    ...(presentation === "radio" ? { format: "radio" } : {}),
+  }
+  return Object.keys(options).length > 0 ? { options } : {}
+}
+
 function toUiSchemaElement(field: Field) {
   return {
     type: "Control" as const,
@@ -40,8 +51,6 @@ function toUiSchemaElement(field: Field) {
         }
       : {}),
     ...(field.type === "radio" ? { options: { format: "radio" } } : {}),
-    ...(field.type === "bound" && field.binding.access === "read"
-      ? { options: { readonly: true } }
-      : {}),
+    ...(field.type === "bound" ? boundUiOptions(field) : {}),
   }
 }

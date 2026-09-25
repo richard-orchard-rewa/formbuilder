@@ -67,6 +67,7 @@ function createBoundField(binding: BindingDescriptor): Field {
     label: binding.label,
     required: false,
     binding,
+    ...(binding.presentations ? { presentation: binding.presentations.default } : {}),
   }
 }
 

@@ -677,3 +677,9 @@ form[aria-label="Filter submissions"] label {
   gap: var(--s-3);
   justify-content: flex-end;
 }
+
+.field-inspector__hint {
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-body-sm);
+  color: var(--fg-on-surface-muted);
+}

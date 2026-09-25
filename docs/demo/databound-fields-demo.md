@@ -96,7 +96,7 @@ About 20 minutes. Each part is one role.
 
 1. From **Forms**, create a form, e.g. *Intake — client details*, then click **Build**.
 2. From the palette's **Data bound · Client** section, drag on **Title**, **First name**, **Last name**, **Preferred name**, **Gender** and **Client number**. Also add one ordinary custom field from **Field types**, such as a text area called *Reason for contact*, to show they mix.
-3. Select **Gender**. The inspector shows what it's bound to and that its options come from the source system. Select **Client number**: *Required* is disabled, because a display-only value can't be required.
+3. Select **Title**. Under **Show as**, switch it from Dropdown to **Radio buttons**: the binding allows both, and the form admin picks one per form. Select **Gender**; the inspector shows what it's bound to and that its options come from the source system. Select **Client number**: *Required* is disabled, because a display-only value can't be required.
 4. Click **Publish**.
 
 ### 5. Practitioner: fill in the form, and it saves back to ICIS

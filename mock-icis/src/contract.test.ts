@@ -176,3 +176,22 @@ describe("the creator's ceiling for lookups", () => {
     expect(after?.maxAccess).toBe("readWrite")
   })
 })
+
+describe("validation against the mock's live lists", () => {
+  it("refuses a title that isn't in ICIS's salutation list, and never sends the PATCH", async () => {
+    const { state, service } = build()
+    state.privileges.add("prvWriteContact")
+    state.privileges.add("prvAppendContact")
+    state.privileges.add("prvAppendToCsg_salutation")
+    const { results } = await service.commit({
+      anchor: { client: BOB },
+      values: { "client.title": "de301000-0000-4000-8000-000000000999" },
+    })
+    expect(results["client.title"]).toMatchObject({ message: "Not one of the allowed options" })
+    expect(state.log.some((e) => e.method === "PATCH")).toBe(false)
+
+    const mx = LOOKUP_ROWS.csg_salutation.find((r) => r.name === "Mx")!.id
+    const ok = await service.commit({ anchor: { client: BOB }, values: { "client.title": mx } })
+    expect(ok.results["client.title"]).toEqual({ status: "written" })
+  })
+})

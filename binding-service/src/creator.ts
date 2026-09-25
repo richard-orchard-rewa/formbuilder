@@ -11,6 +11,7 @@ import type {
   RecordStore,
 } from "./adapters/adapter.js"
 import { ALLOW_LIST, ANCHOR_ENTITIES, allowedAttribute } from "./allow-list.js"
+import { completeDescriptor, STRATEGY_PRESENTATIONS } from "./descriptors.js"
 import { CODE_BINDINGS } from "./dictionary.js"
 import type { BindingRegistry, ConfiguredBinding } from "./registry.js"
 
@@ -108,6 +109,7 @@ export class BindingCreator {
           accessNotes,
           problems,
           boundBy: boundBy.get(meta.attribute) ?? null,
+          presentations: strategy ? STRATEGY_PRESENTATIONS[strategy] : [],
         },
       ]
     })
@@ -172,6 +174,17 @@ export class BindingCreator {
       maxLength = request.maxLength ?? storeMax
     }
 
+    // Which presentations forms may use: those the strategy supports,
+    // optionally narrowed (e.g. a long list as a dropdown only).
+    const possible = STRATEGY_PRESENTATIONS[candidate.strategy]
+    const presentations = request.presentations ?? possible
+    const unsupported = presentations.filter((p) => !possible.includes(p))
+    if (unsupported.length > 0) {
+      throw new BindingRuleError(
+        `A ${candidate.strategy === "lookup" ? "list" : "text"} binding can't be shown as ${unsupported.join(" or ")}.`,
+      )
+    }
+
     const source: BindingSource = {
       strategy: candidate.strategy,
       entity: ANCHOR_ENTITIES[anchor],
@@ -198,6 +211,16 @@ export class BindingCreator {
           ? { kind: "lookup" }
           : { kind: "text", ...(maxLength ? { maxLength } : {}) },
       overridable: request.access === "read" ? ["label"] : ["label", "required"],
+      presentations: { allowed: [...new Set(presentations)], default: presentations[0] },
+      validation: {
+        required: candidate.storeRequired,
+        rules:
+          candidate.strategy === "lookup"
+            ? [{ type: "oneOfOptions" }]
+            : maxLength
+              ? [{ type: "maxLength", value: maxLength }]
+              : [],
+      },
     }
 
     binding.versions = [
@@ -259,6 +282,9 @@ function toManaged(binding: ConfiguredBinding): ManagedBinding {
     key: binding.key,
     origin: "configured",
     attribute: binding.source.attribute,
-    versions: binding.versions,
+    versions: binding.versions.map((v) => ({
+      ...v,
+      descriptor: completeDescriptor(v.descriptor, binding.source),
+    })),
   }
 }

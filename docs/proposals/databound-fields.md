@@ -170,6 +170,33 @@ The queued values go in one PATCH with `If-Match` on the row version it just rea
 - `overridable` covers only `label` and `required`.
 - There's no `valueShape` (everything is scalar) and no `etag` in resolve responses (the baseline values are used instead).
 
+### The descriptor as built: self-describing (2026-09-25)
+
+Every descriptor the DBS serves tells a consumer how to show, list, check, read and write the value, without it knowing the DBS's URL conventions. Title, as served:
+
+```jsonc
+{
+  "key": "client.title", "version": 1, "label": "Title", "access": "readWrite",
+  "control": { "kind": "lookup" },
+  "presentations": { "allowed": ["dropdown", "radio"], "default": "dropdown" },
+  "options": { "href": "/bindings/client.title/options", "allowBlank": true },
+  "validation": { "required": false, "rules": [{ "type": "oneOfOptions" }] },
+  "operations": {
+    "resolve": { "href": "/resolve" },
+    "commit": { "href": "/commit", "strategy": "lookup" }
+  }
+}
+```
+
+- **Presentations.** The binding says which controls can show its value: text for `attribute`, dropdown and/or radio buttons for `lookup`. A steward can narrow them in the binding creator (e.g. a long list as dropdown only). The form admin picks one per form under **Show as** in the inspector, since that's a layout choice (§6). The chosen one is stored on the form's bound field as `presentation`.
+- **Validation** is a typed list of rules plus the store's own `required`:
+  - The DBS runs every rule at commit (`binding-service/src/validators.ts`), whatever the form did.
+  - form-builder mirrors them in the rendered form (`applyRule` in `shared/src/json-schema.ts`).
+  - Built so far: `maxLength`, and `oneOfOptions`, where a lookup value must be one of the store's current options. `oneOfOptions` closed a real gap: before it, a caller could commit any ID as a title, and only the store's own constraint would have caught it.
+  - A store-required value is always required on the form, and clearing it is refused at commit.
+- **Operations** link to the shared `resolve` and `commit` calls rather than per-field endpoints. One commit per anchor is what lets the DBS write every changed field in one conditional update and check each for conflicts.
+- **Filled in centrally.** `completeDescriptor` (`binding-service/src/descriptors.ts`) fills these parts in for every binding, built-in or configured, including ones saved before these parts existed. The new fields are optional in the schema only so that descriptors snapshotted into forms earlier still load; those forms keep rendering as they did (a lookup as a dropdown).
+
 ### What the prototype found in test ICIS
 
 - **Title is a lookup, not text.** It's `contact.csg_salutationid` → the `csg_salutation` table (`csg_name`), not the standard free-text `salutation` (which is empty on the contacts checked). Writing it takes `csg_salutationid@odata.bind`, and clearing it takes `DELETE …/csg_salutationid/$ref`.
@@ -256,6 +283,52 @@ Out of this slice: the `set-membership` and `child-collection` strategies, the v
   - A **Gender** lookup draft was **refused at publish**, because the account can't read `csg_gender`.
   - An attempt on `adx_identity_passwordhash` was refused as not allow-listed.
 - **Found:** in test ICIS the borrowed account can read *none* of the custom reference tables behind `contact`'s lookups (gender, language, country, state, suburb, …). So no configured lookup can publish until the DBS has its own account.
+
+## Adding validation rules
+
+The rule list is designed to grow without the descriptor's shape changing. A new rule type is:
+- a member of `BindingValidationRuleSchema` (shared);
+- a check in the DBS's `CHECKS` table;
+- a case in `applyRule` (form-builder's mirror);
+- a control in the binding creator.
+
+Likely next:
+
+| Rule | Shape | Notes |
+|---|---|---|
+| Minimum length | `{ type: "minLength", value }` | Narrowing-only, like `maxLength` |
+| Email | `{ type: "format", format: "email" }` | A named format, so every email field means the same thing |
+| Pattern | `{ type: "pattern", name: "au-mobile" }` | A **named** entry in a developer-maintained library (regex, message, normaliser), not a regex typed by a steward. §3: "The builder picks a type and never authors a regular expression"; one concept means one thing on every form, and a bad rule is fixed in one place. An arbitrary steward-authored regex would also be a denial-of-service risk on the commit path. If a free-form pattern is ever genuinely needed, it should go through code review like the allow-list. |
+| Checksum types | `{ type: "format", format: "medicare" }` | Medicare, CRN (§3) |
+
+**Hard vs advisory rules.** Today every rule is enforced as a hard stop at commit. §3 distinguishes:
+- **store constraints**, which the store would refuse anyway: length, options, required. These must always be enforced.
+- **format rules** like phone and email, whose **severity** (assist / warn / block) is set per control on each form, and which default to *warn*. A practitioner transcribing a client's number must be able to accept a flagged value, with the override recorded.
+
+So when format rules arrive, a rule needs to carry which kind it is. The commit request then needs to say which advisory failures the respondent accepted, and the DBS records the override rather than refusing the write. Both raw and normalised values are stored (§3).
+
+## Beyond Dataverse: other stores, and moving off ICIS
+
+The eventual reason for the DBS is less "talk to ICIS" than *move client data off Dataverse into our own system without rebuilding every form*. The structure already points that way:
+- ICIS knowledge lives only in the adapter (`adapters/icis.ts`) and in each binding's internal `source` mapping (strategy, entity, attribute, target).
+- Descriptors, keys and forms never mention a store.
+
+**Supporting a non-Dataverse store** means:
+1. **An adapter per store**, implementing `RecordStore` (e.g. Postgres for the new client/case/session system, or another system's REST API).
+2. **A store on each binding's source** (`source.store`), with the service routing reads and writes per binding. Today there's one store for the whole service.
+3. **Commits grouped by store.** One conditional update per store is the most that's possible; a commit spanning stores can partly succeed, which the per-field results already express.
+
+**Moving a binding off ICIS**, one binding (or entity) at a time:
+1. Build the new store and its adapter. Optionally read from both for a period and compare.
+2. Repoint the binding's `source` from `icis: contact.csg_alias` to, say, `clients: clients.preferred_name`. The key and descriptor don't change, so no form changes. If the new store's limits differ (a longer maximum, a different list), publish a new binding version.
+3. While anything still depends on ICIS (the DEX export pipeline, above all), the **new system is the system of record and syncs back to ICIS** through an outbox, the way `feedback` already syncs to ICIS. Avoid dual-writing from the DBS, which turns one failure into two inconsistent stores.
+4. Cut over when nothing reads the ICIS copy.
+
+**Two identity problems to fix before real data accumulates:**
+- **Anchor IDs are ICIS GUIDs.** A form fill anchors on the contact's Dataverse ID, and `submission_bindings.anchor` stores it. Once client records live elsewhere, those IDs mean nothing. The DBS should issue its own stable anchor identifiers, or anchor on a business key such as the client number, and keep the per-store ID mapping itself.
+- **Lookup values are ICIS GUIDs.** A submission's raw JSON stores Title as `8c8b6ce9-…`, the salutation row's Dataverse ID. After migration, those values need mapping, or they're unreadable. Better: **options have logical codes** (`"ms"`, `"mx"`), and the DBS maps codes to each store's IDs. The alternative is migrating reference tables with their IDs unchanged, which ties the new system to Dataverse's keys forever.
+
+Both are cheap to change now and expensive once submissions exist.
 
 ## Phase 1 and beyond (sketch)
 

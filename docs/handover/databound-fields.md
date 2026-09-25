@@ -14,14 +14,7 @@ All of it is a prototype on one branch, not yet merged.
 ## Branch and PR status
 
 - **Branch:** `claude/databound-field-design-e44228` (worktree `.claude/worktrees/issue-21-37f6d0`), cut from `main`. `main` had no new commits as of this handover.
-- **Not pushed yet, and no PR open.** The push was blocked by Claude Code's permission settings. To finish:
-
-  ```bash
-  git push -u origin claude/databound-field-design-e44228
-  gh pr create --base main --title "Prototype data-bound fields via a Data Binding Service" --body-file docs/handover/pr-body.md
-  ```
-
-  [`pr-body.md`](pr-body.md) is a ready-made PR description.
+- **Pushed; open as [richard-orchard-rewa/formbuilder#81](https://github.com/richard-orchard-rewa/formbuilder/pull/81)** against `main`, with Auto-fix on for CI failures. [`pr-body.md`](pr-body.md) is the description it was opened with.
 - **Commits, oldest first:**
 
   | Commit | What |
@@ -89,17 +82,28 @@ npm run dev       # the same, but the DBS uses binding-service/.env (ADAPTER=fak
 - **It can't read any of the reference tables behind contact's custom lookups** (salutation, gender, language, country, …). Title falls back to five known values, and no new lookup binding can be published.
 - **`contact`'s updatable attributes include portal password hashes, the DSS/DEX client ID and government card numbers.** That's why the allow-list exists.
 
+## Latest: self-describing descriptors (after the handover was first written)
+
+Descriptors now say how to show, list, check, read and write each value:
+- `presentations`: dropdown and/or radio for lookups; the form admin picks **Show as** per form.
+- `options.href`.
+- `validation`: a typed rule list, enforced by the DBS at commit, including that a lookup value is one of the live options.
+- `operations`.
+
+The steward can narrow the presentations in the binding creator. See the proposal: "The descriptor as built", "Adding validation rules", and "Beyond Dataverse", which covers two identity problems (anchor IDs and lookup option IDs are ICIS GUIDs) that should be fixed before real data accumulates.
+
 ## Next steps, in rough order
 
-1. **Push the branch and open the PR** (commands above). Then run the e2e suite in CI.
+1. **Get PR #81 reviewed and merged** once its e2e run is green.
 2. **Get the DBS its own ICIS account**, per the [setup guide](../setup/icis-binding-service-account.md). Start read-only; add Write, Append and Append To to see real writes land in test ICIS. Then update `binding-service/.env`, the note in `CLAUDE.md`, and the proposal's findings.
 3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
 5. **An outbox for commits** (a queue with retries, like `feedback`'s ICIS sync), so an ICIS or DBS outage never blocks finalising.
-6. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
-7. **A validation-type library** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
-8. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
-9. **Steward permissions** on the Data bindings page, which is currently open to anyone.
+6. **Stable identities:** DBS-issued anchor IDs (or the client number) instead of Contact GUIDs, and logical option codes instead of Dataverse row IDs. See "Beyond Dataverse" in the proposal.
+7. **The next strategies:** `set-membership` (presenting needs) and `child-collection` (referrals, per participant).
+8. **Validation-rule types** (phone, email, Medicare, …) that bindings reference and that's enforced in both the form and the DBS.
+9. **Identity:** Entra sign-in for form-builder, then on-behalf-of tokens to the DBS. §8 of the requirements rules out a service account for real clinical writes.
+10. **Steward permissions** on the Data bindings page, which is currently open to anyone.
 
 ## Gotchas hit along the way
 

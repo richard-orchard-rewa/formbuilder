@@ -17,6 +17,7 @@ import {
   type RecordStore,
 } from "./adapters/adapter.js"
 import { ANCHOR_ENTITIES } from "./allow-list.js"
+import { firstFailure } from "./validators.js"
 import type { DictionaryEntry } from "./dictionary.js"
 import type { BindingRegistry } from "./registry.js"
 
@@ -105,8 +106,9 @@ export class BindingService {
 
   // Writes only what actually changed, and never overwrites a value that
   // changed in the store since the caller resolved it (reported as a
-  // conflict instead). Values are re-checked against the binding here, at
-  // the API boundary, not just in the rendered form (requirements §3).
+  // conflict instead). Every value is checked against its binding's
+  // validation here, at the API boundary, whatever the rendered form did
+  // (requirements §3).
   // Everything written goes in one conditional update, so a record changing
   // mid-commit fails the whole write rather than half-applying it.
   async commit(request: CommitRequest): Promise<CommitResponse> {
@@ -121,14 +123,20 @@ export class BindingService {
     const results: Record<string, BindingCommitResult> = {}
     const changes: Change[] = []
     const pending: string[] = []
+    // Each lookup's options, fetched at most once per commit.
+    const optionLists = new Map<string, Promise<BindingOptions>>()
+    const optionsFor = (target: string) => {
+      if (!optionLists.has(target)) {
+        optionLists.set(target, this.store.lookupOptions(target))
+      }
+      return optionLists.get(target)!
+    }
 
     for (const entry of entries) {
       const { descriptor, source } = entry
       const key = descriptor.key
       const next = normalise(request.values[key])
       const current = stored.values[source.attribute] ?? null
-      const maxLength =
-        descriptor.control.kind === "text" ? descriptor.control.maxLength : undefined
 
       if (descriptor.access === "read") {
         results[key] = { status: "readOnly" }
@@ -144,14 +152,14 @@ export class BindingService {
           message: "Changed in the source system since this form was opened",
           current,
         }
-      } else if (maxLength !== undefined && next !== null && next.length > maxLength) {
-        results[key] = {
-          status: "failed",
-          message: `Longer than the ${maxLength} characters this field allows`,
-        }
       } else {
-        changes.push({ source, value: next })
-        pending.push(key)
+        const failure = await this.validate(entry, next, optionsFor)
+        if (failure) {
+          results[key] = { status: "failed", message: failure }
+        } else {
+          changes.push({ source, value: next })
+          pending.push(key)
+        }
       }
     }
 
@@ -178,6 +186,22 @@ export class BindingService {
     }
 
     return { results }
+  }
+
+  // Why a changed value can't be written, or null.
+  private async validate(
+    entry: DictionaryEntry,
+    value: string | null,
+    optionsFor: (target: string) => Promise<BindingOptions>,
+  ) {
+    const validation = entry.descriptor.validation
+    if (value === null) {
+      return validation?.required ? "A value is required here" : null
+    }
+    const target = entry.source.target
+    return firstFailure(value, validation?.rules ?? [], {
+      options: target ? () => optionsFor(target) : undefined,
+    })
   }
 }
 
