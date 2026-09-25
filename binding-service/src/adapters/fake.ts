@@ -158,12 +158,17 @@ export class FakeRecordStore implements RecordStore {
   }
 
   async permissions(_entity: string, targets: string[]): Promise<ServicePermissions> {
+    // The fake keeps it simple: an account that can write can link, and
+    // any list it can read can be linked to.
+    const readable = Object.fromEntries(
+      targets.map((t) => [t, this.privileges.readableTargets.has(t)]),
+    )
     return {
       readEntity: true,
       writeEntity: this.privileges.writeEntity,
-      readTargets: Object.fromEntries(
-        targets.map((t) => [t, this.privileges.readableTargets.has(t)]),
-      ),
+      appendEntity: this.privileges.writeEntity,
+      readTargets: readable,
+      appendToTargets: readable,
     }
   }
 }

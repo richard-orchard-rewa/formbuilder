@@ -28,6 +28,23 @@ function requireEnv(name: string): string {
 // (on-behalf-of) token -- so this is prototype-only.
 function icisStore(): RecordStore {
   const orgUrl = requireEnv("DYNAMICS_URL").replace(/\/$/, "")
+  const privilegeTtlMs = process.env.ICIS_PRIVILEGE_CACHE_MS
+    ? Number(process.env.ICIS_PRIVILEGE_CACHE_MS)
+    : undefined
+
+  // The mock ICIS (mock-icis/) accepts a fixed token instead of an Entra
+  // sign-in. Refused for anything but a local URL, so a demo setting can
+  // never end up pointed at a real environment.
+  const staticToken = process.env.ICIS_STATIC_TOKEN
+  if (staticToken) {
+    const host = new URL(orgUrl).hostname
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      logger.error("ICIS_STATIC_TOKEN is only allowed with a localhost DYNAMICS_URL")
+      process.exit(1)
+    }
+    return new IcisRecordStore(orgUrl, async () => staticToken, fetch, privilegeTtlMs)
+  }
+
   const msal = new ConfidentialClientApplication({
     auth: {
       clientId: requireEnv("AZURE_CLIENT_ID"),
@@ -41,7 +58,7 @@ function icisStore(): RecordStore {
     })
     if (!result) throw new Error("No ICIS access token returned")
     return result.accessToken
-  })
+  }, fetch, privilegeTtlMs)
 }
 
 const adapter = process.env.ADAPTER ?? "fake"

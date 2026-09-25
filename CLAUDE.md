@@ -17,13 +17,14 @@ It is **entirely separate** from the sibling `feedback` app — never edit, depe
 
 ## Monorepo structure
 
-npm workspaces, five packages:
+npm workspaces, six packages:
 
 ```
 shared/           # Zod schemas and types — single source of truth for API contracts
 server/           # Fastify backend
 client/           # Vite + React frontend
 binding-service/  # Data Binding Service prototype — owns data-bound fields' dictionary and ICIS access
+mock-icis/        # Mock ICIS (Dataverse Web API subset + admin screens, made-up data) for demos and contract tests
 e2e/              # Playwright feature tests, run against client + server together
 ```
 
@@ -32,6 +33,7 @@ e2e/              # Playwright feature tests, run against client + server togeth
 ```bash
 npm install                          # (or npm ci in CI)
 npm run dev                          # binding-service on :3100, server on :3000, client on :5173
+npm run demo                         # the same, with the DBS pointed at mock-icis on :3200 — see docs/demo/
 npm run build                        # build all workspaces
 npm run typecheck                    # tsc --noEmit across all workspaces
 npm test                             # Vitest — shared + client

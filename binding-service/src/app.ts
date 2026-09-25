@@ -64,6 +64,28 @@ export function buildApp(
 
   typed.get("/health", async () => ({ ok: true }))
 
+  // Self-describing: what this service is and what it offers, for whoever
+  // is wiring a new consumer up to it.
+  typed.get("/", async () => ({
+    service: "Data Binding Service",
+    description:
+      "Owns the dictionary of data-bound fields and all access to the backing store. Consumers never talk to the store directly.",
+    anchors: ["client"],
+    strategies: ["attribute", "lookup"],
+    endpoints: {
+      "GET /bindings?anchor=client": "Published bindings, as descriptors a form can render",
+      "GET /bindings/:key": "One binding's descriptor",
+      "GET /bindings/:key/options": "A lookup binding's options, served live",
+      "GET /anchors/client?clientNumber=": "Find the record to anchor on",
+      "POST /resolve": "Current values for bindings on an anchor",
+      "POST /commit": "Write changed values, refusing to overwrite changes made since resolve",
+      "GET /admin/attributes?anchor=client": "Binding creator: allow-listed attributes, with store limits and this service's own privileges",
+      "GET /admin/bindings": "Binding creator: every binding and version",
+      "POST /admin/bindings": "Binding creator: save a draft",
+      "POST /admin/bindings/:key/publish": "Binding creator: publish a draft as an immutable version",
+    },
+  }))
+
   typed.get(
     "/bindings",
     {

@@ -23,7 +23,7 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // Logical names only ever come from the allow-list and the code dictionary,
 // but they're interpolated into URLs, so refuse anything else outright.
 const LOGICAL_NAME = /^[a-z][a-z0-9_]*$/
-const PRIVILEGE_TTL_MS = 60_000
+const DEFAULT_PRIVILEGE_TTL_MS = 60_000
 
 interface EntityInfo {
   entitySet: string
@@ -48,6 +48,9 @@ export class IcisRecordStore implements RecordStore {
     private readonly orgUrl: string,
     private readonly getToken: () => Promise<string>,
     private readonly fetchImpl: Fetch = fetch,
+    // How long the account's own privileges are cached. 0 re-checks on every
+    // request -- handy when demonstrating privilege changes live.
+    private readonly privilegeTtlMs = DEFAULT_PRIVILEGE_TTL_MS,
   ) {}
 
   private async request(path: string, init: RequestInit = {}) {
@@ -302,8 +305,12 @@ export class IcisRecordStore implements RecordStore {
     return {
       readEntity: has(info.privileges.Read),
       writeEntity: has(info.privileges.Write),
+      appendEntity: has(info.privileges.Append),
       readTargets: Object.fromEntries(
         targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.Read)]),
+      ),
+      appendToTargets: Object.fromEntries(
+        targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.AppendTo)]),
       ),
     }
   }
@@ -312,7 +319,7 @@ export class IcisRecordStore implements RecordStore {
   // briefly: a steward granting a privilege should see it take effect
   // without a restart.
   private heldPrivileges(): Promise<Set<string>> {
-    if (this.privilegeCache && Date.now() - this.privilegeCache.at < PRIVILEGE_TTL_MS) {
+    if (this.privilegeCache && Date.now() - this.privilegeCache.at < this.privilegeTtlMs) {
       return this.privilegeCache.names
     }
     const names = (async () => {

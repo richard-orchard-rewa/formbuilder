@@ -44,8 +44,12 @@ export interface AttributeMetadata {
 export interface ServicePermissions {
   readEntity: boolean
   writeEntity: boolean
+  // Setting a lookup takes Append on the entity and Append To on the target.
+  appendEntity: boolean
   // Per lookup target: can the account read the reference table's rows?
   readTargets: Record<string, boolean>
+  // Per lookup target: can a record be linked to its rows?
+  appendToTargets: Record<string, boolean>
 }
 
 export interface ClientSummary {

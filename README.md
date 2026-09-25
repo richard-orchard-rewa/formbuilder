@@ -27,6 +27,9 @@ npm run dev                    # binding-service on :3100, server on :3000, clie
 
 `binding-service/` is the prototype Data Binding Service behind data-bound
 fields — see [docs/proposals/databound-fields.md](docs/proposals/databound-fields.md).
+To demonstrate it end to end on made-up data, `npm run demo` runs it against
+`mock-icis/` instead of ICIS — walkthrough in
+[docs/demo/databound-fields-demo.md](docs/demo/databound-fields-demo.md).
 
 ## Testing
 

@@ -9,15 +9,18 @@
     "binding-service",
     "client",
     "e2e",
+    "mock-icis",
     "server",
     "shared"
   ],
   "scripts": {
     "dev": "npm run build -w shared && concurrently -n dbs,server,client -c magenta,blue,green \"npm run dev -w binding-service\" \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w client && npm run build -w server && npm run build -w binding-service",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server && npm run typecheck -w binding-service",
-    "test": "npm run test -w shared && npm run test -w client && npm run test -w server && npm run test -w binding-service",
-    "test:e2e": "npm run build -w shared && npx playwright test --config=e2e/playwright.config.ts"
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server && npm run typecheck -w binding-service && npm run typecheck -w mock-icis",
+    "test": "npm run test -w shared && npm run test -w client && npm run test -w server && npm run test -w binding-service && npm run test -w mock-icis",
+    "test:e2e": "npm run build -w shared && npx playwright test --config=e2e/playwright.config.ts",
+    "demo": "npm run build -w shared && concurrently -n icis,dbs,server,client -c yellow,magenta,blue,green \"npm run dev -w mock-icis\" \"npm run demo -w binding-service\" \"npm run dev -w server\" \"npm run dev -w client\"",
+    "demo:reset": "node -e \"require('fs').rmSync('binding-service/data/bindings.demo.json',{force:true})\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

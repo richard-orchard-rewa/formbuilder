@@ -7,7 +7,8 @@
     "dev": "node --env-file-if-exists .env --import tsx/esm src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "demo": "node --env-file .env.demo --import tsx/esm src/server.ts"
   },
   "dependencies": {
     "@azure/msal-node": "^6.0.0",

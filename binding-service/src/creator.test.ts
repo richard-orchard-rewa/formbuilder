@@ -128,7 +128,7 @@ describe("BindingCreator.saveDraft / publish", () => {
       label: "Home language",
       description: "",
       attribute: "csg_home_languageid",
-      access: "readWrite",
+      access: "read",
     })
     await expect(creator.publish("client.homeLanguage")).rejects.toThrow("csg_language")
   })

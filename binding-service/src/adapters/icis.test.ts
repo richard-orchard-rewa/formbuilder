@@ -227,7 +227,9 @@ describe("IcisRecordStore", () => {
     expect(await store.permissions("contact", ["csg_salutation"])).toEqual({
       readEntity: true,
       writeEntity: false,
+      appendEntity: false,
       readTargets: { csg_salutation: false },
+      appendToTargets: { csg_salutation: false },
     })
   })
 })

@@ -71,6 +71,13 @@ export class BindingCreator {
         accessNotes.push(
           "The Data Binding Service's ICIS account can't write client records.",
         )
+      } else if (
+        meta.lookupTarget &&
+        (!permissions.appendEntity || !permissions.appendToTargets[meta.lookupTarget])
+      ) {
+        accessNotes.push(
+          `The Data Binding Service's ICIS account can't link client records to the ${meta.lookupTarget} list (needs Append on the client and Append To on the list).`,
+        )
       }
 
       const problems: string[] = []
