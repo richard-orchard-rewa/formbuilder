@@ -170,6 +170,33 @@ The queued values go in one PATCH with `If-Match` on the row version it just rea
 - `overridable` covers only `label` and `required`.
 - There's no `valueShape` (everything is scalar) and no `etag` in resolve responses (the baseline values are used instead).
 
+### The descriptor as built: self-describing (2026-09-25)
+
+Every descriptor the DBS serves tells a consumer how to show, list, check, read and write the value, without it knowing the DBS's URL conventions. Title, as served:
+
+```jsonc
+{
+  "key": "client.title", "version": 1, "label": "Title", "access": "readWrite",
+  "control": { "kind": "lookup" },
+  "presentations": { "allowed": ["dropdown", "radio"], "default": "dropdown" },
+  "options": { "href": "/bindings/client.title/options", "allowBlank": true },
+  "validation": { "required": false, "rules": [{ "type": "oneOfOptions" }] },
+  "operations": {
+    "resolve": { "href": "/resolve" },
+    "commit": { "href": "/commit", "strategy": "lookup" }
+  }
+}
+```
+
+- **Presentations.** The binding says which controls can show its value: text for `attribute`, dropdown and/or radio buttons for `lookup`. A steward can narrow them in the binding creator (e.g. a long list as dropdown only). The form admin picks one per form under **Show as** in the inspector, since that's a layout choice (§6). The chosen one is stored on the form's bound field as `presentation`.
+- **Validation** is a typed list of rules plus the store's own `required`:
+  - The DBS runs every rule at commit (`binding-service/src/validators.ts`), whatever the form did.
+  - form-builder mirrors them in the rendered form (`applyRule` in `shared/src/json-schema.ts`).
+  - Built so far: `maxLength`, and `oneOfOptions`, where a lookup value must be one of the store's current options. `oneOfOptions` closed a real gap: before it, a caller could commit any ID as a title, and only the store's own constraint would have caught it.
+  - A store-required value is always required on the form, and clearing it is refused at commit.
+- **Operations** link to the shared `resolve` and `commit` calls rather than per-field endpoints. One commit per anchor is what lets the DBS write every changed field in one conditional update and check each for conflicts.
+- **Filled in centrally.** `completeDescriptor` (`binding-service/src/descriptors.ts`) fills these parts in for every binding, built-in or configured, including ones saved before these parts existed. The new fields are optional in the schema only so that descriptors snapshotted into forms earlier still load; those forms keep rendering as they did (a lookup as a dropdown).
+
 ### What the prototype found in test ICIS
 
 - **Title is a lookup, not text.** It's `contact.csg_salutationid` → the `csg_salutation` table (`csg_name`), not the standard free-text `salutation` (which is empty on the contacts checked). Writing it takes `csg_salutationid@odata.bind`, and clearing it takes `DELETE …/csg_salutationid/$ref`.
@@ -234,7 +261,7 @@ The `attribute` and `lookup` strategies only, `client` anchor only:
 - An allow-list of `contact` attributes, with the Phase 0 code bindings unchanged alongside.
 - `GET /admin/attributes?anchor=client`: each allow-listed attribute with its live store metadata (type, max length, required level, lookup target), what the service account can do with it, and whether a binding already uses it.
 - `POST /admin/bindings` to create a draft. The strategy and limits are derived from metadata; the request can only narrow them. `POST /admin/bindings/:key/publish` makes it an immutable version.
-- Configured bindings are stored by the DBS itself, not in form-builder's database. For the prototype that's a JSON file, which keeps `ADAPTER=fake` zero-setup.
+- Configured bindings are stored by the DBS itself, in its own database, never form-builder's. With `ADAPTER=fake` they're held in memory, which keeps it zero-setup.
 - A "Data bindings" admin page in form-builder (relayed through its server like the rest) to browse attributes, create, and publish. A published binding appears in the form palette with no other change.
 
 Out of this slice: the `set-membership` and `child-collection` strategies, the validation-type library, retiring bindings, and steward permissions.
@@ -248,7 +275,7 @@ Out of this slice: the `set-membership` and `child-collection` strategies, the v
   - The built-in Phase 0 bindings now share the same `strategy + source attribute` shape, and runtime reads and writes go through one generic path.
 - **Enforcement.**
   - Commits re-check a text binding's max length at the API boundary.
-  - Configured bindings are stored in `binding-service/data/bindings.<adapter>.json`, which is gitignored.
+  - Configured bindings are stored in the DBS's own Postgres database: `configured_bindings` and `binding_versions`. They were first a JSON file; see "Where the DBS keeps its data" below.
 - **Verified against test ICIS.**
   - Live metadata comes back per attribute, e.g. `csg_alias` = "Preferred Name", text, 100.
   - The live privilege check works. The borrowed account lacks `prvWriteContact`, so *every* attribute is capped at display-only, and the page says so once, as a banner.
@@ -256,6 +283,77 @@ Out of this slice: the `set-membership` and `child-collection` strategies, the v
   - A **Gender** lookup draft was **refused at publish**, because the account can't read `csg_gender`.
   - An attempt on `adx_identity_passwordhash` was refused as not allow-listed.
 - **Found:** in test ICIS the borrowed account can read *none* of the custom reference tables behind `contact`'s lookups (gender, language, country, state, suburb, …). So no configured lookup can publish until the DBS has its own account.
+
+## Adding validation rules
+
+The rule list is designed to grow without the descriptor's shape changing. A new rule type is:
+- a member of `BindingValidationRuleSchema` (shared);
+- a check in the DBS's `CHECKS` table;
+- a case in `applyRule` (form-builder's mirror);
+- a control in the binding creator.
+
+Likely next:
+
+| Rule | Shape | Notes |
+|---|---|---|
+| Minimum length | `{ type: "minLength", value }` | Narrowing-only, like `maxLength` |
+| Email | `{ type: "format", format: "email" }` | A named format, so every email field means the same thing |
+| Pattern | `{ type: "pattern", name: "au-mobile" }` | A **named** entry in a developer-maintained library (regex, message, normaliser), not a regex typed by a steward. §3: "The builder picks a type and never authors a regular expression"; one concept means one thing on every form, and a bad rule is fixed in one place. An arbitrary steward-authored regex would also be a denial-of-service risk on the commit path. If a free-form pattern is ever genuinely needed, it should go through code review like the allow-list. |
+| Checksum types | `{ type: "format", format: "medicare" }` | Medicare, CRN (§3) |
+
+**Hard vs advisory rules.** Today every rule is enforced as a hard stop at commit. §3 distinguishes:
+- **store constraints**, which the store would refuse anyway: length, options, required. These must always be enforced.
+- **format rules** like phone and email, whose **severity** (assist / warn / block) is set per control on each form, and which default to *warn*. A practitioner transcribing a client's number must be able to accept a flagged value, with the override recorded.
+
+So when format rules arrive, a rule needs to carry which kind it is. The commit request then needs to say which advisory failures the respondent accepted, and the DBS records the override rather than refusing the write. Both raw and normalised values are stored (§3).
+
+## Beyond Dataverse: other stores, and moving off ICIS
+
+The eventual reason for the DBS is less "talk to ICIS" than *move client data off Dataverse into our own system without rebuilding every form*. The structure already points that way:
+- ICIS knowledge lives only in the adapter (`adapters/icis.ts`) and in each binding's internal `source` mapping (strategy, entity, attribute, target).
+- Descriptors, keys and forms never mention a store.
+
+**Supporting a non-Dataverse store** means:
+1. **An adapter per store**, implementing `RecordStore` (e.g. Postgres for the new client/case/session system, or another system's REST API).
+2. **A store on each binding's source** (`source.store`), with the service routing reads and writes per binding. Today there's one store for the whole service.
+3. **Commits grouped by store.** One conditional update per store is the most that's possible; a commit spanning stores can partly succeed, which the per-field results already express.
+
+**Moving a binding off ICIS**, one binding (or entity) at a time:
+1. Build the new store and its adapter. Optionally read from both for a period and compare.
+2. Repoint the binding's `source` from `icis: contact.csg_alias` to, say, `clients: clients.preferred_name`. The key and descriptor don't change, so no form changes. If the new store's limits differ (a longer maximum, a different list), publish a new binding version.
+3. While anything still depends on ICIS (the DEX export pipeline, above all), the **new system is the system of record and syncs back to ICIS** through an outbox, the way `feedback` already syncs to ICIS. Avoid dual-writing from the DBS, which turns one failure into two inconsistent stores.
+4. Cut over when nothing reads the ICIS copy.
+
+**Identities that belong to the DBS, not the store (fixed 2026-09-25).** Two things tied forms to Dataverse's keys. Both now use DBS-owned identities, managed by `binding-service/src/identity.ts`:
+
+- **Anchor IDs.**
+  - Before: a form fill anchored on the contact's Dataverse GUID, and `submission_bindings.anchor` stored it.
+  - Now: `GET /anchors/client` returns a **DBS-issued ID**, and resolve and commit accept only that; a store's own record ID is refused. The registry maps each DBS ID to the record's ID *in each store*: `{ "id": "faf2…", "refs": { "icis": "de30…" } }`.
+  - Moving a client to another store means adding a `refs` entry, keyed by the client number during migration. No submission changes.
+- **Lookup values.**
+  - Before: a submission stored Title as the salutation row's Dataverse GUID.
+  - Now: options are served and accepted as **logical codes** (`mr`, `ms`, `not-stated`), and the DBS translates to and from each store's row IDs. A code comes from the row's label the first time the DBS sees it and is kept from then on, so renaming a label never changes stored data.
+  - Moving a list to another store means mapping codes to the new rows. Nothing in form-builder changes.
+  - Codes could later be curated rather than derived. For DEX-coded lists (gender, for instance), a developer-maintained code list that matches the funder's codes is the better source.
+- **Stores are named** (`RecordStore.name`: `icis`, `fake`); `refs` are keyed by that name, which is the first step towards more than one store.
+- **The registry is the DBS's own Postgres database**, never form-builder's. Locally that's `binding_service` (or `binding_service_demo`) on the same Postgres server; `npm run db:migrate -w binding-service` creates and migrates it. The tables are `anchors`, `anchor_refs`, `option_codes` and `option_code_refs`, in `binding-service/src/db/schema.ts`.
+  - Issuing an identity takes a transaction-scoped advisory lock on what it's for (one store record, or one lookup list). Unique indexes back that up, so concurrent requests, even across DBS instances, agree on one ID or code.
+  - The data is **as durable as the submissions that reference it**: losing a row orphans the anchors and codes they hold. That's why the DBS refuses to start against a real store without `DATABASE_URL`. Only the in-memory fake store runs with an in-memory registry.
+- **Prototype data from before the change** holds GUIDs. Those submissions won't pre-select their old Title values. There's no real data, so nothing was migrated.
+
+## Where the DBS keeps its data
+
+Everything the DBS owns is in **its own Postgres database**, never form-builder's. Locally that's `binding_service` (real ICIS) or `binding_service_demo` (demo) on the same Postgres server; in production it would be its own. It's created and migrated with `npm run db:migrate -w binding-service`, and the schema is `binding-service/src/db/schema.ts`.
+
+| Tables | What | Protections |
+|---|---|---|
+| `anchors`, `anchor_refs` | DBS-issued client IDs and the record each is in each store | One anchor per store record (unique index); issuing takes an advisory lock |
+| `option_codes`, `option_code_refs` | Option codes and each store's row per code | One code per store row (unique index); issuing takes an advisory lock per list |
+| `configured_bindings`, `binding_versions` | Bindings stewards create, and every version | A key's attribute never changes, and an attribute has one binding (unique index). **Published versions are immutable**: a database trigger refuses any update or delete of one, so not even hand-run SQL can rewrite a version forms depend on. At most one draft per binding. |
+
+- All of it is as durable as the submissions that reference it: losing a row orphans stored anchors or codes, or breaks saves under a binding. The DBS therefore refuses to start against a real store without `DATABASE_URL`. Only `ADAPTER=fake` runs in memory.
+- `npm run demo:reset` empties the demo database only; the reset refuses any database not named `*_demo` or `*_test`.
+- Bindings created while they were still a JSON file (`binding-service/data/bindings.<adapter>.json`) are imported by `db:migrate` the first time it runs, and the file is renamed `.imported`.
 
 ## Phase 1 and beyond (sketch)
 

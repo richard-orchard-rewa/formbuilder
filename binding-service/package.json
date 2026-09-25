@@ -8,7 +8,11 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "demo": "node --env-file .env.demo --import tsx/esm src/server.ts"
+    "demo": "node --env-file .env.demo --import tsx/esm src/server.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists .env --import tsx/esm src/db/migrate.ts",
+    "db:migrate:demo": "node --env-file .env.demo --import tsx/esm src/db/migrate.ts",
+    "db:reset:demo": "node --env-file .env.demo --import tsx/esm src/db/reset.ts"
   },
   "dependencies": {
     "@azure/msal-node": "^6.0.0",
@@ -16,12 +20,16 @@
     "fastify-type-provider-zod": "^7.0.0",
     "pino": "^10.3.1",
     "shared": "*",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10"
   }
 }

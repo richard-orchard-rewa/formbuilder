@@ -26,10 +26,43 @@ export const BindingControlSchema = z.discriminatedUnion("kind", [
 
 export type BindingControl = z.infer<typeof BindingControlSchema>
 
+// How a binding's value is read and written. Strategies are code; a
+// binding is a strategy plus configuration.
+export const BindingStrategySchema = z.enum(["attribute", "lookup"])
+
+export type BindingStrategy = z.infer<typeof BindingStrategySchema>
+
+// A way a form may present the value. Which of these a binding allows is
+// the binding's call; which one a given form uses is the form admin's
+// (a layout choice, requirements §6).
+export const BindingPresentationSchema = z.enum(["text", "dropdown", "radio"])
+
+export type BindingPresentation = z.infer<typeof BindingPresentationSchema>
+
+// One rule a value must satisfy. The DBS enforces every rule when a value
+// is committed; form-builder mirrors them in the rendered form. A typed
+// list rather than fixed fields so new kinds (an email format, a named
+// pattern from the maintained validation library, requirements §3) are
+// added as new members without changing the descriptor's shape.
+export const BindingValidationRuleSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("maxLength"), value: z.number().int().positive() }),
+  // The value must be one of the binding's options, as the store holds them now.
+  z.object({ type: z.literal("oneOfOptions") }),
+])
+
+export type BindingValidationRule = z.infer<typeof BindingValidationRuleSchema>
+
 // One dictionary entry (`GET /bindings/:key`). Everything form-builder
 // needs to render and lock the control lives here; a bound field snapshots
 // it so a published version never depends on the DBS still describing it
 // the same way.
+//
+// `presentations`, `options`, `validation` and `operations` make the
+// descriptor self-describing: a consumer learns how to show, list, check,
+// read and write the value from the descriptor itself, not from knowing
+// the DBS's URL conventions. They're optional only so descriptors
+// snapshotted into forms before they existed still parse; the DBS always
+// sends them.
 export const BindingDescriptorSchema = z.object({
   key: z.string(),
   version: z.number().int().positive(),
@@ -41,6 +74,33 @@ export const BindingDescriptorSchema = z.object({
   // Which of the field's own properties a builder may change. Everything
   // else (control kind, length, option source) is fixed by the dictionary.
   overridable: z.array(z.enum(["label", "required"])),
+  presentations: z
+    .object({
+      allowed: z.array(BindingPresentationSchema).min(1),
+      default: BindingPresentationSchema,
+    })
+    .optional(),
+  options: z
+    .object({
+      href: z.string(),
+      // Whether "no value" is a valid choice.
+      allowBlank: z.boolean(),
+    })
+    .optional(),
+  validation: z
+    .object({
+      // Whether the store itself requires a value. A form may require one
+      // where the store doesn't, never the reverse.
+      required: z.boolean(),
+      rules: z.array(BindingValidationRuleSchema),
+    })
+    .optional(),
+  operations: z
+    .object({
+      resolve: z.object({ href: z.string() }),
+      commit: z.object({ href: z.string(), strategy: BindingStrategySchema }),
+    })
+    .optional(),
 })
 
 export type BindingDescriptor = z.infer<typeof BindingDescriptorSchema>
@@ -142,12 +202,6 @@ export type CommitResponse = z.infer<typeof CommitResponseSchema>
 // --- Binding creator (docs/proposals/databound-fields.md, "Creating
 // bindings without a developer"). ---
 
-// How a binding's value is read and written. Strategies are code; a
-// binding is a strategy plus configuration.
-export const BindingStrategySchema = z.enum(["attribute", "lookup"])
-
-export type BindingStrategy = z.infer<typeof BindingStrategySchema>
-
 // One allow-listed store attribute a binding could be created on, with what
 // the store itself says about it and what the DBS's own account can do.
 export const AttributeCandidateSchema = z.object({
@@ -167,6 +221,8 @@ export const AttributeCandidateSchema = z.object({
   problems: z.array(z.string()),
   // The binding key already using this attribute, if any.
   boundBy: z.string().nullable(),
+  // The presentations a binding on this attribute could allow.
+  presentations: z.array(BindingPresentationSchema),
 })
 
 export type AttributeCandidate = z.infer<typeof AttributeCandidateSchema>
@@ -206,6 +262,9 @@ export const CreateBindingRequestSchema = z.object({
   attribute: z.string(),
   access: z.enum(["read", "readWrite"]),
   maxLength: z.number().int().positive().optional(),
+  // Narrows which presentations forms may use; defaults to all the
+  // attribute's strategy supports. The first listed is the default.
+  presentations: z.array(BindingPresentationSchema).min(1).optional(),
 })
 
 export type CreateBindingRequest = z.infer<typeof CreateBindingRequestSchema>

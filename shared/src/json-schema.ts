@@ -1,5 +1,6 @@
 import { z } from "zod"
-import type { Field, FieldOption } from "./schemas/field.js"
+import type { BindingValidationRule } from "./schemas/binding.js"
+import type { BoundField, Field, FieldOption } from "./schemas/field.js"
 
 // Runtime inputs a data-bound field needs that its definition deliberately
 // doesn't carry: a lookup binding's options are served live by the Data
@@ -74,13 +75,11 @@ function fieldValueSchema(field: Field, context: SchemaContext): z.ZodType {
     }
     case "bound": {
       const { binding } = field
-      let schema: z.ZodType
-      if (binding.control.kind === "lookup") {
-        schema = optionsSchema(context.bindingOptions?.[binding.key] ?? [])
-      } else {
-        let text = z.string()
-        if (binding.control.maxLength) text = text.max(binding.control.maxLength)
-        schema = text
+      const options = context.bindingOptions?.[binding.key] ?? []
+      let schema: z.ZodType =
+        binding.control.kind === "lookup" ? optionsSchema(options) : z.string()
+      for (const rule of boundRules(field)) {
+        schema = applyRule(schema, rule, options)
       }
       schema = schema.meta({
         title: field.label,
@@ -89,9 +88,42 @@ function fieldValueSchema(field: Field, context: SchemaContext): z.ZodType {
         ...(binding.access === "read" ? { readOnly: true } : {}),
       })
       // A read-only value is never the respondent's to supply, so it can't
-      // be required of them.
-      return binding.access === "read" ? schema.optional() : withRequired(schema)
+      // be required of them. A writable one is required if the form says so
+      // or the store itself demands a value.
+      if (binding.access === "read") return schema.optional()
+      return field.required || binding.validation?.required
+        ? schema
+        : schema.optional()
     }
+  }
+}
+
+// A bound field's validation rules. Descriptors snapshotted before rules
+// existed carry their length limit on `control` instead.
+function boundRules(field: BoundField): BindingValidationRule[] {
+  const { binding } = field
+  if (binding.validation) return binding.validation.rules
+  return binding.control.kind === "text" && binding.control.maxLength
+    ? [{ type: "maxLength", value: binding.control.maxLength }]
+    : []
+}
+
+// Mirrors one Data Binding Service validation rule in the form's own
+// schema. The DBS re-checks every rule on commit; this is so the
+// respondent hears about a problem before submitting. A new rule type is
+// added here and in the DBS's validators, nowhere else.
+function applyRule(
+  schema: z.ZodType,
+  rule: BindingValidationRule,
+  options: FieldOption[],
+): z.ZodType {
+  switch (rule.type) {
+    case "maxLength":
+      return schema instanceof z.ZodString ? schema.max(rule.value) : schema
+    case "oneOfOptions":
+      // Already the shape of a lookup's schema -- a union of its options --
+      // once the options are known.
+      return options.length > 0 ? optionsSchema(options) : schema
   }
 }
 

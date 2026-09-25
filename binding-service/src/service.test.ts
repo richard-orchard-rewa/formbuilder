@@ -2,20 +2,27 @@ import { describe, expect, it } from "vitest"
 import { StoreWriteError } from "./adapters/adapter.js"
 import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
 import { BindingCreator } from "./creator.js"
+import { InMemoryIdentityRegistry } from "./identity.js"
 import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
 import { AnchorNotFoundError, BindingService, UnknownBindingError } from "./service.js"
 
-const anchor = { client: FAKE_CLIENT_ID }
-const MR = KNOWN_TITLES[1].value
-const MS = KNOWN_TITLES[3].value
+// Titles by code, as the DBS presents them.
+const MR = "mr"
+const MS = "ms"
 
-function build() {
+// Consumers only ever see DBS anchor IDs, got by finding the client.
+async function build() {
   const store = new FakeRecordStore()
   const registry = new BindingRegistry(new InMemoryConfiguredBindingRepository())
+  const identities = new InMemoryIdentityRegistry()
+  const service = new BindingService(store, registry, identities)
+  const found = await service.findClient("00152076")
   return {
     store,
-    service: new BindingService(store, registry),
+    identities,
+    service,
     creator: new BindingCreator(store, registry),
+    anchor: { client: found!.id },
   }
 }
 
@@ -26,7 +33,7 @@ const read = (store: FakeRecordStore, attribute: string) =>
 
 describe("BindingService dictionary", () => {
   it("describes every built-in client binding, including which are read-only", async () => {
-    const { service } = build()
+    const { service } = await build()
     const bindings = await service.listBindings("client")
     expect(bindings.map((b) => [b.key, b.access])).toEqual([
       ["client.title", "readWrite"],
@@ -36,24 +43,35 @@ describe("BindingService dictionary", () => {
     ])
   })
 
-  it("serves options only for lookup bindings", async () => {
-    const { service } = build()
-    expect((await service.getOptions("client.title")).options).toEqual(KNOWN_TITLES)
+  it("serves options by code, never the store's row IDs", async () => {
+    const { service } = await build()
+    expect((await service.getOptions("client.title")).options).toEqual(
+      KNOWN_TITLES.map((t) => ({ value: t.label.toLowerCase().replace(" ", "-"), label: t.label })),
+    )
     await expect(service.getOptions("client.firstName")).rejects.toThrow()
   })
 
-  it("finds a client by client number", async () => {
-    const { service } = build()
-    expect(await service.findClient("00152076")).toEqual({
-      id: FAKE_CLIENT_ID,
+  it("finds a client by client number, under a DBS-issued ID that stays the same", async () => {
+    const { service, anchor } = await build()
+    const found = await service.findClient("00152076")
+    expect(found).toEqual({
+      id: anchor.client,
       clientNumber: "00152076",
       displayName: "Bob McGee",
     })
+    expect(found?.id).not.toBe(FAKE_CLIENT_ID)
     expect(await service.findClient("99999999")).toBeNull()
   })
 
+  it("refuses the store's own record ID as an anchor", async () => {
+    const { service } = await build()
+    await expect(
+      service.resolve({ anchor: { client: FAKE_CLIENT_ID }, bindings: ["client.firstName"] }),
+    ).rejects.toThrow(AnchorNotFoundError)
+  })
+
   it("includes a configured binding only once it's published", async () => {
-    const { service, creator } = build()
+    const { service, creator } = await build()
     await creator.saveDraft({
       key: "client.preferredName",
       label: "Preferred name",
@@ -73,7 +91,7 @@ describe("BindingService dictionary", () => {
 
 describe("BindingService.resolve", () => {
   it("returns current values keyed by binding", async () => {
-    const { service } = build()
+    const { service, anchor } = await build()
     const { values } = await service.resolve({
       anchor,
       bindings: ["client.title", "client.firstName", "client.clientNumber"],
@@ -86,7 +104,7 @@ describe("BindingService.resolve", () => {
   })
 
   it("rejects unknown bindings and unknown clients", async () => {
-    const { service } = build()
+    const { service, anchor } = await build()
     await expect(
       service.resolve({ anchor, bindings: ["client.shoeSize"] }),
     ).rejects.toThrow(UnknownBindingError)
@@ -101,7 +119,7 @@ describe("BindingService.resolve", () => {
 
 describe("BindingService.commit", () => {
   it("writes only what changed and ignores read-only bindings", async () => {
-    const { service, store } = build()
+    const { service, store, anchor } = await build()
     const { results } = await service.commit({
       anchor,
       values: {
@@ -122,7 +140,7 @@ describe("BindingService.commit", () => {
   })
 
   it("reports a conflict instead of overwriting a value changed since the form was opened", async () => {
-    const { service, store } = build()
+    const { service, store, anchor } = await build()
     await service.commit({ anchor, values: { "client.firstName": "Robert" } })
 
     const { results } = await service.commit({
@@ -139,7 +157,7 @@ describe("BindingService.commit", () => {
   })
 
   it("re-checks a binding's length limit at the API boundary", async () => {
-    const { service, store } = build()
+    const { service, store, anchor } = await build()
     const { results } = await service.commit({
       anchor,
       values: { "client.firstName": "x".repeat(51) },
@@ -149,7 +167,7 @@ describe("BindingService.commit", () => {
   })
 
   it("writes a configured binding through its strategy", async () => {
-    const { service, creator, store } = build()
+    const { service, creator, store, anchor } = await build()
     await creator.saveDraft({
       key: "client.preferredName",
       label: "Preferred name",
@@ -169,7 +187,7 @@ describe("BindingService.commit", () => {
   })
 
   it("treats blank text as clearing the value", async () => {
-    const { service, store } = build()
+    const { service, store, anchor } = await build()
     await service.commit({ anchor, values: { "client.title": "" } })
     const record = await store.read("contact", FAKE_CLIENT_ID, [
       { strategy: "lookup", entity: "contact", attribute: "csg_salutationid" },
@@ -178,7 +196,7 @@ describe("BindingService.commit", () => {
   })
 
   it("marks every pending write failed when the store refuses it", async () => {
-    const { service, store } = build()
+    const { service, store, anchor } = await build()
     store.write = async () => {
       throw new StoreWriteError("no write privilege")
     }

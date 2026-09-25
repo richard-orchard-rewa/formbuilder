@@ -40,6 +40,7 @@ interface Label {
 export type Fetch = typeof fetch
 
 export class IcisRecordStore implements RecordStore {
+  readonly name = "icis"
   private readonly entities = new Map<string, Promise<EntityInfo>>()
   private readonly navProperties = new Map<string, Promise<string>>()
   private privilegeCache: { at: number; names: Promise<Set<string>> } | null = null

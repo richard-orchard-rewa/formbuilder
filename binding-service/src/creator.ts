@@ -11,8 +11,13 @@ import type {
   RecordStore,
 } from "./adapters/adapter.js"
 import { ALLOW_LIST, ANCHOR_ENTITIES, allowedAttribute } from "./allow-list.js"
+import { completeDescriptor, STRATEGY_PRESENTATIONS } from "./descriptors.js"
 import { CODE_BINDINGS } from "./dictionary.js"
-import type { BindingRegistry, ConfiguredBinding } from "./registry.js"
+import {
+  BindingSourceConflictError,
+  type BindingRegistry,
+  type ConfiguredBinding,
+} from "./registry.js"
 
 // A request the creator's rules won't allow. `message` explains why, for
 // the steward.
@@ -108,6 +113,7 @@ export class BindingCreator {
           accessNotes,
           problems,
           boundBy: boundBy.get(meta.attribute) ?? null,
+          presentations: strategy ? STRATEGY_PRESENTATIONS[strategy] : [],
         },
       ]
     })
@@ -172,6 +178,17 @@ export class BindingCreator {
       maxLength = request.maxLength ?? storeMax
     }
 
+    // Which presentations forms may use: those the strategy supports,
+    // optionally narrowed (e.g. a long list as a dropdown only).
+    const possible = STRATEGY_PRESENTATIONS[candidate.strategy]
+    const presentations = request.presentations ?? possible
+    const unsupported = presentations.filter((p) => !possible.includes(p))
+    if (unsupported.length > 0) {
+      throw new BindingRuleError(
+        `A ${candidate.strategy === "lookup" ? "list" : "text"} binding can't be shown as ${unsupported.join(" or ")}.`,
+      )
+    }
+
     const source: BindingSource = {
       strategy: candidate.strategy,
       entity: ANCHOR_ENTITIES[anchor],
@@ -198,13 +215,23 @@ export class BindingCreator {
           ? { kind: "lookup" }
           : { kind: "text", ...(maxLength ? { maxLength } : {}) },
       overridable: request.access === "read" ? ["label"] : ["label", "required"],
+      presentations: { allowed: [...new Set(presentations)], default: presentations[0] },
+      validation: {
+        required: candidate.storeRequired,
+        rules:
+          candidate.strategy === "lookup"
+            ? [{ type: "oneOfOptions" }]
+            : maxLength
+              ? [{ type: "maxLength", value: maxLength }]
+              : [],
+      },
     }
 
     binding.versions = [
       ...published,
       { version, status: "draft", descriptor, createdAt: now, publishedAt: null },
     ]
-    await this.registry.saveConfigured(binding)
+    await this.save(binding)
     return toManaged(binding)
   }
 
@@ -235,8 +262,21 @@ export class BindingCreator {
 
     draft.status = "published"
     draft.publishedAt = new Date().toISOString()
-    await this.registry.saveConfigured(binding)
+    await this.save(binding)
     return toManaged(binding)
+  }
+
+  // A concurrent steward may have taken the key or attribute since this
+  // request checked; the store's own constraints are the final word.
+  private async save(binding: ConfiguredBinding) {
+    try {
+      await this.registry.saveConfigured(binding)
+    } catch (error) {
+      if (error instanceof BindingSourceConflictError) {
+        throw new BindingRuleError(error.message)
+      }
+      throw error
+    }
   }
 
   private async boundAttributes(): Promise<Map<string, string>> {
@@ -259,6 +299,9 @@ function toManaged(binding: ConfiguredBinding): ManagedBinding {
     key: binding.key,
     origin: "configured",
     attribute: binding.source.attribute,
-    versions: binding.versions,
+    versions: binding.versions.map((v) => ({
+      ...v,
+      descriptor: completeDescriptor(v.descriptor, binding.source),
+    })),
   }
 }

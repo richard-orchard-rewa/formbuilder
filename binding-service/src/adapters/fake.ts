@@ -72,6 +72,7 @@ const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
 // account's privileges are adjustable so the creator's ceilings can be
 // exercised; by default it may do everything except read the language list.
 export class FakeRecordStore implements RecordStore {
+  readonly name = "fake"
   private readonly records = new Map<
     string,
     { values: Record<string, StoreValue>; version: number }

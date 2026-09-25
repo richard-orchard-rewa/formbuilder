@@ -1,5 +1,8 @@
 import { z } from "zod"
-import { BindingDescriptorSchema } from "./binding.js"
+import {
+  BindingDescriptorSchema,
+  BindingPresentationSchema,
+} from "./binding.js"
 
 // Per-type configuration lands as each field-types epic issue is built.
 // This is a discriminated union (per US-3.4's "extensible type registry")
@@ -149,6 +152,9 @@ export const BoundFieldSchema = z.object({
   label: z.string(),
   required: requiredFlag,
   binding: BindingDescriptorSchema,
+  // Which of the binding's allowed presentations this form uses (e.g. a
+  // lookup as a dropdown or as radio buttons). Absent: the binding's default.
+  presentation: BindingPresentationSchema.optional(),
 })
 
 export type BoundField = z.infer<typeof BoundFieldSchema>
