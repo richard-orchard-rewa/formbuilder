@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790322457774,
+      "tag": "0000_breezy_amazoness",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790323943833,
+      "tag": "0001_sleepy_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790323945157,
+      "tag": "0002_published_binding_versions_are_immutable",
+      "breakpoints": true
+    }
+  ]
+}

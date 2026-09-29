@@ -78,6 +78,9 @@ export class StoreWriteError extends Error {
 }
 
 export interface RecordStore {
+  // Names this store in the DBS's identity registry (identity.ts), which
+  // maps DBS anchor IDs and option codes to each store's own IDs.
+  readonly name: string
   // Human-facing client identifier -> the record to anchor on.
   findClientByNumber(clientNumber: string): Promise<ClientSummary | null>
   read(

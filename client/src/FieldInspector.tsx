@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { BoundField, Field } from "shared"
+import type { BindingPresentation, BoundField, Field } from "shared"
 
 interface FieldInspectorProps {
   field: Field | null
@@ -41,6 +41,10 @@ export function FieldInspector({
   }
 
   const labelIsEmpty = labelDraft.trim().length === 0
+  const storeRequired =
+    field.type === "bound" &&
+    field.binding.access === "readWrite" &&
+    field.binding.validation?.required === true
   const fieldId = field.id
 
   function handleDelete() {
@@ -80,21 +84,29 @@ export function FieldInspector({
       <label className="field-inspector__field field-inspector__field--checkbox">
         <input
           type="checkbox"
-          checked={field.required}
+          // A value the store itself requires is always required here.
+          checked={field.required || storeRequired}
           // A bound field's dictionary entry says whether "required" is the
-          // builder's to set -- never for a read-only value.
+          // builder's to set -- never for a read-only value, nor one the
+          // store requires anyway.
           disabled={
-            field.type === "bound" &&
-            !field.binding.overridable.includes("required")
+            storeRequired ||
+            (field.type === "bound" &&
+              !field.binding.overridable.includes("required"))
           }
           onChange={(event) =>
             onChange({ ...field, required: event.target.checked })
           }
         />
         Required
+        {storeRequired && (
+          <span className="field-inspector__hint"> — ICIS requires a value</span>
+        )}
       </label>
 
-      {field.type === "bound" && <BoundFieldDetails field={field} />}
+      {field.type === "bound" && (
+        <BoundFieldDetails field={field} onChange={onChange} />
+      )}
 
       {field.type === "text" && (
         <>
@@ -281,10 +293,47 @@ export function FieldInspector({
 // What a data-bound field is bound to, and what the Data Binding Service's
 // dictionary fixes about it -- shown rather than editable, since those
 // properties aren't the builder's to change (requirements §7).
-function BoundFieldDetails({ field }: { field: BoundField }) {
+const PRESENTATION_LABELS: Record<BindingPresentation, string> = {
+  text: "Text box",
+  dropdown: "Dropdown",
+  radio: "Radio buttons",
+}
+
+function BoundFieldDetails({
+  field,
+  onChange,
+}: {
+  field: BoundField
+  onChange: (field: Field) => void
+}) {
   const { binding } = field
+  // The binding says which presentations are allowed; which one this form
+  // uses is the form admin's layout choice.
+  const allowed = binding.presentations?.allowed ?? []
+  const current = field.presentation ?? binding.presentations?.default
   return (
-    <dl className="field-inspector__binding">
+    <>
+      {allowed.length > 1 && (
+        <label className="field-inspector__field">
+          Show as
+          <select
+            value={current}
+            onChange={(event) =>
+              onChange({
+                ...field,
+                presentation: event.target.value as BindingPresentation,
+              })
+            }
+          >
+            {allowed.map((presentation) => (
+              <option key={presentation} value={presentation}>
+                {PRESENTATION_LABELS[presentation]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <dl className="field-inspector__binding">
       <dt>Bound to</dt>
       <dd>
         <code>{binding.key}</code> (v{binding.version})
@@ -292,7 +341,7 @@ function BoundFieldDetails({ field }: { field: BoundField }) {
       <dt>Control</dt>
       <dd>
         {binding.control.kind === "lookup"
-          ? "Dropdown, options from the source system"
+          ? "A choice from a list kept in the source system"
           : `Text${binding.control.maxLength ? `, up to ${binding.control.maxLength} characters` : ""}`}
       </dd>
       <dt>Editable on the form</dt>
@@ -302,7 +351,8 @@ function BoundFieldDetails({ field }: { field: BoundField }) {
           : "Yes — changes are saved back to the record"}
       </dd>
       <dd className="field-inspector__binding-note">{binding.description}</dd>
-    </dl>
+      </dl>
+    </>
   )
 }
 

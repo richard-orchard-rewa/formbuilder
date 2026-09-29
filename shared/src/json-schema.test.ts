@@ -234,3 +234,32 @@ describe("data-bound fields", () => {
     expect(schema.safeParse({ first: "Bob" }).success).toBe(true)
   })
 })
+
+describe("data-bound fields with validation rules", () => {
+  const binding = {
+    key: "client.gender",
+    version: 1,
+    label: "Gender",
+    description: "",
+    anchor: "client" as const,
+    access: "readWrite" as const,
+    control: { kind: "lookup" as const },
+    overridable: ["label" as const, "required" as const],
+    validation: { required: true, rules: [{ type: "oneOfOptions" as const }] },
+  }
+  const fields: Field[] = [
+    { id: "gender", type: "bound", label: "Gender", required: false, binding },
+  ]
+  const context = { bindingOptions: { "client.gender": [{ value: "f", label: "Female" }] } }
+
+  it("requires a value the store requires, even if the form didn't mark it required", () => {
+    const schema = buildSubmissionSchema(fields, context)
+    expect(schema.safeParse({}).success).toBe(false)
+    expect(schema.safeParse({ gender: "f" }).success).toBe(true)
+  })
+
+  it("only accepts one of the options", () => {
+    const schema = buildSubmissionSchema(fields, context)
+    expect(schema.safeParse({ gender: "x" }).success).toBe(false)
+  })
+})

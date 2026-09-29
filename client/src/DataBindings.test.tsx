@@ -15,6 +15,7 @@ const candidate = (overrides: Partial<AttributeCandidate>): AttributeCandidate =
   accessNotes: [],
   problems: [],
   boundBy: null,
+  presentations: ["text"],
   ...overrides,
 })
 

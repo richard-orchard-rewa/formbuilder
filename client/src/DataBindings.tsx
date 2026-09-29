@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
-import type { AttributeCandidate, ManagedBinding } from "shared"
+import type {
+  AttributeCandidate,
+  BindingPresentation,
+  ManagedBinding,
+} from "shared"
 import {
   BindingRuleRejectedError,
   listBindingCandidates,
@@ -198,7 +202,14 @@ function BindingsTable({
                   current.descriptor.control.maxLength && (
                     <>, up to {current.descriptor.control.maxLength} characters</>
                   )}
-                {current.descriptor.control.kind === "lookup" && <>, dropdown</>}
+                {current.descriptor.control.kind === "lookup" && (
+                  <>
+                    ,{" "}
+                    {(current.descriptor.presentations?.allowed ?? ["dropdown"])
+                      .map((p) => PRESENTATION_NAMES[p])
+                      .join(" or ")}
+                  </>
+                )}
               </td>
               <td>
                 v{current.version} ·{" "}
@@ -230,6 +241,12 @@ function BindingsTable({
       </tbody>
     </table>
   )
+}
+
+const PRESENTATION_NAMES: Record<BindingPresentation, string> = {
+  text: "text box",
+  dropdown: "dropdown",
+  radio: "radio buttons",
 }
 
 function describeType(candidate: AttributeCandidate) {
@@ -362,6 +379,11 @@ function BindingEditor({
         ? String(candidate.maxLength)
         : "",
   )
+  // Which of the strategy's presentations forms may use. Only a choice when
+  // there's more than one (a lookup: dropdown and/or radio buttons).
+  const [presentations, setPresentations] = useState<BindingPresentation[]>(
+    base?.presentations?.allowed ?? candidate.presentations,
+  )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -385,6 +407,7 @@ function BindingEditor({
         ...(candidate.strategy === "attribute" && maxLength
           ? { maxLength: Number(maxLength) }
           : {}),
+        ...(candidate.presentations.length > 1 ? { presentations } : {}),
       })
       draftSaved = true
       if (publish) {
@@ -472,6 +495,34 @@ function BindingEditor({
           </p>
         ))}
       </fieldset>
+      {candidate.presentations.length > 1 && (
+        <fieldset>
+          <legend>Forms may show it as</legend>
+          {candidate.presentations.map((presentation) => (
+            <label key={presentation} className="binding-editor__radio">
+              <input
+                type="checkbox"
+                checked={presentations.includes(presentation)}
+                onChange={(event) =>
+                  setPresentations((current) =>
+                    event.target.checked
+                      ? candidate.presentations.filter(
+                          (p) => p === presentation || current.includes(p),
+                        )
+                      : current.filter((p) => p !== presentation),
+                  )
+                }
+              />
+              {PRESENTATION_NAMES[presentation].replace(/^./, (c) => c.toUpperCase())}
+            </label>
+          ))}
+          <p className="binding-editor__hint">
+            {presentations.length === 0
+              ? "Choose at least one."
+              : `Forms use ${PRESENTATION_NAMES[presentations[0]]} unless the form admin picks another. Radio buttons suit short lists; long lists are easier as a dropdown.`}
+          </p>
+        </fieldset>
+      )}
       {candidate.strategy === "attribute" && (
         <label>
           Maximum length
@@ -499,13 +550,13 @@ function BindingEditor({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" disabled={saving}>
+        <button type="submit" disabled={saving || presentations.length === 0}>
           Save draft
         </button>
         <button
           type="button"
           className="primary"
-          disabled={saving}
+          disabled={saving || presentations.length === 0}
           onClick={(event) => {
             // The same checks the form's own submit runs (maximum length).
             if (event.currentTarget.form?.reportValidity()) void save(true)

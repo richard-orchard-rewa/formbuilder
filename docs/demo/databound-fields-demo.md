@@ -32,7 +32,7 @@ npm run db:migrate -w server
 npm run demo
 ```
 
-`npm run demo` starts all four processes. Open, in separate tabs:
+`npm run demo` creates and migrates the Data Binding Service's demo database (`binding_service_demo`, its own, beside form-builder's), then starts all four processes. Open, in separate tabs:
 
 | Tab | URL | Who uses it |
 |---|---|---|
@@ -42,7 +42,7 @@ npm run demo
 
 To start from a clean slate:
 - **Mock ICIS:** click **Reset demo** in its header. That restores clients and privileges and clears the log. Restarting it does the same.
-- **Bindings the steward created:** `npm run demo:reset`.
+- **Bindings the steward created, and the service's issued client IDs and option codes:** `npm run demo:reset`. It empties the service's demo database, never form-builder's.
 - **Forms built in a previous run:** these stay in Postgres. Create a new form each time, or reuse one.
 
 It helps to leave the mock's **API log** open on a second screen throughout. The point *everything goes through an API* makes itself.
@@ -96,7 +96,7 @@ About 20 minutes. Each part is one role.
 
 1. From **Forms**, create a form, e.g. *Intake — client details*, then click **Build**.
 2. From the palette's **Data bound · Client** section, drag on **Title**, **First name**, **Last name**, **Preferred name**, **Gender** and **Client number**. Also add one ordinary custom field from **Field types**, such as a text area called *Reason for contact*, to show they mix.
-3. Select **Gender**. The inspector shows what it's bound to and that its options come from the source system. Select **Client number**: *Required* is disabled, because a display-only value can't be required.
+3. Select **Title**. Under **Show as**, switch it from Dropdown to **Radio buttons**: the binding allows both, and the form admin picks one per form. Select **Gender**; the inspector shows what it's bound to and that its options come from the source system. Select **Client number**: *Required* is disabled, because a display-only value can't be required.
 4. Click **Publish**.
 
 ### 5. Practitioner: fill in the form, and it saves back to ICIS

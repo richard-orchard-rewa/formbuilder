@@ -22,6 +22,7 @@ docker compose up -d          # local Postgres on :5432
 cp server/.env.example server/.env
 npm run db:migrate -w server   # apply server/src/db/migrations to DATABASE_URL
 cp binding-service/.env.sample binding-service/.env   # ADAPTER=fake needs no ICIS
+npm run db:migrate -w binding-service   # the Data Binding Service's own database (not needed for ADAPTER=fake)
 npm run dev                    # binding-service on :3100, server on :3000, client on :5173
 ```
 

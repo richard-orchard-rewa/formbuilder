@@ -1,5 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { asc, eq, sql } from "drizzle-orm"
 import type {
   BindingAnchor,
   BindingDescriptor,
@@ -7,6 +6,9 @@ import type {
   ManagedBinding,
 } from "shared"
 import type { BindingSource } from "./adapters/adapter.js"
+import type { Db } from "./db/client.js"
+import { bindingVersions, configuredBindings } from "./db/schema.js"
+import { completeDescriptor } from "./descriptors.js"
 import { CODE_BINDINGS, type DictionaryEntry } from "./dictionary.js"
 
 // A binding created in the binding creator: its source mapping plus every
@@ -18,13 +20,31 @@ export interface ConfiguredBinding {
   versions: BindingVersion[]
 }
 
-// Where configured bindings are kept -- the DBS's own storage, never
-// form-builder's database.
+// Saving would change a binding's source, or bind an attribute another
+// binding already has. Both are fixed for life, so both are refused.
+export class BindingSourceConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "BindingSourceConflictError"
+  }
+}
+
+// Where configured bindings are kept -- the DBS's own database, never
+// form-builder's. `save` adds new versions and updates the draft; it never
+// changes a published version or a binding's source.
 export interface ConfiguredBindingRepository {
   list(): Promise<ConfiguredBinding[]>
   save(binding: ConfiguredBinding): Promise<void>
 }
 
+const sameSource = (a: BindingSource, b: BindingSource) =>
+  a.strategy === b.strategy &&
+  a.entity === b.entity &&
+  a.attribute === b.attribute &&
+  (a.target ?? null) === (b.target ?? null)
+
+// For tests and the in-memory fake store only, with the same rules as the
+// database.
 export class InMemoryConfiguredBindingRepository
   implements ConfiguredBindingRepository
 {
@@ -35,35 +55,143 @@ export class InMemoryConfiguredBindingRepository
   }
 
   async save(binding: ConfiguredBinding) {
-    this.bindings.set(binding.key, structuredClone(binding))
+    const existing = this.bindings.get(binding.key)
+    if (existing && !sameSource(existing.source, binding.source)) {
+      throw new BindingSourceConflictError(
+        `${binding.key} is already bound to ${existing.source.attribute}`,
+      )
+    }
+    const holder = [...this.bindings.values()].find(
+      (b) =>
+        b.key !== binding.key &&
+        b.source.entity === binding.source.entity &&
+        b.source.attribute === binding.source.attribute,
+    )
+    if (holder) {
+      throw new BindingSourceConflictError(
+        `${binding.source.attribute} is already bound as ${holder.key}`,
+      )
+    }
+    const published = new Map(
+      (existing?.versions ?? [])
+        .filter((v) => v.status === "published")
+        .map((v) => [v.version, v]),
+    )
+    const versions = binding.versions.map((v) => published.get(v.version) ?? v)
+    for (const v of published.values()) {
+      if (!versions.some((kept) => kept.version === v.version)) versions.push(v)
+    }
+    versions.sort((a, b) => a.version - b.version)
+    this.bindings.set(binding.key, structuredClone({ ...binding, versions }))
   }
 }
 
-// Prototype storage: one JSON file, rewritten atomically on each save. Fine
-// for a handful of bindings edited by one steward at a time; a real DBS
-// would use a database with the same interface.
-export class JsonFileConfiguredBindingRepository
+// The durable repository: the DBS's own Postgres database. Unique indexes
+// stop a key changing attribute or two keys sharing one, and a trigger
+// makes published versions immutable even to hand-run SQL.
+export class PostgresConfiguredBindingRepository
   implements ConfiguredBindingRepository
 {
-  constructor(private readonly path: string) {}
+  constructor(private readonly db: Db) {}
 
   async list(): Promise<ConfiguredBinding[]> {
-    try {
-      return JSON.parse(await readFile(this.path, "utf8")) as ConfiguredBinding[]
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-      throw error
-    }
+    const [bindings, versions] = await Promise.all([
+      this.db.select().from(configuredBindings).orderBy(asc(configuredBindings.createdAt)),
+      this.db
+        .select()
+        .from(bindingVersions)
+        .orderBy(asc(bindingVersions.key), asc(bindingVersions.version)),
+    ])
+    return bindings.map((b) => ({
+      key: b.key,
+      source: {
+        strategy: b.strategy,
+        entity: b.entity,
+        attribute: b.attribute,
+        ...(b.target ? { target: b.target } : {}),
+      },
+      versions: versions
+        .filter((v) => v.key === b.key)
+        .map((v) => ({
+          version: v.version,
+          status: v.status,
+          descriptor: v.descriptor as BindingDescriptor,
+          createdAt: v.createdAt.toISOString(),
+          publishedAt: v.publishedAt?.toISOString() ?? null,
+        })),
+    }))
   }
 
   async save(binding: ConfiguredBinding): Promise<void> {
-    const all = (await this.list()).filter((b) => b.key !== binding.key)
-    all.push(binding)
-    await mkdir(dirname(this.path), { recursive: true })
-    const temp = `${this.path}.tmp`
-    await writeFile(temp, JSON.stringify(all, null, 2))
-    await rename(temp, this.path)
+    await this.db.transaction(async (tx) => {
+      try {
+        await tx
+          .insert(configuredBindings)
+          .values({
+            key: binding.key,
+            strategy: binding.source.strategy,
+            entity: binding.source.entity,
+            attribute: binding.source.attribute,
+            target: binding.source.target ?? null,
+          })
+          .onConflictDoNothing({ target: configuredBindings.key })
+      } catch (error) {
+        if (isUniqueViolation(error, "configured_bindings_attribute")) {
+          throw new BindingSourceConflictError(
+            `${binding.source.attribute} is already bound by another binding`,
+          )
+        }
+        throw error
+      }
+      const [stored] = await tx
+        .select()
+        .from(configuredBindings)
+        .where(eq(configuredBindings.key, binding.key))
+      const storedSource: BindingSource = {
+        strategy: stored.strategy,
+        entity: stored.entity,
+        attribute: stored.attribute,
+        ...(stored.target ? { target: stored.target } : {}),
+      }
+      if (!sameSource(storedSource, binding.source)) {
+        throw new BindingSourceConflictError(
+          `${binding.key} is already bound to ${stored.attribute}`,
+        )
+      }
+
+      for (const v of binding.versions) {
+        await tx
+          .insert(bindingVersions)
+          .values({
+            key: binding.key,
+            version: v.version,
+            status: v.status,
+            descriptor: v.descriptor,
+            createdAt: new Date(v.createdAt),
+            publishedAt: v.publishedAt ? new Date(v.publishedAt) : null,
+          })
+          // Only ever a draft is updated -- replaced, or published. The
+          // trigger would refuse anything else; the WHERE means an
+          // unchanged published version simply isn't touched.
+          .onConflictDoUpdate({
+            target: [bindingVersions.key, bindingVersions.version],
+            set: {
+              status: v.status,
+              descriptor: v.descriptor,
+              createdAt: new Date(v.createdAt),
+              publishedAt: v.publishedAt ? new Date(v.publishedAt) : null,
+            },
+            setWhere: sql`${bindingVersions.status} = 'draft'`,
+          })
+      }
+    })
   }
+}
+
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+  const cause = (error as { cause?: { code?: string; constraint?: string } }).cause ?? error
+  const pg = cause as { code?: string; constraint?: string }
+  return pg.code === "23505" && pg.constraint === constraint
 }
 
 export function latestPublished(versions: BindingVersion[]) {
@@ -84,9 +212,12 @@ export class BindingRegistry {
         ? [{ descriptor: version.descriptor, source: binding.source }]
         : []
     })
-    return [...CODE_BINDINGS, ...configured].filter(
-      (entry) => !anchor || entry.descriptor.anchor === anchor,
-    )
+    return [...CODE_BINDINGS, ...configured]
+      .filter((entry) => !anchor || entry.descriptor.anchor === anchor)
+      .map((entry) => ({
+        ...entry,
+        descriptor: completeDescriptor(entry.descriptor, entry.source),
+      }))
   }
 
   async find(key: string): Promise<DictionaryEntry | undefined> {
@@ -99,14 +230,17 @@ export class BindingRegistry {
       key: entry.descriptor.key,
       origin: "code",
       attribute: entry.source.attribute,
-      versions: [codeVersion(entry.descriptor)],
+      versions: [codeVersion(completeDescriptor(entry.descriptor, entry.source))],
     }))
     const configured: ManagedBinding[] = (await this.configured.list()).map(
       (binding) => ({
         key: binding.key,
         origin: "configured",
         attribute: binding.source.attribute,
-        versions: binding.versions,
+        versions: binding.versions.map((v) => ({
+          ...v,
+          descriptor: completeDescriptor(v.descriptor, binding.source),
+        })),
       }),
     )
     return [...code, ...configured]
