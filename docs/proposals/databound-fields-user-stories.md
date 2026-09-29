@@ -6,7 +6,7 @@ Candidate user stories, not yet GitHub issues. Written 2026-09-29 so the data-bo
 
 - **Design:** [databound-fields.md](databound-fields.md) (the why, the contract, the guardrails).
 - **Contracts are in this document.** The [Appendix](#appendix-contracts-api-and-schemas) defines every data contract, the Data Binding Service's HTTP API (with an OpenAPI 3.1 definition), form-builder's relay endpoints, the store adapter interface, both database schemas (SQL), the built-in bindings and allow-list, the mock ICIS subset, and the user-facing messages. Each story links the sections it needs.
-- **A working prototype exists** in PRs richard-orchard-rewa/formbuilder#81 (merged) and richard-orchard-rewa/formbuilder#82, for anyone who wants to see one way of doing it. Where the prototype and this document differ, this document is the spec.
+- **A working prototype exists** in PRs richard-orchard-rewa/formbuilder#81 and richard-orchard-rewa/formbuilder#82 (both merged) and a follow-up for sessions and participants, for anyone who wants to see one way of doing it. Where the prototype and this document differ, this document is the spec.
 - **Where it got to:** [handover](../handover/databound-fields.md).
 
 Epics continue the repo's numbering (`US-0`–`US-8` are taken): **US-9** the Data Binding Service, **US-10** data-bound fields in form-builder, **US-11** the binding creator, **US-12** demo and test support, **US-13** environment and operations, **US-14** sessions, cases and participants. The "Later" section lists follow-on stories not yet designed in detail.

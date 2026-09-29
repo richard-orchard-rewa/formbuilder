@@ -13,8 +13,8 @@ All of it is a prototype on one branch, not yet merged.
 
 ## Branch and PR status
 
-- **Branch:** `claude/databound-field-design-e44228` (worktree `.claude/worktrees/issue-21-37f6d0`), cut from `main`. `main` had no new commits as of this handover.
-- **PR status:** [richard-orchard-rewa/formbuilder#81](https://github.com/richard-orchard-rewa/formbuilder/pull/81) **merged** the prototype up to the handover commit (`6950adc`). Everything after that is in the follow-up, [richard-orchard-rewa/formbuilder#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82), from the same branch; its description is [`pr-body.md`](pr-body.md).
+- **Branch:** `claude/databound-field-design-e44228` (worktree `.claude/worktrees/issue-21-37f6d0`), cut from `main`.
+- **PR status:** [richard-orchard-rewa/formbuilder#81](https://github.com/richard-orchard-rewa/formbuilder/pull/81) **merged** the prototype up to the handover commit (`6950adc`), and [richard-orchard-rewa/formbuilder#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82) **merged** everything up to the user stories (`afa372e`). The sessions and participants work after that is in a third PR from the same branch; its description is [`pr-body.md`](pr-body.md).
 - **Commits, oldest first:**
 
   | Commit | What |
@@ -130,7 +130,7 @@ The steward can narrow the presentations in the binding creator. See the proposa
 
 ## Next steps, in rough order
 
-1. **Get [#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82) reviewed and merged** once CI is green.
+1. **Get the sessions and participants PR reviewed and merged** once CI is green.
 2. **Get the DBS its own ICIS account**, per the [setup guide](../setup/icis-binding-service-account.md). Start read-only; add Write, Append and Append To to see real writes land in test ICIS. Then update `binding-service/.env`, the note in `CLAUDE.md`, and the proposal's findings.
 3. **Decide the open US-14 questions:** which attendance statuses make someone a participant, how a participant copy is marked "not completed", and the §16 disclosure boundary for joint sessions. Then cases (US-14.12–14.13).
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
