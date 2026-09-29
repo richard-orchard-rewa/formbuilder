@@ -38,7 +38,7 @@ All of it is a prototype on one branch, not yet merged.
 
 ## User stories
 
-To hand this to a developer, see [databound-fields-user-stories.md](../proposals/databound-fields-user-stories.md). It has epics US-9 to US-13 with acceptance criteria, the non-negotiables, a definition of done, "Later" stories, and a suggested order.
+To hand this to a developer, see [databound-fields-user-stories.md](../proposals/databound-fields-user-stories.md). It has an appendix with every contract, the API (OpenAPI 3.1), the store adapter interface and the database schemas, written out in full. It also has epics US-9 to US-13 with acceptance criteria, the non-negotiables, a definition of done, "Later" stories, and a suggested order.
 
 ## What exists
 

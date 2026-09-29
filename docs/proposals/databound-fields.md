@@ -32,7 +32,7 @@ A **data-bound field** is a form control whose value is read from, and/or writte
 
 ## The DBS contract (proposed)
 
-This is the target shape. The prototype implements a deliberately smaller subset — the shipped contract is [`shared/src/schemas/binding.ts`](../../shared/src/schemas/binding.ts), and the differences are listed under "Phase 0 — what was built".
+This is the original target shape. The contract as built, with every type, the HTTP API (OpenAPI 3.1), the store adapter interface and the database schemas, is written out in full in the [user stories' appendix](databound-fields-user-stories.md#appendix-contracts-api-and-schemas). The differences are listed under "Phase 0 — what was built".
 
 ### Dictionary — build time
 
