@@ -36,6 +36,10 @@ All of it is a prototype on one branch, not yet merged.
   - `npm audit --omit=dev` is clean.
   - CI (including the Playwright e2e suite and the DBS database tests) runs on #82.
 
+## User stories
+
+To hand this to a developer, see [databound-fields-user-stories.md](../proposals/databound-fields-user-stories.md). It has epics US-9 to US-13 with acceptance criteria, the non-negotiables, a definition of done, "Later" stories, and a suggested order.
+
 ## What exists
 
 | Area | Where | Notes |
