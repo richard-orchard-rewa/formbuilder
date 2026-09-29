@@ -9,7 +9,7 @@ Candidate user stories, not yet GitHub issues. Written 2026-09-29 so the data-bo
 - **A working prototype exists** in PRs richard-orchard-rewa/formbuilder#81 (merged) and richard-orchard-rewa/formbuilder#82, for anyone who wants to see one way of doing it. Where the prototype and this document differ, this document is the spec.
 - **Where it got to:** [handover](../handover/databound-fields.md).
 
-Epics continue the repo's numbering (`US-0`–`US-8` are taken): **US-9** the Data Binding Service, **US-10** data-bound fields in form-builder, **US-11** the binding creator, **US-12** demo and test support, **US-13** environment and operations. The "Later" section lists follow-on stories not yet designed in detail.
+Epics continue the repo's numbering (`US-0`–`US-8` are taken): **US-9** the Data Binding Service, **US-10** data-bound fields in form-builder, **US-11** the binding creator, **US-12** demo and test support, **US-13** environment and operations, **US-14** sessions, cases and participants. The "Later" section lists follow-on stories not yet designed in detail.
 
 To turn a story into an issue:
 - Title: `US-<epic>.<n> <title>`.
@@ -537,6 +537,169 @@ Acceptance criteria:
 
 ---
 
+## Epic US-14: Sessions, cases and participants
+
+Data-bound content at the session and participant levels (§16), including joint and group sessions with several participants. Design: the proposal's "Anchors beyond the client". Stories 14.1–14.11 are the prototype slice; 14.12–14.16 are designed but not yet built.
+
+### US-14.1 Session and participant anchors
+
+**As a** DBS developer, **I want** sessions and session participants to be anchors like clients, **so that** content can be bound to a session, or to one person's attendance at it.
+
+Contract: Appendix [A.6](#a6-sessions-and-participants), [E.1](#e1-the-dbss-own-database).
+
+Acceptance criteria:
+- [ ] New anchor types `session` (ICIS `wp_session`) and `participant` (ICIS `csg_attendance`: one person at one session).
+- [ ] Both get DBS-issued IDs mapped to their store records, like clients (US-9.5). Store IDs never cross the API.
+- [ ] `AnchorContext` names exactly one anchor: `{ client }`, `{ session }` or `{ participant }`.
+
+### US-14.2 A client's sessions and their participants
+
+**As a** practitioner, **I want** to pick one of a client's sessions and see who took part, **so that** I can write that session's note for everyone in it.
+
+Notes: in the real system the session-notes app supplies the session (§9); this is the lookup that makes the prototype's picker possible.
+
+Contract: Appendix [A.6](#a6-sessions-and-participants), [B](#b-data-binding-service-http-api).
+
+Acceptance criteria:
+- [ ] `GET /anchors/sessions?clientNumber=` returns the sessions the client has an attendance record for, newest first. Each session has its anchor ID, start, end and subject.
+- [ ] Each session lists its participants, each with:
+  - its participant anchor ID;
+  - its client (`ClientAnchor`: anchor ID, number, name);
+  - its attendance status label.
+- [ ] Unknown or ambiguous client numbers return 404.
+
+### US-14.3 Session bindings from the booking
+
+**As a** practitioner, **I want** a session note to show the session's details from ICIS, **so that** I don't retype what the booking already holds.
+
+Contract: Appendix [A.6](#a6-sessions-and-participants), [F](#f-built-in-bindings-and-the-allow-list).
+
+Acceptance criteria:
+- [ ] Built-in, read-only bindings anchored on `session`: `session.subject`, `session.start` and `session.end`.
+- [ ] Their values resolve with `{ session }`. Dates and times arrive as ISO 8601.
+
+### US-14.4 The `choice` strategy (option sets)
+
+**As a** DBS developer, **I want** option-set attributes bindable like lookups, **so that** fields like attendance status can be shown and saved without forms holding Dataverse integers.
+
+Contract: Appendix [A.1](#a1-binding-descriptors), [D](#d-store-adapter-interface).
+
+Acceptance criteria:
+- [ ] A `choice` strategy for Dataverse option sets (picklists).
+- [ ] Its options come from the attribute's option-set metadata, served as codes (`attended`, `dna`) with labels.
+- [ ] Its value is stored as the option's integer, and translated to and from codes by the DBS (US-9.6).
+- [ ] It's rendered like a lookup (dropdown or radio buttons), and validated with `oneOfOptions`.
+- [ ] Built-in binding `participant.attendance` (`csg_attendance.wp_attendancestatus`) is writable.
+
+### US-14.5 Bindings used with the right anchor
+
+**As a** DBS developer, **I want** resolve and commit to refuse a binding used with the wrong anchor, **so that** a client's value can never be written onto a session, or the other way round.
+
+Acceptance criteria:
+- [ ] Each resolve or commit request names one anchor. Every binding in it must be anchored on that type, or the request is refused (400) naming the mismatched bindings.
+- [ ] Each commit writes one record, conditionally (US-9.9).
+
+### US-14.6 Module scope
+
+**As a** form admin, **I want** to say whether a module is filled in once per session or once per participant, **so that** outcomes or presenting needs are captured for each person in a joint session.
+
+Contract: Appendix [A.6](#a6-sessions-and-participants).
+
+Acceptance criteria:
+- [ ] A module has a scope: **once per session** (the default) or **once per participant**. It's chosen in the module builder and published with the module version.
+- [ ] The module builder's Data bound palette offers only the bindings the scope can reach:
+  - once per session: `session` bindings;
+  - once per participant: `participant` and `client` bindings.
+- [ ] Changing a published module's scope creates a new version, like any change.
+
+### US-14.7 Session templates keep their modules as sections
+
+**As a** form admin, **I want** a session template to know which fields came from which module, and each module's scope, **so that** per-participant modules can repeat.
+
+Acceptance criteria:
+- [ ] A published session template version holds, as well as its flat field list, a list of **sections**, one per module in order: the module's ID, name, scope and fields.
+- [ ] Versions published before sections existed still load and fill as before, as one section.
+
+### US-14.8 Choose the session when filling in
+
+**As a** practitioner, **I want** to choose the session a note is for, **so that** it's written against the right session and its participants.
+
+Acceptance criteria:
+- [ ] A session template with a participant-scoped module, or any bound field, shows a session picker. You enter a client number, then choose one of their sessions (subject, date and time, participants).
+- [ ] Choosing a session pre-fills every session binding.
+
+### US-14.9 Per-participant sections
+
+**As a** practitioner, **I want** each participant-scoped module shown once for each person, **so that** I record each person's outcomes separately.
+
+Acceptance criteria:
+- [ ] Session-scoped modules render once. Participant-scoped modules render once per participant, headed with their name and client number.
+- [ ] Each instance's bound fields pre-fill from its own anchors: its attendance record for `participant` bindings, and that participant's contact for `client` bindings.
+- [ ] Required fields are enforced for every instance.
+
+### US-14.10 Save per participant, and show where each value went
+
+**As a** practitioner, **I want** each participant's changes saved to their own records, **so that** Aisha's preferred name never lands on Tariq's record.
+
+Contract: Appendix [A.6](#a6-sessions-and-participants), [E.2](#e2-form-builders-database-one-new-table).
+
+Acceptance criteria:
+- [ ] The submission stores session values at the top level, and participant values under `participants[<participant anchor id>]`.
+- [ ] After saving, bound values are committed per anchor:
+  - once for the session, with `{ session }`;
+  - once per participant with `{ participant }`, and once per participant's client with `{ client }`.
+  Each commit carries its own baseline.
+- [ ] Each attempt is recorded. The results come back grouped: `{ session, participants: { <id>: … } }`.
+- [ ] After submit, the page shows the results per section and per participant.
+- [ ] One participant's write failing doesn't stop the others, or the submission.
+
+### US-14.11 View a session note by section and participant
+
+**As a** practitioner or reviewer, **I want** a saved session note shown the way it was filled in, **so that** each person's entries are clearly theirs.
+
+Acceptance criteria:
+- [ ] The submission view renders session sections once, and participant sections once per participant stored, read-only.
+
+### US-14.12 Case anchor and case-level modules (designed, not built)
+
+**As a** practitioner, **I want** case-level content bound to the case, **so that** closure forms and case documents attach to the case once.
+
+Acceptance criteria:
+- [ ] A `case` anchor (ICIS `incident`) and once-per-case module scope.
+- [ ] A session derives its case one-to-one, so case bindings may appear in session-scoped modules.
+
+### US-14.13 Case participants (designed, not built)
+
+**As a** practitioner, **I want** per-person content at case level, **so that** a co-parent's presenting needs on a case are recorded once, not every session.
+
+Acceptance criteria:
+- [ ] A `caseParticipant` anchor (ICIS `csg_caseclients`) and once-per-case-participant scope.
+- [ ] The eligibility rule (which people on a case get an instance) is confirmed and implemented.
+
+### US-14.14 Bindings on related records (designed, not built)
+
+**As a** data steward, **I want** a binding to reach a record one step from its anchor, **so that** a session note can show the case's programme.
+
+Acceptance criteria:
+- [ ] A binding source can carry a developer-maintained path of one-to-one lookup steps.
+- [ ] Read-only first; writing through a path is designed separately.
+
+### US-14.15 Mark a participant instance as not completed (designed, not built)
+
+**As a** practitioner, **I want** to finalise a joint session note when one participant left early, **so that** I'm not forced to invent values (§8, §16).
+
+Acceptance criteria:
+- [ ] A participant instance can be marked "not completed", with a reason. Its required fields are then not enforced, and it's shown as such.
+
+### US-14.16 The disclosure boundary for joint sessions (needs a decision first)
+
+**As a** privacy officer, **I want** exports and subject-access responses to include only the requesting participant's content, **so that** one participant's disclosures aren't released to another (§16).
+
+Acceptance criteria:
+- [ ] The rule is decided with legal and privacy input, then enforced in every export path. The per-participant storage shape (US-14.10) is what makes this possible.
+
+---
+
 ## Later: follow-on stories (not yet designed in detail)
 
 Candidate stories for after the above, from the handover's next steps and the proposal. Each needs its own design pass before it becomes an issue.
@@ -556,7 +719,7 @@ Candidate stories for after the above, from the handover's next steps and the pr
 - **US-L.8 Linked-data strategies.**
   - `set-membership`: presenting needs, as a many-to-many via a junction table.
   - `child-collection`: referrals per session participant.
-  - Both need participant-scoped module types (§7).
+  - Both need participant-scoped modules (US-14).
 - **US-L.9 More than one store.** Per-binding store routing (`source.store`), a second adapter (RAWA's own client system), and commits grouped by store. This is the path for moving bindings off ICIS one at a time, with the new system syncing back to ICIS for DEX. See the proposal's "Beyond Dataverse".
 - **US-L.10 Curated option codes.** Developer-maintained code lists for funder-coded lists (e.g. DEX gender codes), instead of codes derived from labels.
 - **US-L.11 Retire a binding.** Stop offering a binding to new forms while existing forms keep their snapshot.
@@ -570,7 +733,8 @@ Candidate stories for after the above, from the handover's next steps and the pr
 4. **US-10.1–10.7:** form-builder, end to end with the built-in bindings.
 5. **US-11.1–11.6:** the binding creator.
 6. **US-12.2, 12.4, 13.1, 13.2:** demo, account and CI, alongside the above as needed.
-7. **Later:** US-L.2 (real identity) and US-L.1 (outbox) come **before any real client data**. The rest by priority.
+7. **US-14.1–14.11:** sessions and participants, once the client-level flow is solid. US-14.12–14.16 follow their decisions.
+8. **Later:** US-L.2 (real identity) and US-L.1 (outbox) come **before any real client data**. The rest by priority.
 
 ---
 
@@ -837,6 +1001,69 @@ interface Submission {
 - **read-only binding:** `readOnly: true`, and never required.
 - **writable binding:** required if `field.required || binding.validation.required`.
 - **radio:** a lookup whose presentation is `radio` gets UI-schema `options.format: "radio"`.
+
+#### A.6 Sessions and participants
+
+Extends A.1–A.5 for session- and participant-level content (US-14).
+
+```ts
+type BindingAnchor = "client" | "session" | "participant"
+type BindingStrategy = "attribute" | "lookup" | "choice"   // choice: a Dataverse option set
+
+// Names exactly one anchor.
+type AnchorContext = { client: string } | { session: string } | { participant: string }
+
+// GET /anchors/sessions?clientNumber=
+interface SessionParticipant {
+  id: string                    // DBS participant anchor ID (one person at this session)
+  client: ClientAnchor          // that person, as a client anchor (A.2)
+  attendance: string | null     // attendance status label, e.g. "Attended"
+}
+interface SessionAnchor {
+  id: string                    // DBS session anchor ID
+  subject: string | null
+  start: string | null          // ISO 8601
+  end: string | null
+  participants: SessionParticipant[]
+}
+
+// form-builder: a module's scope, published with the module version.
+type ModuleScope = "session" | "participant"
+interface ModuleSchema { fields: Field[]; scope?: ModuleScope }   // absent = "session"
+
+// form-builder: a session template version keeps its modules as sections.
+interface SessionTemplateSection {
+  moduleId: string
+  moduleName: string
+  scope: ModuleScope
+  fields: Field[]
+}
+interface SessionTemplateSchema {
+  fields: Field[]                        // flat, as before
+  sections?: SessionTemplateSection[]    // absent on versions published before sections
+}
+
+// form-builder: submitting a session template with bound fields.
+interface SubmitSessionTemplate {
+  data: Record<string, unknown>          // session fields at top level, plus:
+                                         //   participants: { [participantAnchorId]: { [fieldId]: value } }
+  submittedBy?: string
+  binding?: {
+    session: string                      // session anchor ID
+    participants: Array<{ participant: string; client: string }>
+    baseline?: {
+      session?: BoundValues
+      participants?: Record<string, { participant?: BoundValues; client?: BoundValues }>
+    }
+  }
+}
+interface SessionTemplateBindingResults {
+  session?: Record<string, BindingCommitResult>
+  participants?: Record<string, Record<string, BindingCommitResult>>
+}
+```
+
+Commit per anchor: session bindings with `{ session }`, each participant's `participant` bindings with `{ participant }`, and their `client` bindings with `{ client }`. Each commit is one conditional write to one record (A.3).
 
 ### B. Data Binding Service HTTP API
 

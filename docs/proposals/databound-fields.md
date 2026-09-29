@@ -355,6 +355,133 @@ Everything the DBS owns is in **its own Postgres database**, never form-builder'
 - `npm run demo:reset` empties the demo database only; the reset refuses any database not named `*_demo` or `*_test`.
 - Bindings created while they were still a JSON file (`binding-service/data/bindings.<adapter>.json`) are imported by `db:migrate` the first time it runs, and the file is renamed `.imported`.
 
+## Anchors beyond the client: sessions, cases and participants
+
+The first slices bound fields to **one client**. Real session notes aren't like that. A joint FDR session has two participants, a group session has several, and the requirements (§16) put content at three levels:
+- **case** level: recorded once per case;
+- **session** level: once per session, largely read-only from the booking;
+- **participant** level: once per person, within a session or a case. Outcomes, presenting needs, safety concerns and referrals all live here.
+
+This section designs how data-bound fields work at each level. The prototype slice at the end proves it for sessions and their participants.
+
+### Anchor types
+
+An **anchor** is the record a piece of content is about. Each anchor type maps to one entity in each store:
+
+| Anchor | Means | ICIS entity | Notes |
+|---|---|---|---|
+| `client` | A person | `contact` | Built |
+| `case` | A client's (or participants') engagement with a programme | `incident` | Design only |
+| `session` | A scheduled or occurring interaction | `wp_session` (an activity) | Prototype slice |
+| `participant` | One person's attendance **at a session** | `csg_attendance` (session × contact) | Prototype slice |
+| `caseParticipant` | One person's participation **in a case** | `csg_caseclients` (case × contact) | Design only |
+
+The two participant anchors are deliberately separate. "Did Aisha attend this session" belongs to the session participant (her attendance record). "Aisha's presenting needs on this case" belongs to the case participant. §16 draws the same line.
+
+Every anchor gets a **DBS-issued ID**, mapped to its record in each store, exactly as client anchors are. So a submission never holds an `activityid` or a `csg_attendanceid`.
+
+### Deriving one anchor from another
+
+Anchors form a graph. From one anchor you can reach others:
+
+```
+case ──< caseParticipant >── client
+  │                            │
+  └──< session ──< participant >┘
+```
+
+- **One-to-one steps** can be followed automatically: participant → its client, participant → its session, session → its case, caseParticipant → its client and case.
+- **One-to-many steps** (session → its participants, case → its sessions) are never followed implicitly. Instead, content repeats: that's what participant-level modules are for.
+
+The DBS tells form-builder what's reachable. `GET /anchors/sessions?clientNumber=` returns a client's sessions, and for each, its participants. Each participant comes with its own anchor ID and its client's anchor ID. form-builder then resolves and commits each binding against the anchor it's defined on.
+
+### Module scope
+
+A module is scoped to one anchor level, set when the module is built. This is §7's "module type anchored to a core table", and §16's levels:
+
+| Scope | Renders | May use bindings anchored on |
+|---|---|---|
+| Once per case | once | `case` |
+| Once per session | once | `session`, and `case` (derived) |
+| Once per session participant | **once per participant** | `participant`, `client` (the participant's), `session` (derived) |
+| Once per case participant | once per case participant | `caseParticipant`, `client`, `case` |
+
+Two consequences:
+- **The builder only offers bindings the scope can reach.** A client binding such as "Preferred name" has no meaning in a once-per-session module of a joint session: *whose* preferred name? So it's offered only in participant-scoped modules.
+- **Scope is part of what's published.** Changing a module's scope is a conflicting change (§5), like changing a field's type.
+
+### Filling in
+
+- **Context comes from the embedding app** in the real system: the session-notes app opens a session's note (§9). The prototype stands in with a picker: enter a client number, choose one of their sessions.
+- **Eligibility:** a session's participants are its attendance records. Which statuses count (e.g. attended vs invited, or a support person) is a rule to confirm. The prototype lists every attendance record, with its status.
+- **Rendering:**
+  - Session-scoped modules render once.
+  - Participant-scoped modules render once per participant, headed with their name.
+  - Each instance's bound fields resolve against its own anchors: the attendance record for `participant` bindings, the participant's contact for `client` bindings.
+- **Completeness:** requirements are enforced per instance at finalisation (§8). A participant who left early still needs a finalisable note, so a participant instance can be finalised with its required fields filled or be explicitly marked as not completed. The prototype enforces required fields per instance; the "not completed" marker is a follow-on.
+
+### What's stored
+
+A session-template submission holds session-scoped values at the top level, as today. Participant-scoped values are held **per participant**, keyed by the DBS participant anchor ID:
+
+```json
+{
+  "<session field id>": "…",
+  "participants": {
+    "<participant anchor id>": { "<field id>": "…" },
+    "<participant anchor id>": { "<field id>": "…" }
+  }
+}
+```
+
+Keeping each participant's values separate is what makes the §16 **disclosure boundary** enforceable later: an export for one participant can include their instances and exclude the other's. What that boundary *is* (what a participant receives under a subject-access request, a case-file export or a subpoena) still needs deciding. It's the highest-consequence open item in the requirements. The storage shape just keeps the decision possible.
+
+### Saving
+
+- One submit can now write to several records: the session, each attendance record, and each participant's contact.
+- The DBS commit stays **per anchor**: one conditional write per record. form-builder calls it once for the session, once per participant anchor and once per participant's client.
+- Results come back grouped by where they landed: `{ session: {…}, participants: { <id>: {…} } }`.
+- Partial success is normal: one participant's write can fail while another's lands. That's why the outbox (US-L.1) matters more at this level.
+
+### A new strategy: `choice`
+
+Session and participant data in Dataverse is often an **option set** (a picklist), not a lookup to a reference table. An example is attendance status, `csg_attendance.wp_attendancestatus`: Invited, DNA, Cancelled, Attended, … The `choice` strategy:
+- reads the attribute's options from its option-set metadata (`PicklistAttributeMetadata`);
+- stores the chosen integer;
+- presents it through option codes (`attended`, `dna`), exactly like a lookup, so forms never hold Dataverse's integers.
+
+### Bindings that reach a related record (design only)
+
+Some fields belong to a record one step away from the module's anchor. Examples: a case's programme shown in a session module, or a session's service type. A binding can carry a **path**: one or more one-to-one lookup steps from its anchor to the record holding the attribute, e.g. `session → _regardingobjectid → incident.csg_programid`.
+
+Paths are developer-maintained, like strategies, since they encode §7's referential-integrity rules. Read-only paths come first; writing through a path has to settle which record's row version the write is conditional on.
+
+### Open decisions (yours, not technical)
+
+1. **Which ICIS records are the participant anchors.** `csg_attendance` for sessions and `csg_caseclients` for cases, as above? Confirm against how ICIS and the new system actually model participation, including groups (`csg_group_enrolments`).
+2. **Eligibility:** which attendance statuses make someone a participant for note purposes, and whether support persons get instances.
+3. **Completeness:** how a participant instance is marked "not completed", and who may do it.
+4. **The disclosure boundary** (§16) for joint sessions.
+5. **Case-level scope:** which case records are anchors (`incident` alone, or the case pathway's stages too, §14).
+
+### Prototype slice
+
+Proving sessions and participants end to end, against the mock ICIS:
+
+- **DBS**
+  - `session` and `participant` anchors.
+  - `GET /anchors/sessions?clientNumber=`.
+  - Read-only session bindings: start, end, subject.
+  - A participant binding, attendance status, using the new `choice` strategy.
+  - resolve and commit per anchor type, refusing a binding used with the wrong anchor.
+- **Mock ICIS:** sessions and attendance records seeded with a joint session (two participants), a group session (three) and an individual one, plus a Sessions screen.
+- **form-builder**
+  - A module's scope is chosen in the module builder: once per session, or once per participant. The palette offers only the bindings that scope can reach.
+  - Session templates keep modules as sections.
+  - The session-template fill page picks a session, renders participant modules once per participant, and saves per participant.
+  - The submission view shows the sections too.
+- **Not in the slice:** case and case-participant anchors, related-record paths, the "not completed" marker, and the disclosure rules.
+
 ## Phase 1 and beyond (sketch)
 
 - Session-anchored, read-only bindings from the booking (§8 "values pulled from other records … resolved and stored at finalisation") — likely the first *production* use.
