@@ -97,11 +97,15 @@ export {
 } from "./schemas/module.js"
 export type { CreateModule, ModuleSummary } from "./schemas/module.js"
 export {
+  ModuleScopeSchema,
   ModuleSchemaSchema,
   ModuleVersionSchema,
   PublishModuleVersionSchema,
+  SCOPE_ANCHORS,
+  unreachableBoundFields,
 } from "./schemas/module-version.js"
 export type {
+  ModuleScope,
   ModuleSchema,
   ModuleVersion,
   PublishModuleVersion,
@@ -120,6 +124,7 @@ export {
   SessionTemplateModulesSchema,
   SetSessionTemplateModulesSchema,
   SessionTemplateSchemaSchema,
+  SessionTemplateSectionSchema,
   SessionTemplateModuleSnapshotSchema,
   SessionTemplateVersionSchema,
   PublishSessionTemplateSchema,
@@ -130,6 +135,7 @@ export type {
   SessionTemplateModule,
   SetSessionTemplateModules,
   SessionTemplateSchema,
+  SessionTemplateSection,
   SessionTemplateModuleSnapshot,
   SessionTemplateVersion,
   PublishSessionTemplate,
@@ -137,6 +143,8 @@ export type {
 } from "./schemas/session-template-version.js"
 export {
   SubmitSessionTemplateSchema,
+  SessionTemplateBindingContextSchema,
+  SessionTemplateBindingResultsSchema,
   SessionTemplateSubmissionSchema,
   SessionTemplateSubmissionSummarySchema,
   SessionTemplateSubmissionListSchema,
@@ -144,6 +152,8 @@ export {
 } from "./schemas/session-template-submission.js"
 export type {
   SubmitSessionTemplate,
+  SessionTemplateBindingContext,
+  SessionTemplateBindingResults,
   SessionTemplateSubmission,
   SessionTemplateSubmissionSummary,
   SessionTemplateSubmissionDetail,
@@ -182,6 +192,9 @@ export {
   ManagedBindingSchema,
   ManagedBindingListSchema,
   CreateBindingRequestSchema,
+  SessionParticipantSchema,
+  SessionAnchorSchema,
+  SessionAnchorListSchema,
 } from "./schemas/binding.js"
 export type {
   BindingAnchor,
@@ -204,4 +217,6 @@ export type {
   BindingVersion,
   ManagedBinding,
   CreateBindingRequest,
+  SessionParticipant,
+  SessionAnchor,
 } from "./schemas/binding.js"

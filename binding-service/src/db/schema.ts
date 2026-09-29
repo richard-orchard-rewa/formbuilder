@@ -80,7 +80,7 @@ export const configuredBindings = pgTable(
   "configured_bindings",
   {
     key: text("key").primaryKey(),
-    strategy: text("strategy", { enum: ["attribute", "lookup"] }).notNull(),
+    strategy: text("strategy", { enum: ["attribute", "lookup", "choice"] }).notNull(),
     entity: text("entity").notNull(),
     attribute: text("attribute").notNull(),
     target: text("target"),

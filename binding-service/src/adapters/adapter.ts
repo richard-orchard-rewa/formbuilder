@@ -7,11 +7,18 @@ export interface BindingSource {
   strategy: BindingStrategy
   entity: string
   attribute: string
-  // For `lookup`: the reference table the attribute points at.
+  // For `lookup`: the reference table the attribute points at. For
+  // `choice`: the option set, named `<entity>.<attribute>`.
   target?: string
 }
 
+// The option-set name a `choice` binding's target uses.
+export const choiceTarget = (entity: string, attribute: string) => `${entity}.${attribute}`
+export const isChoiceTarget = (target: string) => target.includes(".")
+
 // A store value: text, or a lookup's referenced ID. null means no value.
+// A store value as the DBS handles it: text, a lookup's row ID, or a
+// choice's option value, all as strings. null means no value.
 export type StoreValue = string | null
 
 export interface StoredRecord {
@@ -31,11 +38,12 @@ export interface Change {
 export interface AttributeMetadata {
   attribute: string
   displayName: string
-  kind: "text" | "lookup" | "other"
+  kind: "text" | "lookup" | "choice" | "other"
   maxLength?: number
   requiredLevel: "none" | "recommended" | "required"
   // Whether the store accepts updates to it at all.
   updatable: boolean
+  // For a lookup, the reference table; for a choice, its option set.
   lookupTarget?: string
 }
 
@@ -57,6 +65,20 @@ export interface ClientSummary {
   clientNumber: string | null
   firstName: string | null
   lastName: string | null
+}
+
+// A session a client attended, and everyone who took part in it, by store IDs.
+export interface SessionSummary {
+  id: string
+  subject: string | null
+  start: string | null
+  end: string | null
+  participants: Array<{
+    // The attendance record: one person at this session.
+    id: string
+    client: ClientSummary
+    attendanceLabel: string | null
+  }>
 }
 
 // The store refused a write because the row changed after it was read (an
@@ -83,6 +105,9 @@ export interface RecordStore {
   readonly name: string
   // Human-facing client identifier -> the record to anchor on.
   findClientByNumber(clientNumber: string): Promise<ClientSummary | null>
+  // The sessions a client has an attendance record for, with every
+  // participant of each. Newest first.
+  sessionsForClient(clientId: string): Promise<SessionSummary[]>
   read(
     entity: string,
     id: string,

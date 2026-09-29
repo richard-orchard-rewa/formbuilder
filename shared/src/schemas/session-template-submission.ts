@@ -1,5 +1,45 @@
 import { z } from "zod"
+import { BindingCommitResultSchema, BoundValuesSchema } from "./binding.js"
 import { SessionTemplateSchemaSchema } from "./session-template-version.js"
+
+// Which session a session note is for, who took part, and what their bound
+// values were when it was opened. Participant-scoped values sit in `data`
+// under `participants[<participant anchor id>]`.
+export const SessionTemplateBindingContextSchema = z.object({
+  session: z.guid(),
+  participants: z.array(z.object({ participant: z.guid(), client: z.guid() })),
+  baseline: z
+    .object({
+      session: BoundValuesSchema.optional(),
+      participants: z
+        .record(
+          z.string(),
+          z.object({
+            participant: BoundValuesSchema.optional(),
+            client: BoundValuesSchema.optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+})
+
+export type SessionTemplateBindingContext = z.infer<
+  typeof SessionTemplateBindingContextSchema
+>
+
+// What happened to each bound value, grouped by where it was written.
+export const SessionTemplateBindingResultsSchema = z.object({
+  session: z.record(z.string(), BindingCommitResultSchema).optional(),
+  participants: z
+    .record(z.string(), z.record(z.string(), BindingCommitResultSchema))
+    .optional(),
+})
+
+export type SessionTemplateBindingResults = z.infer<
+  typeof SessionTemplateBindingResultsSchema
+>
+
 
 // US-8.5: fills out a published session template version. No draft-save --
 // out of scope for Epic US-8 (see docs/proposals/modules-and-session-
@@ -8,6 +48,7 @@ import { SessionTemplateSchemaSchema } from "./session-template-version.js"
 export const SubmitSessionTemplateSchema = z.object({
   data: z.record(z.string(), z.unknown()),
   submittedBy: z.string().min(1).optional(),
+  binding: SessionTemplateBindingContextSchema.optional(),
 })
 
 export type SubmitSessionTemplate = z.infer<typeof SubmitSessionTemplateSchema>
@@ -19,6 +60,7 @@ export const SessionTemplateSubmissionSchema = z.object({
   data: z.record(z.string(), z.unknown()),
   submittedBy: z.string().nullable(),
   submittedAt: z.iso.datetime(),
+  bindingResults: SessionTemplateBindingResultsSchema.optional(),
 })
 
 export type SessionTemplateSubmission = z.infer<

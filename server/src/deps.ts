@@ -13,6 +13,8 @@ import { ModuleVersionsService } from "./modules/module-builder/services/module-
 import { DrizzleSessionTemplatesRepository } from "./modules/session-templates/repositories/session-templates.drizzle.js"
 import { DrizzleSessionTemplateSubmissionsRepository } from "./modules/session-templates/repositories/session-template-submissions.drizzle.js"
 import { DrizzleSessionTemplateVersionsRepository } from "./modules/session-templates/repositories/session-template-versions.drizzle.js"
+import { DrizzleSessionTemplateSubmissionBindingsRepository } from "./modules/session-templates/repositories/session-template-submission-bindings.drizzle.js"
+import { SessionBoundFieldsService } from "./modules/session-templates/services/session-bound-fields.js"
 import { SessionTemplatesService } from "./modules/session-templates/services/session-templates.js"
 import { SessionTemplateSubmissionsService } from "./modules/session-templates/services/session-template-submissions.js"
 import { SessionTemplateVersionsService } from "./modules/session-templates/services/session-template-versions.js"
@@ -62,6 +64,10 @@ export function buildDeps(db: Db, bindingClient: BindingClient): AppDeps {
     sessionTemplateSubmissionsService: new SessionTemplateSubmissionsService(
       sessionTemplateVersionsService,
       new DrizzleSessionTemplateSubmissionsRepository(db),
+      new SessionBoundFieldsService(
+        bindingClient,
+        new DrizzleSessionTemplateSubmissionBindingsRepository(db),
+      ),
     ),
     submissionsService: new SubmissionsService(
       formVersionsService,

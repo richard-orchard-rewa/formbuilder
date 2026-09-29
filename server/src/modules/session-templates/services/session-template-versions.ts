@@ -1,4 +1,4 @@
-import type { Field, ModuleSchema } from "shared"
+import type { Field, ModuleSchema, SessionTemplateSection } from "shared"
 import type { ModuleBuilderService } from "../../module-builder/services/module-builder.js"
 import type { ModuleVersionsService } from "../../module-builder/services/module-versions.js"
 import type {
@@ -36,6 +36,8 @@ export interface ResolvedSessionTemplateVersion {
     moduleVersionNumber: number
   }>
   fields: Field[]
+  // The same fields grouped by module, each with how often it's filled in.
+  sections: SessionTemplateSection[]
 }
 
 export class SessionTemplateVersionsService {
@@ -96,6 +98,7 @@ export class SessionTemplateVersionsService {
     const snapshot = row.modules as SessionTemplateModuleSnapshotInput[]
     const modules: ResolvedSessionTemplateVersion["modules"] = []
     const fields: Field[] = []
+    const sections: SessionTemplateSection[] = []
 
     for (const entry of snapshot) {
       const [moduleVersion, mod] = await Promise.all([
@@ -113,6 +116,12 @@ export class SessionTemplateVersionsService {
       })
       const schema = moduleVersion.schema as ModuleSchema
       fields.push(...schema.fields)
+      sections.push({
+        moduleId: entry.moduleId,
+        moduleName: mod.name,
+        scope: schema.scope ?? "session",
+        fields: schema.fields,
+      })
     }
 
     return {
@@ -125,6 +134,7 @@ export class SessionTemplateVersionsService {
       publishedBy: row.publishedBy,
       modules,
       fields,
+      sections,
     }
   }
 }

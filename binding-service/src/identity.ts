@@ -17,8 +17,10 @@ import { anchorRefs, anchors, optionCodeRefs, optionCodes } from "./db/schema.js
 export interface IdentityRegistry {
   // The DBS's ID for a store record, issued the first time it's seen.
   anchorFor(anchor: BindingAnchor, store: string, storeId: string): Promise<string>
-  // The store's ID for a DBS anchor, or null if unknown in that store.
-  storeIdForAnchor(anchorId: string, store: string): Promise<string | null>
+  // The store's ID for a DBS anchor, or null if unknown in that store --
+  // or, given `anchor`, if the ID was issued for a different kind of anchor
+  // (a client's ID is never accepted as a session's).
+  storeIdForAnchor(anchorId: string, store: string, anchor?: BindingAnchor): Promise<string | null>
   // Codes for a store's option rows, assigning new ones from their labels
   // the first time each row is seen. A row keeps its code if its label
   // later changes.
@@ -77,14 +79,20 @@ export class PostgresIdentityRegistry implements IdentityRegistry {
     })
   }
 
-  async storeIdForAnchor(anchorId: string, store: string): Promise<string | null> {
+  async storeIdForAnchor(
+    anchorId: string,
+    store: string,
+    anchor?: BindingAnchor,
+  ): Promise<string | null> {
     // Anything that isn't a UUID was never issued by the DBS.
     if (!UUID.test(anchorId)) return null
     const [ref] = await this.db
-      .select({ storeId: anchorRefs.storeId })
+      .select({ storeId: anchorRefs.storeId, anchor: anchors.anchor })
       .from(anchorRefs)
+      .innerJoin(anchors, eq(anchors.id, anchorRefs.anchorId))
       .where(and(eq(anchorRefs.anchorId, anchorId), eq(anchorRefs.store, store)))
-    return ref?.storeId ?? null
+    if (!ref || (anchor && ref.anchor !== anchor)) return null
+    return ref.storeId
   }
 
   codesFor(
@@ -158,19 +166,25 @@ export class PostgresIdentityRegistry implements IdentityRegistry {
 // For tests and the in-memory fake store only: its identities last exactly
 // as long as the fake's records do.
 export class InMemoryIdentityRegistry implements IdentityRegistry {
-  private readonly anchors: Array<{ id: string; refs: Record<string, string> }> = []
+  private readonly anchors: Array<{
+    id: string
+    anchor: BindingAnchor
+    refs: Record<string, string>
+  }> = []
   private readonly codes = new Map<string, Array<{ code: string; refs: Record<string, string> }>>()
 
-  async anchorFor(_anchor: BindingAnchor, store: string, storeId: string) {
+  async anchorFor(anchor: BindingAnchor, store: string, storeId: string) {
     const existing = this.anchors.find((a) => a.refs[store] === storeId)
     if (existing) return existing.id
-    const record = { id: randomUUID(), refs: { [store]: storeId } }
+    const record = { id: randomUUID(), anchor, refs: { [store]: storeId } }
     this.anchors.push(record)
     return record.id
   }
 
-  async storeIdForAnchor(anchorId: string, store: string) {
-    return this.anchors.find((a) => a.id === anchorId)?.refs[store] ?? null
+  async storeIdForAnchor(anchorId: string, store: string, anchor?: BindingAnchor) {
+    const found = this.anchors.find((a) => a.id === anchorId)
+    if (!found || (anchor && found.anchor !== anchor)) return null
+    return found.refs[store] ?? null
   }
 
   async codesFor(target: string, store: string, rows: Array<{ storeId: string; label: string }>) {

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { FieldSchema } from "./field.js"
+import { ModuleScopeSchema } from "./module-version.js"
 
 // The template's current, always-mutable composition (US-8.2): which
 // published modules it references, in order. Resolving this always uses
@@ -29,8 +30,22 @@ export type SetSessionTemplateModules = z.infer<
 // (US-8.3 preview, and what a published version's `schema` holds) -- the
 // same shape as ModuleSchemaSchema/FormSchemaSchema, kept as its own type
 // per the "independent top-level concepts" decision.
+// One module's place in a session template: its fields, and whether it's
+// filled in once per session or once per participant.
+export const SessionTemplateSectionSchema = z.object({
+  moduleId: z.string(),
+  moduleName: z.string(),
+  scope: ModuleScopeSchema,
+  fields: z.array(FieldSchema),
+})
+
+export type SessionTemplateSection = z.infer<typeof SessionTemplateSectionSchema>
+
 export const SessionTemplateSchemaSchema = z.object({
   fields: z.array(FieldSchema),
+  // The same fields grouped by module, in order. Absent on anything built
+  // before sections existed, which then fills as one session-wide section.
+  sections: z.array(SessionTemplateSectionSchema).optional(),
 })
 
 export type SessionTemplateSchema = z.infer<typeof SessionTemplateSchemaSchema>

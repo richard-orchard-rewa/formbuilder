@@ -1,8 +1,11 @@
 import type { BindingAnchor } from "shared"
 
-// Which store entity each anchor maps to.
+// Which store entity each anchor maps to. A `participant` is one person's
+// attendance at one session -- ICIS's csg_attendance -- not the person.
 export const ANCHOR_ENTITIES: Record<BindingAnchor, string> = {
   client: "contact",
+  session: "wp_session",
+  participant: "csg_attendance",
 }
 
 export interface AllowedAttribute {
@@ -38,6 +41,10 @@ export const ALLOW_LIST: Record<BindingAnchor, AllowedAttribute[]> = {
     // The client's identifier: displayable, never editable from a form.
     { attribute: "csg_clientid", maxAccess: "read" },
   ],
+  // Session and participant bindings are built in (dictionary.ts) for now;
+  // none are steward-creatable until a data owner approves attributes.
+  session: [],
+  participant: [],
 }
 
 export function allowedAttribute(

@@ -8,6 +8,7 @@ import {
   ModuleSummarySchema,
   ModuleVersionSchema,
   PublishModuleVersionSchema,
+  unreachableBoundFields,
   type ModuleSchema,
 } from "shared"
 import { ModuleNotFoundError } from "./repositories/modules.js"
@@ -137,10 +138,24 @@ export function moduleBuilderPlugin(
         schema: {
           params: ModuleParamsSchema,
           body: ModuleSchemaSchema,
-          response: { 200: ModuleVersionSchema, 404: ErrorResponseSchema },
+          response: {
+            200: ModuleVersionSchema,
+            404: ErrorResponseSchema,
+            422: ErrorResponseSchema,
+          },
         },
       },
       async (request, reply) => {
+        // Only bindings the module's scope can reach -- a client's details
+        // once per session would be ambiguous in a joint session.
+        const unreachable = unreachableBoundFields(request.body.fields, request.body.scope)
+        if (unreachable.length > 0) {
+          return reply.code(422).send({
+            message: `A once-per-${request.body.scope ?? "session"} module can't hold ${unreachable
+              .map((f) => f.binding.label)
+              .join(", ")}`,
+          })
+        }
         try {
           const version = await versionsService.editDraft(
             request.params.moduleId,

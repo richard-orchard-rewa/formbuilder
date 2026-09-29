@@ -1,12 +1,15 @@
 import type { BindingOptions } from "shared"
 import {
+  choiceTarget,
   ConcurrentUpdateError,
+  isChoiceTarget,
   type AttributeMetadata,
   type BindingSource,
   type Change,
   type ClientSummary,
   type RecordStore,
   type ServicePermissions,
+  type SessionSummary,
   type StoreValue,
   type StoredRecord,
 } from "./adapter.js"
@@ -22,6 +25,13 @@ export const KNOWN_TITLES: BindingOptions["options"] = [
 ]
 
 export const FAKE_CLIENT_ID = "00000000-0000-0000-0000-000000152076"
+export const FAKE_CLIENT_2_ID = "00000000-0000-0000-0000-000000152099"
+export const FAKE_SESSION_ID = "00000000-0000-0000-0000-00000000a001"
+export const FAKE_ATTENDANCE_IDS = [
+  "00000000-0000-0000-0000-00000000b001",
+  "00000000-0000-0000-0000-00000000b002",
+] as const
+export const ATTENDANCE_TARGET = choiceTarget("csg_attendance", "wp_attendancestatus")
 
 // Metadata mirroring test ICIS's `contact` for the allow-listed attributes
 // (display names and lengths as probed on 2026-09-25).
@@ -59,6 +69,11 @@ export const FAKE_CONTACT_METADATA: AttributeMetadata[] = [
 
 const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
   csg_salutation: KNOWN_TITLES,
+  [ATTENDANCE_TARGET]: [
+    { value: "1", label: "Invited" },
+    { value: "2", label: "DNA" },
+    { value: "4", label: "Attended" },
+  ],
   csg_gender: [
     { value: "7c1c5d2e-0000-4000-8000-000000000001", label: "Female" },
     { value: "7c1c5d2e-0000-4000-8000-000000000002", label: "Male" },
@@ -68,14 +83,15 @@ const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
 }
 
 // An in-memory store so development, unit tests and e2e run without ICIS.
-// Seeded with a stand-in for the test-ICIS contact the prototype uses. The
-// account's privileges are adjustable so the creator's ceilings can be
-// exercised; by default it may do everything except read the language list.
+// Seeded with a stand-in for the test-ICIS contact the prototype uses, a
+// second client, and a joint session both attended. The account's
+// privileges are adjustable so the creator's ceilings can be exercised; by
+// default it may do everything except read the language list.
 export class FakeRecordStore implements RecordStore {
   readonly name = "fake"
   private readonly records = new Map<
     string,
-    { values: Record<string, StoreValue>; version: number }
+    { entity: string; values: Record<string, StoreValue>; version: number }
   >()
 
   constructor(
@@ -84,46 +100,100 @@ export class FakeRecordStore implements RecordStore {
       readableTargets: Set<string>
     } = { writeEntity: true, readableTargets: new Set(["csg_salutation", "csg_gender"]) },
   ) {
-    this.records.set(FAKE_CLIENT_ID, {
-      version: 1,
-      values: {
-        csg_clientid: "00152076",
-        csg_salutationid: KNOWN_TITLES[1].value,
-        firstname: "Bob",
-        lastname: "McGee",
-        middlename: null,
-        csg_alias: "Bobby",
-        mobilephone: null,
-      },
+    const add = (entity: string, id: string, values: Record<string, StoreValue>) =>
+      this.records.set(id, { entity, values, version: 1 })
+    add("contact", FAKE_CLIENT_ID, {
+      csg_clientid: "00152076",
+      csg_salutationid: KNOWN_TITLES[1].value,
+      firstname: "Bob",
+      lastname: "McGee",
+      middlename: null,
+      csg_alias: "Bobby",
+      mobilephone: null,
+    })
+    add("contact", FAKE_CLIENT_2_ID, {
+      csg_clientid: "00152099",
+      csg_salutationid: KNOWN_TITLES[3].value,
+      firstname: "Alex",
+      lastname: "Rivera",
+      csg_alias: null,
+    })
+    add("wp_session", FAKE_SESSION_ID, {
+      subject: "Joint session",
+      scheduledstart: "2026-10-06T02:00:00Z",
+      scheduledend: "2026-10-06T04:00:00Z",
+    })
+    add("csg_attendance", FAKE_ATTENDANCE_IDS[0], {
+      csg_sessionid: FAKE_SESSION_ID,
+      csg_contactid: FAKE_CLIENT_ID,
+      wp_attendancestatus: "4",
+    })
+    add("csg_attendance", FAKE_ATTENDANCE_IDS[1], {
+      csg_sessionid: FAKE_SESSION_ID,
+      csg_contactid: FAKE_CLIENT_2_ID,
+      wp_attendancestatus: "1",
     })
   }
 
+  private rows(entity: string) {
+    return [...this.records].filter(([, r]) => r.entity === entity)
+  }
+
   private byClientNumber(clientNumber: string) {
-    for (const [id, record] of this.records) {
+    for (const [id, record] of this.rows("contact")) {
       if (record.values.csg_clientid === clientNumber) return { id, record }
     }
     return null
   }
 
-  async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {
-    const found = this.byClientNumber(clientNumber)
-    if (!found) return null
-    const { values } = found.record
+  private summary(id: string): ClientSummary {
+    const values = this.records.get(id)?.values ?? {}
     return {
-      id: found.id,
+      id,
       clientNumber: values.csg_clientid ?? null,
       firstName: values.firstname ?? null,
       lastName: values.lastname ?? null,
     }
   }
 
+  async sessionsForClient(clientId: string): Promise<SessionSummary[]> {
+    const attendances = this.rows("csg_attendance")
+    const labels = new Map(FAKE_OPTIONS[ATTENDANCE_TARGET].map((o) => [o.value, o.label]))
+    const sessionIds = new Set(
+      attendances
+        .filter(([, a]) => a.values.csg_contactid === clientId)
+        .map(([, a]) => a.values.csg_sessionid),
+    )
+    return this.rows("wp_session")
+      .filter(([id]) => sessionIds.has(id))
+      .map(([id, session]) => ({
+        id,
+        subject: session.values.subject ?? null,
+        start: session.values.scheduledstart ?? null,
+        end: session.values.scheduledend ?? null,
+        participants: attendances
+          .filter(([, a]) => a.values.csg_sessionid === id)
+          .map(([attendanceId, a]) => ({
+            id: attendanceId,
+            client: this.summary(String(a.values.csg_contactid)),
+            attendanceLabel: labels.get(String(a.values.wp_attendancestatus)) ?? null,
+          })),
+      }))
+      .sort((a, b) => String(b.start).localeCompare(String(a.start)))
+  }
+
+  async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {
+    const found = this.byClientNumber(clientNumber)
+    return found ? this.summary(found.id) : null
+  }
+
   async read(
-    _entity: string,
+    entity: string,
     id: string,
     sources: BindingSource[],
   ): Promise<StoredRecord | null> {
     const found = this.records.get(id)
-    if (!found) return null
+    if (!found || found.entity !== entity) return null
     const values: Record<string, StoreValue> = {}
     for (const source of sources) {
       values[source.attribute] = found.values[source.attribute] ?? null
@@ -132,13 +202,13 @@ export class FakeRecordStore implements RecordStore {
   }
 
   async write(
-    _entity: string,
+    entity: string,
     id: string,
     changes: Change[],
     etag: string,
   ): Promise<void> {
     const found = this.records.get(id)
-    if (!found || String(found.version) !== etag) {
+    if (!found || found.entity !== entity || String(found.version) !== etag) {
       throw new ConcurrentUpdateError()
     }
     for (const change of changes) {
@@ -148,6 +218,8 @@ export class FakeRecordStore implements RecordStore {
   }
 
   async lookupOptions(target: string): Promise<BindingOptions> {
+    // An option set's values are metadata: always readable.
+    if (isChoiceTarget(target)) return { options: FAKE_OPTIONS[target] ?? [], source: "live" }
     if (!this.privileges.readableTargets.has(target) || !FAKE_OPTIONS[target]) {
       return { options: [], source: "unavailable" }
     }
