@@ -4,7 +4,7 @@
 // reserved for fictional use (0491 57x xxx) and landlines from the
 // (08) 5550 xxxx drama range; emails use example.com.
 
-export type AttributeType = "String" | "Lookup" | "DateTime"
+export type AttributeType = "String" | "Lookup" | "DateTime" | "Picklist"
 
 export interface AttributeDef {
   logicalName: string
@@ -12,6 +12,8 @@ export interface AttributeDef {
   type: AttributeType
   maxLength?: number
   target?: string
+  // Picklist (option set) values and labels.
+  options?: Array<{ value: number; label: string }>
   requiredLevel: "None" | "Recommended" | "ApplicationRequired"
   validForUpdate: boolean
   // Shown in the mock's admin UI to make the allow-list's point: the store
@@ -120,6 +122,82 @@ export const CONTACT: EntityDef = {
   ],
 }
 
+// Sessions are activities in ICIS; `activityid` is their key, as for every
+// activity entity. Attendance records join one contact to one session.
+export const WP_SESSION: EntityDef = {
+  logicalName: "wp_session",
+  displayName: "Session",
+  entitySet: "wp_sessions",
+  primaryId: "activityid",
+  primaryName: "subject",
+  privileges: {
+    Read: "prvReadwp_session",
+    Write: "prvWritewp_session",
+    Append: "prvAppendwp_session",
+    AppendTo: "prvAppendTowp_session",
+  },
+  attributes: [
+    text("subject", "Subject", 200),
+    {
+      logicalName: "scheduledstart",
+      displayName: "Start Time",
+      type: "DateTime",
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+    {
+      logicalName: "scheduledend",
+      displayName: "End Time",
+      type: "DateTime",
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+  ],
+}
+
+// wp_attendancestatus values as ICIS defines them (the feedback app's
+// AttendanceStatus enum); labels approximated.
+export const ATTENDANCE_STATUSES = [
+  { value: 1, label: "Invited" },
+  { value: 2, label: "DNA" },
+  { value: 3, label: "Cancelled" },
+  { value: 4, label: "Attended" },
+  { value: 5, label: "Postponed" },
+  { value: 6, label: "Not Required" },
+  { value: 100000000, label: "RAWA - Earlier Appointment" },
+  { value: 100000001, label: "RAWA - Postponed" },
+  { value: 100000002, label: "RAWA - Rescheduled" },
+  { value: 100000003, label: "Support Person Attended" },
+  { value: 100000004, label: "Child Not Present" },
+  { value: 100000005, label: "Client Not Present" },
+]
+
+export const CSG_ATTENDANCE: EntityDef = {
+  logicalName: "csg_attendance",
+  displayName: "Attendance",
+  entitySet: "csg_attendances",
+  primaryId: "csg_attendanceid",
+  primaryName: "csg_name",
+  privileges: {
+    Read: "prvReadcsg_attendance",
+    Write: "prvWritecsg_attendance",
+    Append: "prvAppendcsg_attendance",
+    AppendTo: "prvAppendTocsg_attendance",
+  },
+  attributes: [
+    { ...lookup("csg_sessionid", "Session", "wp_session"), validForUpdate: false },
+    { ...lookup("csg_contactid", "Contact", "contact"), validForUpdate: false },
+    {
+      logicalName: "wp_attendancestatus",
+      displayName: "Attendance Status",
+      type: "Picklist",
+      options: ATTENDANCE_STATUSES,
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+  ],
+}
+
 export const LOOKUP_TABLES: EntityDef[] = [
   lookupTable("csg_salutation", "Salutation", "Csg_salutation"),
   lookupTable("csg_gender", "Gender", "Csg_gender"),
@@ -136,7 +214,16 @@ export const SYSTEMUSER: EntityDef = {
   attributes: [],
 }
 
-export const ENTITIES: EntityDef[] = [CONTACT, ...LOOKUP_TABLES, SYSTEMUSER]
+export const ENTITIES: EntityDef[] = [
+  CONTACT,
+  WP_SESSION,
+  CSG_ATTENDANCE,
+  ...LOOKUP_TABLES,
+  SYSTEMUSER,
+]
+
+// Entities whose rows the mock holds as records (as opposed to lookup lists).
+export const RECORD_ENTITIES = [CONTACT, WP_SESSION, CSG_ATTENDANCE]
 
 export interface LookupRow {
   id: string
@@ -222,25 +309,31 @@ const SEEDS: Seed[] = [
   { number: "00152095", title: "Ms", first: "Fatima", last: "Yusuf", gender: "Prefer not to say", language: "Arabic", birthdate: "1979-06-11", city: "Morley", postcode: "6062" },
 ]
 
-export interface ContactRow {
-  contactid: string
+// A row of a record entity (contact, session, attendance).
+export interface RecordRow {
+  id: string
   version: number
   modifiedOn: string
   modifiedBy: string
-  values: Record<string, string | null>
+  // Text, a lookup's row ID, a picklist's integer, or null.
+  values: Record<string, string | number | null>
 }
 
 // The contact ID the Data Binding Service's test fixtures and earlier
 // demos use for Bob McGee in test ICIS, kept so the two line up.
 const BOB_ID = "2c616f0e-d741-f011-8779-000d3ad0ea14"
 
-export function seedContacts(): ContactRow[] {
+export function contactIdFor(clientNumber: string) {
+  return clientNumber === "00152076" ? BOB_ID : `de300000-0000-4000-8000-0000${clientNumber}`
+}
+
+export function seedContacts(): RecordRow[] {
   return SEEDS.map((s, i) => {
     const email = s.email
       ? `${s.first.toLowerCase().replace(/\s+/g, ".")}.${s.last.toLowerCase().replace(/'/g, "")}@example.com`
       : null
     return {
-      contactid: s.number === "00152076" ? BOB_ID : `de300000-0000-4000-8000-0000${s.number}`,
+      id: contactIdFor(s.number),
       version: 1000 + i,
       modifiedOn: "2026-09-01T00:00:00.000Z",
       modifiedBy: "Data migration",
@@ -272,7 +365,8 @@ export function seedContacts(): ContactRow[] {
 
 // The Data Binding Service's application user in the mock. It starts with
 // the same shape of access the borrowed test-ICIS account has -- read
-// contacts and titles, nothing else -- so the demo can grant more live.
+// contacts, titles, sessions and attendance, nothing else -- so the demo
+// can grant more live.
 export const SERVICE_ACCOUNT = {
   userId: "de309000-0000-4000-8000-000000000001",
   name: "Data Binding Service (demo)",
@@ -281,6 +375,72 @@ export const SERVICE_ACCOUNT = {
 
 export const INITIAL_PRIVILEGES = [
   "prvReadContact",
+  "prvReadwp_session",
+  "prvReadcsg_attendance",
   "prvReadCsg_salutation",
   "prvReadUser",
 ]
+
+// Sessions and who attended them: an individual counselling session, a
+// joint FDR session with two participants, and a group session with three
+// (one of whom didn't attend). Times are UTC; Perth is UTC+8.
+const SESSION_SEEDS = [
+  {
+    n: 1,
+    subject: "Intake session",
+    start: "2026-09-15T01:00:00Z",
+    end: "2026-09-15T02:00:00Z",
+    attendees: [["00152076", 4]],
+  },
+  {
+    n: 2,
+    subject: "Joint mediation session",
+    start: "2026-10-06T02:00:00Z",
+    end: "2026-10-06T04:00:00Z",
+    attendees: [["00152077", 4], ["00152082", 4]],
+  },
+  {
+    n: 3,
+    subject: "Counselling session",
+    start: "2026-10-07T06:00:00Z",
+    end: "2026-10-07T07:00:00Z",
+    attendees: [["00152076", 4]],
+  },
+  {
+    n: 4,
+    subject: "Parenting after separation (group)",
+    start: "2026-10-08T10:00:00Z",
+    end: "2026-10-08T12:00:00Z",
+    attendees: [["00152076", 4], ["00152079", 4], ["00152084", 2]],
+  },
+] as const
+
+const seeded = (id: string, values: RecordRow["values"]): RecordRow => ({
+  id,
+  version: 5000,
+  modifiedOn: "2026-09-01T00:00:00.000Z",
+  modifiedBy: "Data migration",
+  values,
+})
+
+export function seedSessions(): RecordRow[] {
+  return SESSION_SEEDS.map((s) =>
+    seeded(id("de304000", s.n), {
+      subject: s.subject,
+      scheduledstart: s.start,
+      scheduledend: s.end,
+    }),
+  )
+}
+
+export function seedAttendances(): RecordRow[] {
+  return SESSION_SEEDS.flatMap((s) =>
+    s.attendees.map(([clientNumber, status], i) =>
+      seeded(id("de305000", s.n * 10 + i), {
+        csg_sessionid: id("de304000", s.n),
+        csg_contactid: contactIdFor(clientNumber),
+        wp_attendancestatus: status,
+      }),
+    ),
+  )
+}

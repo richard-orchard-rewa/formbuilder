@@ -151,7 +151,7 @@ describe("the Data Binding Service against the mock ICIS", () => {
       anchor: minh,
       bindings: ["client.preferredName"],
     })
-    state.updateAsStaff(MINH_RECORD, { csg_alias: "Anthony" })
+    state.updateAsStaff("contact", MINH_RECORD, { csg_alias: "Anthony" })
     // ...so the practitioner's stale edit is reported, not written.
     const stale = await service.commit({
       anchor: minh,
@@ -210,5 +210,48 @@ describe("validation against the mock's live lists", () => {
     // ...and ICIS got the Mx row's own ID.
     const mxRow = LOOKUP_ROWS.csg_salutation.find((r) => r.name === "Mx")!.id
     expect(state.contacts.get(BOB)?.values.csg_salutationid).toBe(mxRow)
+  })
+})
+
+describe("sessions and participants against the mock ICIS", () => {
+  it("finds a joint session and keeps each participant's attendance to themselves", async () => {
+    const { state, service } = build()
+    const sessions = (await service.findSessions("00152077"))!
+    const joint = sessions.find((s) => s.subject === "Joint mediation session")!
+    expect(joint.participants.map((p) => [p.client.displayName, p.attendance])).toEqual([
+      ["Aisha Rahimi", "Attended"],
+      ["Tariq Haddad", "Attended"],
+    ])
+    // Sessions and participants are DBS anchors, not Dataverse GUIDs.
+    expect(joint.id).not.toMatch(/^de304000/)
+    const [aisha, tariq] = joint.participants
+
+    const { values } = await service.resolve({
+      anchor: { session: joint.id },
+      bindings: ["session.subject"],
+    })
+    expect(values).toEqual({ "session.subject": "Joint mediation session" })
+
+    // Reading is granted from the start; writing attendance is the admin's call.
+    state.privileges.add("prvWritecsg_attendance")
+    const { results } = await service.commit({
+      anchor: { participant: tariq.id },
+      values: { "participant.attendance": "dna" },
+      baseline: { "participant.attendance": "attended" },
+    })
+    expect(results["participant.attendance"]).toEqual({ status: "written" })
+
+    const attendance = async (participant: string) =>
+      (await service.resolve({ anchor: { participant }, bindings: ["participant.attendance"] }))
+        .values["participant.attendance"]
+    expect(await attendance(tariq.id)).toBe("dna")
+    expect(await attendance(aisha.id)).toBe("attended")
+    // The mock's staff screens see it on Tariq's row only (DNA is 2).
+    const rows = [...state.attendances.values()].filter(
+      (a) => a.values.csg_sessionid === [...state.sessions.values()].find(
+        (s) => s.values.subject === "Joint mediation session",
+      )!.id,
+    )
+    expect(rows.map((r) => r.values.wp_attendancestatus).sort()).toEqual([2, 4])
   })
 })

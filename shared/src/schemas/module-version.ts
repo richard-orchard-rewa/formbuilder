@@ -5,8 +5,16 @@ import { FieldSchema } from "./field.js"
 // contract doesn't structurally depend on `form.ts` -- modules and forms
 // are independent top-level concepts (see docs/proposals/modules-and-
 // session-templates.md), not one built on the other.
+// How often a module is filled in within a session note (requirements
+// §16): once for the session, or once for each participant.
+export const ModuleScopeSchema = z.enum(["session", "participant"])
+
+export type ModuleScope = z.infer<typeof ModuleScopeSchema>
+
 export const ModuleSchemaSchema = z.object({
   fields: z.array(FieldSchema),
+  // Absent on modules built before scope existed: once per session.
+  scope: ModuleScopeSchema.optional(),
 })
 
 export type ModuleSchema = z.infer<typeof ModuleSchemaSchema>

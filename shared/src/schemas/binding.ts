@@ -7,8 +7,10 @@ import { z } from "zod"
 // DBS over HTTP; these schemas are shared for prototype convenience.
 
 // The record a binding is "about" (requirements §7: a module type is
-// anchored to a core table). Only `client` exists in the prototype.
-export const BindingAnchorSchema = z.enum(["client"])
+// anchored to a core table). `participant` is one person's attendance at
+// one session -- not the person (that's `client`). See the proposal's
+// "Anchors beyond the client".
+export const BindingAnchorSchema = z.enum(["client", "session", "participant"])
 
 export type BindingAnchor = z.infer<typeof BindingAnchorSchema>
 
@@ -28,7 +30,9 @@ export type BindingControl = z.infer<typeof BindingControlSchema>
 
 // How a binding's value is read and written. Strategies are code; a
 // binding is a strategy plus configuration.
-export const BindingStrategySchema = z.enum(["attribute", "lookup"])
+// `choice`: an option set (a Dataverse picklist) -- presented through
+// option codes exactly like a lookup, stored as the option's integer.
+export const BindingStrategySchema = z.enum(["attribute", "lookup", "choice"])
 
 export type BindingStrategy = z.infer<typeof BindingStrategySchema>
 
@@ -122,10 +126,13 @@ export const BindingOptionsSchema = z.object({
 
 export type BindingOptions = z.infer<typeof BindingOptionsSchema>
 
-// Identifies the anchor record(s) a resolve/commit applies to.
-export const AnchorContextSchema = z.object({
-  client: z.guid(),
-})
+// The one anchor record a resolve/commit applies to: exactly one of a
+// client, a session or a session participant, by DBS-issued ID.
+export const AnchorContextSchema = z.union([
+  z.strictObject({ client: z.guid() }),
+  z.strictObject({ session: z.guid() }),
+  z.strictObject({ participant: z.guid() }),
+])
 
 export type AnchorContext = z.infer<typeof AnchorContextSchema>
 
@@ -146,6 +153,30 @@ export const ClientAnchorSchema = z.object({
 })
 
 export type ClientAnchor = z.infer<typeof ClientAnchorSchema>
+
+// One person at one session: a participant anchor, and who they are.
+export const SessionParticipantSchema = z.object({
+  id: z.guid(),
+  client: ClientAnchorSchema,
+  // The attendance status's label, e.g. "Attended"; null if unrecorded.
+  attendance: z.string().nullable(),
+})
+
+export type SessionParticipant = z.infer<typeof SessionParticipantSchema>
+
+// `GET /anchors/sessions?clientNumber=` -- a client's sessions and, for
+// each, everyone who took part.
+export const SessionAnchorSchema = z.object({
+  id: z.guid(),
+  subject: z.string().nullable(),
+  start: z.iso.datetime({ offset: true }).nullable(),
+  end: z.iso.datetime({ offset: true }).nullable(),
+  participants: z.array(SessionParticipantSchema),
+})
+
+export type SessionAnchor = z.infer<typeof SessionAnchorSchema>
+
+export const SessionAnchorListSchema = z.array(SessionAnchorSchema)
 
 export const ResolveRequestSchema = z.object({
   anchor: AnchorContextSchema,

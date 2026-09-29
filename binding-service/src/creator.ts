@@ -185,7 +185,7 @@ export class BindingCreator {
     const unsupported = presentations.filter((p) => !possible.includes(p))
     if (unsupported.length > 0) {
       throw new BindingRuleError(
-        `A ${candidate.strategy === "lookup" ? "list" : "text"} binding can't be shown as ${unsupported.join(" or ")}.`,
+        `A ${candidate.strategy === "attribute" ? "text" : "list"} binding can't be shown as ${unsupported.join(" or ")}.`,
       )
     }
 
@@ -211,7 +211,7 @@ export class BindingCreator {
       anchor,
       access: request.access,
       control:
-        candidate.strategy === "lookup"
+        candidate.strategy !== "attribute"
           ? { kind: "lookup" }
           : { kind: "text", ...(maxLength ? { maxLength } : {}) },
       overridable: request.access === "read" ? ["label"] : ["label", "required"],
@@ -219,7 +219,7 @@ export class BindingCreator {
       validation: {
         required: candidate.storeRequired,
         rules:
-          candidate.strategy === "lookup"
+          candidate.strategy !== "attribute"
             ? [{ type: "oneOfOptions" }]
             : maxLength
               ? [{ type: "maxLength", value: maxLength }]
@@ -291,6 +291,7 @@ export class BindingCreator {
 function strategyFor(meta: AttributeMetadata) {
   if (meta.kind === "text") return "attribute" as const
   if (meta.kind === "lookup" && meta.lookupTarget) return "lookup" as const
+  if (meta.kind === "choice" && meta.lookupTarget) return "choice" as const
   return null
 }
 

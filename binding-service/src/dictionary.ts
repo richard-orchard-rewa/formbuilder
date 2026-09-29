@@ -1,5 +1,5 @@
 import type { BindingDescriptor } from "shared"
-import type { BindingSource } from "./adapters/adapter.js"
+import { choiceTarget, type BindingSource } from "./adapters/adapter.js"
 
 export interface DictionaryEntry {
   descriptor: BindingDescriptor
@@ -10,6 +10,25 @@ export interface DictionaryEntry {
 // binding creator (see registry.ts); these are the ones the prototype
 // started with, kept in code so they can't be edited out from under forms.
 // Keys are store-agnostic; `source` is the only ICIS-specific part.
+const sessionRead = (
+  key: string,
+  label: string,
+  attribute: string,
+  description: string,
+): DictionaryEntry => ({
+  source: { strategy: "attribute", entity: "wp_session", attribute },
+  descriptor: {
+    key,
+    version: 1,
+    label,
+    description,
+    anchor: "session",
+    access: "read",
+    control: { kind: "text" },
+    overridable: ["label"],
+  },
+})
+
 export const CODE_BINDINGS: DictionaryEntry[] = [
   {
     source: {
@@ -66,6 +85,31 @@ export const CODE_BINDINGS: DictionaryEntry[] = [
       access: "read",
       control: { kind: "text" },
       overridable: ["label"],
+    },
+  },
+  // Session details from the booking: display only (requirements §8 --
+  // referenced values are shown, not re-entered).
+  sessionRead("session.subject", "Session", "subject", "The session's subject, from the booking."),
+  sessionRead("session.start", "Start", "scheduledstart", "When the session starts, from the booking."),
+  sessionRead("session.end", "End", "scheduledend", "When the session ends, from the booking."),
+  // One person's attendance at the session -- data about the participant
+  // in this session, not about the client in general.
+  {
+    source: {
+      strategy: "choice",
+      entity: "csg_attendance",
+      attribute: "wp_attendancestatus",
+      target: choiceTarget("csg_attendance", "wp_attendancestatus"),
+    },
+    descriptor: {
+      key: "participant.attendance",
+      version: 1,
+      label: "Attendance",
+      description: "Whether this participant attended the session.",
+      anchor: "participant",
+      access: "readWrite",
+      control: { kind: "lookup" },
+      overridable: ["label", "required"],
     },
   },
 ]

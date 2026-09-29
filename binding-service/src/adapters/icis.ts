@@ -1,6 +1,8 @@
 import type { BindingOptions } from "shared"
 import {
+  choiceTarget,
   ConcurrentUpdateError,
+  isChoiceTarget,
   StoreWriteError,
   type AttributeMetadata,
   type BindingSource,
@@ -8,6 +10,7 @@ import {
   type ClientSummary,
   type RecordStore,
   type ServicePermissions,
+  type SessionSummary,
   type StoreValue,
   type StoredRecord,
 } from "./adapter.js"
@@ -167,7 +170,9 @@ export class IcisRecordStore implements RecordStore {
     const values: Record<string, StoreValue> = {}
     for (const source of sources) {
       const value = row[column(source)]
-      values[source.attribute] = typeof value === "string" ? value : null
+      // A choice (option set) arrives as its integer value.
+      values[source.attribute] =
+        typeof value === "string" ? value : typeof value === "number" ? String(value) : null
     }
     return { values, etag: String(row["@odata.etag"] ?? "") }
   }
@@ -186,6 +191,10 @@ export class IcisRecordStore implements RecordStore {
     for (const { source, value } of changes) {
       if (source.strategy === "attribute") {
         body[checkName(source.attribute)] = value
+      } else if (source.strategy === "choice") {
+        // An option set's value is its integer.
+        if (value !== null && !/^\d+$/.test(value)) throw new StoreWriteError("Invalid option")
+        body[checkName(source.attribute)] = value === null ? null : Number(value)
       } else {
         const nav = await this.navProperty(entity, source)
         if (value === null) {
@@ -218,6 +227,7 @@ export class IcisRecordStore implements RecordStore {
   }
 
   async lookupOptions(target: string): Promise<BindingOptions> {
+    if (isChoiceTarget(target)) return this.choiceOptions(target)
     const info = await this.entity(target)
     const res = await this.request(
       `/${info.entitySet}?$select=${info.primaryId},${info.primaryName}&$filter=statecode eq 0&$orderby=${info.primaryName}`,
@@ -239,6 +249,111 @@ export class IcisRecordStore implements RecordStore {
         label: String(row[info.primaryName] ?? ""),
       })),
     }
+  }
+
+  // An option set's values, from its attribute's metadata (no privilege
+  // needed to read metadata).
+  private async choiceOptions(target: string): Promise<BindingOptions> {
+    const [entity, attribute] = target.split(".")
+    const meta = await this.getJson<{
+      OptionSet?: { Options: Array<{ Value: number; Label: Label }> }
+    }>(
+      `/EntityDefinitions(LogicalName='${checkName(entity)}')/Attributes(LogicalName='${checkName(attribute)}')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`,
+    )
+    if (!meta?.OptionSet) return { options: [], source: "unavailable" }
+    return {
+      source: "live",
+      options: meta.OptionSet.Options.map((o) => ({
+        value: String(o.Value),
+        label: o.Label.UserLocalizedLabel?.Label ?? String(o.Value),
+      })),
+    }
+  }
+
+  // Sessions are activities (wp_session, keyed by activityid); who took part
+  // is one csg_attendance row per person. Four filtered reads: the client's
+  // attendances, their sessions, everyone attending those, and their names.
+  async sessionsForClient(clientId: string): Promise<SessionSummary[]> {
+    if (!GUID.test(clientId)) return []
+    const own = await this.getJson<{ value: Array<{ _csg_sessionid_value: string | null }> }>(
+      `/csg_attendances?$select=csg_attendanceid,_csg_sessionid_value&$filter=_csg_contactid_value eq ${clientId}`,
+    )
+    const sessionIds = [
+      ...new Set((own?.value ?? []).map((a) => a._csg_sessionid_value).filter(isGuid)),
+    ]
+    if (sessionIds.length === 0) return []
+
+    const [sessions, attendances, statusOptions] = await Promise.all([
+      this.getJson<{
+        value: Array<{
+          activityid: string
+          subject: string | null
+          scheduledstart: string | null
+          scheduledend: string | null
+        }>
+      }>(
+        `/wp_sessions?$select=activityid,subject,scheduledstart,scheduledend&$filter=${sessionIds.map((id) => `activityid eq ${id}`).join(" or ")}`,
+      ),
+      this.getJson<{
+        value: Array<{
+          csg_attendanceid: string
+          _csg_sessionid_value: string | null
+          _csg_contactid_value: string | null
+          wp_attendancestatus: number | null
+        }>
+      }>(
+        `/csg_attendances?$select=csg_attendanceid,_csg_sessionid_value,_csg_contactid_value,wp_attendancestatus&$filter=${sessionIds.map((id) => `_csg_sessionid_value eq ${id}`).join(" or ")}`,
+      ),
+      this.choiceOptions(choiceTarget("csg_attendance", "wp_attendancestatus")),
+    ])
+
+    const contactIds = [
+      ...new Set((attendances?.value ?? []).map((a) => a._csg_contactid_value).filter(isGuid)),
+    ]
+    const contacts = contactIds.length
+      ? await this.getJson<{
+          value: Array<{
+            contactid: string
+            csg_clientid: string | null
+            firstname: string | null
+            lastname: string | null
+          }>
+        }>(
+          `/contacts?$select=contactid,csg_clientid,firstname,lastname&$filter=${contactIds.map((id) => `contactid eq ${id}`).join(" or ")}`,
+        )
+      : null
+    const byContact = new Map((contacts?.value ?? []).map((c) => [c.contactid, c]))
+    const statusLabel = new Map(statusOptions.options.map((o) => [o.value, o.label]))
+
+    return (sessions?.value ?? [])
+      .map((session) => ({
+        id: session.activityid,
+        subject: session.subject,
+        start: session.scheduledstart,
+        end: session.scheduledend,
+        participants: (attendances?.value ?? [])
+          .filter((a) => a._csg_sessionid_value === session.activityid)
+          .flatMap((a) => {
+            const contact = a._csg_contactid_value ? byContact.get(a._csg_contactid_value) : undefined
+            if (!contact) return []
+            return [
+              {
+                id: a.csg_attendanceid,
+                attendanceLabel:
+                  a.wp_attendancestatus === null
+                    ? null
+                    : (statusLabel.get(String(a.wp_attendancestatus)) ?? null),
+                client: {
+                  id: contact.contactid,
+                  clientNumber: contact.csg_clientid,
+                  firstName: contact.firstname,
+                  lastName: contact.lastname,
+                },
+              },
+            ]
+          }),
+      }))
+      .sort((a, b) => String(b.start).localeCompare(String(a.start)))
   }
 
   async describe(entity: string, attributes: string[]): Promise<AttributeMetadata[]> {
@@ -276,7 +391,9 @@ export class IcisRecordStore implements RecordStore {
           ? "text"
           : a.AttributeType === "Lookup" && lookupTargets.length === 1
             ? "lookup"
-            : "other"
+            : a.AttributeType === "Picklist"
+              ? "choice"
+              : "other"
       return {
         attribute: a.LogicalName,
         displayName: a.DisplayName.UserLocalizedLabel?.Label ?? a.LogicalName,
@@ -285,16 +402,20 @@ export class IcisRecordStore implements RecordStore {
         requiredLevel: requiredLevel(a.RequiredLevel?.Value),
         updatable: a.IsValidForUpdate,
         ...(kind === "lookup" ? { lookupTarget: lookupTargets[0] } : {}),
+        ...(kind === "choice" ? { lookupTarget: choiceTarget(entity, a.LogicalName) } : {}),
       }
     })
   }
 
   async permissions(entity: string, targets: string[]): Promise<ServicePermissions> {
+    // An option set isn't a table: its values are metadata, readable and
+    // settable with the entity's own privileges.
+    const tables = targets.filter((t) => !isChoiceTarget(t))
     const [held, info, targetInfo] = await Promise.all([
       this.heldPrivileges(),
       this.entity(entity),
       Promise.all(
-        targets.map((t) =>
+        tables.map((t) =>
           this.entity(t).then(
             (i) => [t, i] as const,
             () => [t, null] as const,
@@ -303,16 +424,19 @@ export class IcisRecordStore implements RecordStore {
       ),
     ])
     const has = (name: string | undefined) => name !== undefined && held.has(name)
+    const choices = targets.filter(isChoiceTarget).map((t) => [t, true] as const)
     return {
       readEntity: has(info.privileges.Read),
       writeEntity: has(info.privileges.Write),
       appendEntity: has(info.privileges.Append),
-      readTargets: Object.fromEntries(
-        targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.Read)]),
-      ),
-      appendToTargets: Object.fromEntries(
-        targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.AppendTo)]),
-      ),
+      readTargets: Object.fromEntries([
+        ...targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.Read)] as const),
+        ...choices,
+      ]),
+      appendToTargets: Object.fromEntries([
+        ...targetInfo.map(([t, i]) => [t, i !== null && has(i.privileges.AppendTo)] as const),
+        ...choices,
+      ]),
     }
   }
 
@@ -335,6 +459,10 @@ export class IcisRecordStore implements RecordStore {
     this.privilegeCache = { at: Date.now(), names }
     return names
   }
+}
+
+function isGuid(value: string | null): value is string {
+  return value !== null && GUID.test(value)
 }
 
 function checkName(name: string): string {

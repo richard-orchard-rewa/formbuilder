@@ -19,6 +19,7 @@ import {
   CommitResponseSchema,
   ResolveRequestSchema,
   ResolveResponseSchema,
+  SessionAnchorListSchema,
 } from "shared"
 import { z } from "zod"
 import {
@@ -27,6 +28,7 @@ import {
   type BindingCreator,
 } from "./creator.js"
 import {
+  AnchorMismatchError,
   AnchorNotFoundError,
   NoOptionsError,
   UnknownBindingError,
@@ -54,6 +56,9 @@ export function buildApp(
     if (error instanceof AnchorNotFoundError || error instanceof BindingNotFoundError) {
       return reply.code(404).send({ message: error.message })
     }
+    if (error instanceof AnchorMismatchError) {
+      return reply.code(400).send({ message: error.message })
+    }
     if (error instanceof BindingRuleError) {
       return reply.code(422).send({ message: error.message })
     }
@@ -70,13 +75,14 @@ export function buildApp(
     service: "Data Binding Service",
     description:
       "Owns the dictionary of data-bound fields and all access to the backing store. Consumers never talk to the store directly.",
-    anchors: ["client"],
-    strategies: ["attribute", "lookup"],
+    anchors: ["client", "session", "participant"],
+    strategies: ["attribute", "lookup", "choice"],
     endpoints: {
       "GET /bindings?anchor=client": "Published bindings, as descriptors a form can render",
       "GET /bindings/:key": "One binding's descriptor",
       "GET /bindings/:key/options": "A lookup binding's options, served live",
       "GET /anchors/client?clientNumber=": "Find the record to anchor on",
+      "GET /anchors/sessions?clientNumber=": "A client's sessions, each with its participants (one anchor per person per session)",
       "POST /resolve": "Current values for bindings on an anchor",
       "POST /commit": "Write changed values, refusing to overwrite changes made since resolve",
       "GET /admin/attributes?anchor=client": "Binding creator: allow-listed attributes, with store limits and this service's own privileges",
@@ -136,12 +142,29 @@ export function buildApp(
     },
   )
 
+  typed.get(
+    "/anchors/sessions",
+    {
+      schema: {
+        querystring: z.object({ clientNumber: z.string().trim().min(1) }),
+        response: { 200: SessionAnchorListSchema, 404: ErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const sessions = await service.findSessions(request.query.clientNumber)
+      if (!sessions) {
+        return reply.code(404).send({ message: "No matching client" })
+      }
+      return sessions
+    },
+  )
+
   typed.post(
     "/resolve",
     {
       schema: {
         body: ResolveRequestSchema,
-        response: { 200: ResolveResponseSchema, 404: ErrorSchema },
+        response: { 200: ResolveResponseSchema, 400: ErrorSchema, 404: ErrorSchema },
       },
     },
     async (request) => service.resolve(request.body),
@@ -152,7 +175,7 @@ export function buildApp(
     {
       schema: {
         body: CommitRequestSchema,
-        response: { 200: CommitResponseSchema, 404: ErrorSchema },
+        response: { 200: CommitResponseSchema, 400: ErrorSchema, 404: ErrorSchema },
       },
     },
     async (request) => service.commit(request.body),

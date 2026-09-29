@@ -1,11 +1,14 @@
 import type { FastifyInstance } from "fastify"
 import {
+  ATTENDANCE_STATUSES,
   CONTACT,
+  CSG_ATTENDANCE,
   LOOKUP_ROWS,
   LOOKUP_TABLES,
   SERVICE_ACCOUNT,
   SYSTEMUSER,
-  type ContactRow,
+  WP_SESSION,
+  type RecordRow,
 } from "./data.js"
 import type { MockIcisState } from "./state.js"
 
@@ -61,21 +64,34 @@ function layout(title: string, active: string, body: string, refreshSeconds?: nu
 ${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ""}
 <title>${esc(title)} · Mock ICIS</title><style>${STYLE}</style></head><body>
 <header><strong>ICIS</strong><span class="tag">MOCK — demo data only</span>
-<nav>${link("/clients", "Clients")}${link("/service-account", "Service account")}${link("/api-log", "API log")}</nav>
+<nav>${link("/clients", "Clients")}${link("/sessions", "Sessions")}${link("/service-account", "Service account")}${link("/api-log", "API log")}</nav>
 <form method="post" action="/reset" onsubmit="return confirm('Reset all clients, privileges and the API log to the demo seed?')"><button class="secondary" type="submit">Reset demo</button></form>
 </header><main>${body}</main></body></html>`
 }
 
-function lookupLabel(state: MockIcisState, table: string | undefined, id: string | null) {
+function lookupLabel(state: MockIcisState, table: string | undefined, id: string | number | null) {
   return table ? (state.lookupName(table, id) ?? "") : ""
 }
 
-function clientName(c: ContactRow) {
+function clientName(c: RecordRow) {
   return [c.values.firstname, c.values.lastname].filter(Boolean).join(" ")
 }
 
 // Privileges the demo lets you grant, with what each means for bindings.
 const PRIVILEGE_GROUPS = [
+  {
+    table: WP_SESSION,
+    rows: [
+      { type: "Read", note: "Resolve session details (subject, times) and list a client's sessions." },
+    ],
+  },
+  {
+    table: CSG_ATTENDANCE,
+    rows: [
+      { type: "Read", note: "List who took part in a session, and their attendance status." },
+      { type: "Write", note: "Save a participant's attendance status back." },
+    ],
+  },
   {
     table: CONTACT,
     rows: [
@@ -131,7 +147,7 @@ export function registerAdmin(app: FastifyInstance, state: MockIcisState) {
 <div class="card"><table><thead><tr><th>Client number</th><th>Title</th><th>Name</th><th>Preferred name</th><th>Gender</th><th>Home language</th><th>Last modified</th></tr></thead><tbody>
 ${rows
   .map(
-    (c) => `<tr><td><a href="/clients/${c.contactid}">${esc(c.values.csg_clientid)}</a></td>
+    (c) => `<tr><td><a href="/clients/${c.id}">${esc(c.values.csg_clientid)}</a></td>
 <td>${esc(lookupLabel(state, "csg_salutation", c.values.csg_salutationid))}</td>
 <td>${esc(clientName(c))}</td><td>${esc(c.values.csg_alias)}</td>
 <td>${esc(lookupLabel(state, "csg_gender", c.values.csg_genderid))}</td>
@@ -179,8 +195,56 @@ ${saved ? `<div class="notice">Saved in ICIS.</div>` : ""}
         values[a.logicalName] = value === "" ? null : value.slice(0, a.maxLength ?? 4000)
       }
     }
-    state.updateAsStaff(id, values)
+    state.updateAsStaff("contact", id, values)
     return reply.redirect(`/clients/${id}?saved=1`)
+  })
+
+  app.get("/sessions", async (request, reply) => {
+    const saved = (request.query as { saved?: string }).saved
+    const perth = (iso: unknown) =>
+      iso ? new Date(String(iso)).toLocaleString("en-AU", { timeZone: "Australia/Perth" }) : ""
+    const sessions = [...state.sessions.values()].sort((a, b) =>
+      String(b.values.scheduledstart).localeCompare(String(a.values.scheduledstart)),
+    )
+    const statusSelect = (row: RecordRow) =>
+      `<select name="wp_attendancestatus" aria-label="Attendance status">${ATTENDANCE_STATUSES.map(
+        (o) => `<option value="${o.value}" ${o.value === row.values.wp_attendancestatus ? "selected" : ""}>${esc(o.label)}</option>`,
+      ).join("")}</select>`
+    const body = `
+<div class="card"><h1>Sessions</h1>
+<p class="lead">Made-up sessions (ICIS <code>wp_session</code>) and who attended each (<code>csg_attendance</code>, one per person per session). Changing an attendance status here is an edit by ICIS staff, so a session note opened before it gets a conflict for that participant.</p>
+${saved ? `<div class="notice">Saved in ICIS.</div>` : ""}</div>
+${sessions
+  .map((session) => {
+    const attendees = [...state.attendances.values()].filter(
+      (a) => a.values.csg_sessionid === session.id,
+    )
+    return `<div class="card"><h2>${esc(session.values.subject)}</h2>
+<p class="lead">${esc(perth(session.values.scheduledstart))} – ${esc(perth(session.values.scheduledend))} · <code>${session.id}</code></p>
+<table><thead><tr><th>Participant</th><th>Client number</th><th>Attendance</th><th>Last modified</th></tr></thead><tbody>
+${attendees
+  .map((a) => {
+    const contact = state.contacts.get(String(a.values.csg_contactid))
+    return `<tr><td>${contact ? `<a href="/clients/${contact.id}">${esc(clientName(contact))}</a>` : ""}</td>
+<td>${esc(contact?.values.csg_clientid)}</td>
+<td><form method="post" action="/sessions/attendance/${a.id}" style="display:flex;gap:8px">${statusSelect(a)}<button type="submit" class="secondary">Save in ICIS</button></form></td>
+<td>${esc(new Date(a.modifiedOn).toLocaleString("en-AU", { timeZone: "Australia/Perth" }))}<br><code>${esc(a.modifiedBy)}</code></td></tr>`
+  })
+  .join("")}
+</tbody></table></div>`
+  })
+  .join("")}`
+    return reply.type("text/html").send(layout("Sessions", "/sessions", body))
+  })
+
+  app.post("/sessions/attendance/:id", async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const form = (request.body ?? {}) as { wp_attendancestatus?: string }
+    const value = Number(form.wp_attendancestatus)
+    if (ATTENDANCE_STATUSES.some((o) => o.value === value)) {
+      state.updateAsStaff("csg_attendance", id, { wp_attendancestatus: value })
+    }
+    return reply.redirect("/sessions?saved=1")
   })
 
   app.get("/service-account", async (request, reply) => {

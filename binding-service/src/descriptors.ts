@@ -10,6 +10,7 @@ import type { BindingSource } from "./adapters/adapter.js"
 export const STRATEGY_PRESENTATIONS: Record<BindingStrategy, BindingPresentation[]> = {
   attribute: ["text"],
   lookup: ["dropdown", "radio"],
+  choice: ["dropdown", "radio"],
 }
 
 // The rules that follow from a binding's control alone.
@@ -43,7 +44,7 @@ export function completeDescriptor(
   return {
     ...descriptor,
     presentations,
-    ...(source.strategy === "lookup"
+    ...(source.strategy !== "attribute"
       ? {
           options: {
             href: `/bindings/${key}/options`,
