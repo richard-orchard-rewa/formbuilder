@@ -16,6 +16,7 @@ import {
   SetSessionTemplateModulesSchema,
   SubmissionValidationErrorSchema,
   SubmitSessionTemplateSchema,
+  type SessionTemplateBindingResults,
 } from "shared"
 import { SessionTemplateNotFoundError } from "./repositories/session-templates.js"
 import {
@@ -63,7 +64,7 @@ function serializeVersion(version: ResolvedSessionTemplateVersion) {
     version: version.version,
     status: version.status,
     modules: version.modules,
-    schema: { fields: version.fields },
+    schema: { fields: version.fields, sections: version.sections },
     createdAt: version.createdAt.toISOString(),
     publishedAt: version.publishedAt.toISOString(),
     publishedBy: version.publishedBy,
@@ -77,7 +78,9 @@ function toHistoryStatus(status: SessionTemplateVersionRow["status"]) {
   return status === "published" ? "active" : status
 }
 
-function serializeSubmission(row: SessionTemplateSubmissionRow) {
+function serializeSubmission(
+  row: SessionTemplateSubmissionRow & { bindingResults?: SessionTemplateBindingResults },
+) {
   return {
     ...row,
     data: row.data as Record<string, unknown>,
@@ -346,6 +349,7 @@ export function sessionTemplatesPlugin(
             request.params.sessionTemplateId,
             request.body.data,
             request.body.submittedBy,
+            request.body.binding,
           )
           return reply.code(201).send(serializeSubmission(submission))
         } catch (error) {

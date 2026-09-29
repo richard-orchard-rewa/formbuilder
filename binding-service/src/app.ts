@@ -20,6 +20,7 @@ import {
   ResolveRequestSchema,
   ResolveResponseSchema,
   SessionAnchorListSchema,
+  SessionParticipantSchema,
 } from "shared"
 import { z } from "zod"
 import {
@@ -83,6 +84,7 @@ export function buildApp(
       "GET /bindings/:key/options": "A lookup binding's options, served live",
       "GET /anchors/client?clientNumber=": "Find the record to anchor on",
       "GET /anchors/sessions?clientNumber=": "A client's sessions, each with its participants (one anchor per person per session)",
+      "GET /anchors/participants/:id": "Who a participant anchor is: their client and attendance",
       "POST /resolve": "Current values for bindings on an anchor",
       "POST /commit": "Write changed values, refusing to overwrite changes made since resolve",
       "GET /admin/attributes?anchor=client": "Binding creator: allow-listed attributes, with store limits and this service's own privileges",
@@ -156,6 +158,23 @@ export function buildApp(
         return reply.code(404).send({ message: "No matching client" })
       }
       return sessions
+    },
+  )
+
+  typed.get(
+    "/anchors/participants/:id",
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 200: SessionParticipantSchema, 404: ErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const participant = await service.getParticipant(request.params.id)
+      if (!participant) {
+        return reply.code(404).send({ message: "No matching participant" })
+      }
+      return participant
     },
   )
 

@@ -246,6 +246,11 @@ describe("sessions and participants against the mock ICIS", () => {
         .values["participant.attendance"]
     expect(await attendance(tariq.id)).toBe("dna")
     expect(await attendance(aisha.id)).toBe("attended")
+    // Each participant anchor still says who it is.
+    expect(await service.getParticipant(tariq.id)).toMatchObject({
+      client: { displayName: "Tariq Haddad" },
+      attendance: "DNA",
+    })
     // The mock's staff screens see it on Tariq's row only (DNA is 2).
     const rows = [...state.attendances.values()].filter(
       (a) => a.values.csg_sessionid === [...state.sessions.values()].find(

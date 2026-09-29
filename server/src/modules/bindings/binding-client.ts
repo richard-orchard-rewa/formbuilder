@@ -10,6 +10,8 @@ import type {
   ManagedBinding,
   ResolveRequest,
   ResolveResponse,
+  SessionAnchor,
+  SessionParticipant,
 } from "shared"
 
 // The Data Binding Service couldn't be reached or answered with an error.
@@ -31,6 +33,8 @@ export interface BindingClient {
   listBindings(anchor?: BindingAnchor): Promise<BindingDescriptor[]>
   getOptions(key: string): Promise<BindingOptions>
   findClient(clientNumber: string): Promise<ClientAnchor>
+  findSessions(clientNumber: string): Promise<SessionAnchor[]>
+  getParticipant(id: string): Promise<SessionParticipant>
   resolve(request: ResolveRequest): Promise<ResolveResponse>
   commit(request: CommitRequest): Promise<CommitResponse>
   // The binding creator.
@@ -80,6 +84,16 @@ export class HttpBindingClient implements BindingClient {
     return this.call<ClientAnchor>(
       `/anchors/client?clientNumber=${encodeURIComponent(clientNumber)}`,
     )
+  }
+
+  findSessions(clientNumber: string) {
+    return this.call<SessionAnchor[]>(
+      `/anchors/sessions?clientNumber=${encodeURIComponent(clientNumber)}`,
+    )
+  }
+
+  getParticipant(id: string) {
+    return this.call<SessionParticipant>(`/anchors/participants/${encodeURIComponent(id)}`)
   }
 
   resolve(request: ResolveRequest) {

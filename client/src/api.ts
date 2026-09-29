@@ -1,25 +1,28 @@
 import type {
-  AttributeCandidate,
-  CreateBindingRequest,
-  ManagedBinding,
   AnchorContext,
+  AttributeCandidate,
   BindingAnchor,
   BindingDescriptor,
   BindingOptions,
   ClientAnchor,
-  ResolveResponse,
-  SubmissionBindingContext,
+  CreateBindingRequest,
   Field,
   FieldMapping,
   FormSchema,
   FormSummary,
   FormVersion,
   FormVersionSummary,
+  ManagedBinding,
   MigrationPlan,
   MigrationResult,
   ModuleSchema,
+  ModuleScope,
   ModuleSummary,
   ModuleVersion,
+  ResolveResponse,
+  SessionAnchor,
+  SessionParticipant,
+  SessionTemplateBindingContext,
   SessionTemplateModule,
   SessionTemplateSchema,
   SessionTemplateSubmission,
@@ -29,6 +32,7 @@ import type {
   SessionTemplateVersion,
   SessionTemplateVersionSummary,
   Submission,
+  SubmissionBindingContext,
   SubmissionDetail,
   SubmissionHistory,
   SubmissionHistoryDetail,
@@ -192,8 +196,9 @@ export function getModuleDraft(moduleId: string): Promise<ModuleVersion | null> 
 export function saveModuleDraft(
   moduleId: string,
   fields: Field[],
+  scope?: ModuleScope,
 ): Promise<ModuleVersion> {
-  const body: ModuleSchema = { fields }
+  const body: ModuleSchema = { fields, ...(scope ? { scope } : {}) }
   return fetch(`/api/modules/${moduleId}/draft`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -501,13 +506,14 @@ export function getSessionTemplateVersion(
 export async function submitSessionTemplate(
   sessionTemplateId: string,
   data: Record<string, unknown>,
+  binding?: SessionTemplateBindingContext,
 ): Promise<SessionTemplateSubmission> {
   const res = await fetch(
     `/api/session-templates/${sessionTemplateId}/submissions`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({ data, ...(binding ? { binding } : {}) }),
     },
   )
   if (res.status === 400) {
@@ -567,6 +573,28 @@ export async function findClient(
   )
   if (res.status === 404) return null
   return json<ClientAnchor>(res)
+}
+
+// A client's sessions, each with everyone who took part; null if there's
+// no client with that number.
+export async function findSessions(
+  clientNumber: string,
+): Promise<SessionAnchor[] | null> {
+  const res = await fetch(
+    `/api/anchors/sessions?clientNumber=${encodeURIComponent(clientNumber)}`,
+  )
+  if (res.status === 404) return null
+  return json<SessionAnchor[]>(res)
+}
+
+// Who a participant anchor is -- their client and attendance -- as ICIS
+// has it now; null if the DBS doesn't know it.
+export async function getParticipant(
+  participantId: string,
+): Promise<SessionParticipant | null> {
+  const res = await fetch(`/api/anchors/participants/${encodeURIComponent(participantId)}`)
+  if (res.status === 404) return null
+  return json<SessionParticipant>(res)
 }
 
 export function resolveBindings(

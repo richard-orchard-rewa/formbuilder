@@ -11,8 +11,10 @@ import type {
   ResolveRequest,
   ResolveResponse,
   SessionAnchor,
+  SessionParticipant,
 } from "shared"
 import {
+  choiceTarget,
   ConcurrentUpdateError,
   StoreWriteError,
   type BindingSource,
@@ -130,6 +132,53 @@ export class BindingService {
         ),
       })),
     )
+  }
+
+  // Who a participant anchor is: the client behind that attendance record,
+  // and their attendance. What a saved note re-resolves its per-participant
+  // sections through, so each comes back labelled with the right person.
+  async getParticipant(participantId: string): Promise<SessionParticipant | null> {
+    const store = this.store.name
+    const attendanceId = await this.identities.storeIdForAnchor(participantId, store, "participant")
+    if (!attendanceId) return null
+    const contact: BindingSource = {
+      strategy: "lookup",
+      entity: "csg_attendance",
+      attribute: "csg_contactid",
+      target: "contact",
+    }
+    const status: BindingSource = {
+      strategy: "choice",
+      entity: "csg_attendance",
+      attribute: "wp_attendancestatus",
+      target: choiceTarget("csg_attendance", "wp_attendancestatus"),
+    }
+    const attendance = await this.store.read("csg_attendance", attendanceId, [contact, status])
+    const contactId = attendance?.values.csg_contactid
+    if (!attendance || !contactId) return null
+    const person = await this.store.read("contact", contactId, [
+      { strategy: "attribute", entity: "contact", attribute: "csg_clientid" },
+      { strategy: "attribute", entity: "contact", attribute: "firstname" },
+      { strategy: "attribute", entity: "contact", attribute: "lastname" },
+    ])
+    if (!person) return null
+    const statusValue = attendance.values.wp_attendancestatus ?? null
+    const label =
+      statusValue === null
+        ? null
+        : ((await this.store.lookupOptions(status.target!)).options.find(
+            (o) => o.value === statusValue,
+          )?.label ?? null)
+    return {
+      id: participantId,
+      client: await this.clientAnchor({
+        id: contactId,
+        clientNumber: person.values.csg_clientid ?? null,
+        firstName: person.values.firstname ?? null,
+        lastName: person.values.lastname ?? null,
+      }),
+      attendance: label,
+    }
   }
 
   private async clientAnchor(found: ClientSummary): Promise<ClientAnchor> {

@@ -1,6 +1,7 @@
 import {
   FIELD_TYPES,
   FIELD_TYPE_LABELS,
+  type BindingAnchor,
   type BindingDescriptor,
   type FieldType,
 } from "shared"
@@ -22,6 +23,14 @@ interface FieldPaletteProps {
 // Below them, the fields the Data Binding Service says can be bound to a
 // record (docs/proposals/databound-fields.md) -- the palette lists whatever
 // the DBS's dictionary describes rather than a fixed set.
+const ANCHOR_ORDER: BindingAnchor[] = ["session", "participant", "client"]
+
+const ANCHOR_LABELS: Record<BindingAnchor, string> = {
+  session: "Session",
+  participant: "Participant",
+  client: "Client",
+}
+
 export function FieldPalette({ bindings }: FieldPaletteProps) {
   return (
     <aside className="field-palette">
@@ -31,9 +40,9 @@ export function FieldPalette({ bindings }: FieldPaletteProps) {
           <PaletteItem key={type} type={type} />
         ))}
       </ul>
-      {bindings && (
+      {bindings && bindings.status !== "ready" && (
         <>
-          <h2>Data bound · Client</h2>
+          <h2>Data bound</h2>
           {bindings.status === "loading" && (
             <p className="field-palette__note">Loading…</p>
           )}
@@ -42,15 +51,23 @@ export function FieldPalette({ bindings }: FieldPaletteProps) {
               The Data Binding Service isn't available.
             </p>
           )}
-          {bindings.status === "ready" && (
-            <ul>
-              {bindings.bindings.map((binding) => (
-                <BindingItem key={binding.key} binding={binding} />
-              ))}
-            </ul>
-          )}
         </>
       )}
+      {bindings?.status === "ready" &&
+        ANCHOR_ORDER.filter((anchor) =>
+          bindings.bindings.some((b) => b.anchor === anchor),
+        ).map((anchor) => (
+          <section key={anchor}>
+            <h2>Data bound · {ANCHOR_LABELS[anchor]}</h2>
+            <ul>
+              {bindings.bindings
+                .filter((b) => b.anchor === anchor)
+                .map((binding) => (
+                  <BindingItem key={binding.key} binding={binding} />
+                ))}
+            </ul>
+          </section>
+        ))}
     </aside>
   )
 }

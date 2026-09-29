@@ -101,6 +101,8 @@ export {
   ModuleSchemaSchema,
   ModuleVersionSchema,
   PublishModuleVersionSchema,
+  SCOPE_ANCHORS,
+  unreachableBoundFields,
 } from "./schemas/module-version.js"
 export type {
   ModuleScope,

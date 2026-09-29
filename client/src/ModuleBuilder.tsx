@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react"
-import { FIELD_TYPE_LABELS, type Field, type FieldType } from "shared"
+import {
+  FIELD_TYPE_LABELS,
+  SCOPE_ANCHORS,
+  unreachableBoundFields,
+  type BindingDescriptor,
+  type Field,
+  type FieldType,
+  type ModuleScope,
+} from "shared"
 import {
   getModuleActiveVersion,
   getModuleDraft,
+  listBindings,
   NoModuleDraftToPublishError,
   publishModule,
   saveModuleDraft,
 } from "./api.js"
 import { FieldInspector } from "./FieldInspector.js"
-import { FieldPalette } from "./FieldPalette.js"
+import { FieldPalette, type PaletteBindings } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
 import { FormPreview } from "./FormPreview.js"
 
@@ -52,6 +61,19 @@ function createField(type: FieldType): Field {
   }
 }
 
+// A data-bound field starts with the dictionary's own label and a snapshot
+// of its descriptor -- as in FormBuilder.tsx.
+function createBoundField(binding: BindingDescriptor): Field {
+  return {
+    id: crypto.randomUUID(),
+    type: "bound",
+    label: binding.label,
+    required: false,
+    binding,
+    ...(binding.presentations ? { presentation: binding.presentations.default } : {}),
+  }
+}
+
 // Loads the module's current draft, then lets an admin drag field types
 // from the palette onto the canvas to build it visually (US-7.2), reorder
 // them, configure the selected field, delete it, preview it (US-7.5, via
@@ -64,6 +86,12 @@ export function ModuleBuilder({
   onBack,
 }: ModuleBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
+  // How often the module is filled in within a session note; decides which
+  // bindings it can hold (a client's details only once per participant).
+  const [scope, setScope] = useState<ModuleScope>("session")
+  const [allBindings, setAllBindings] = useState<PaletteBindings>({
+    status: "loading",
+  })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -74,6 +102,31 @@ export function ModuleBuilder({
     "idle" | "publishing" | "error"
   >("idle")
   const [publishError, setPublishError] = useState<string | null>(null)
+
+  // The Data Binding Service's dictionary, best-effort as in FormBuilder.
+  useEffect(() => {
+    let cancelled = false
+    listBindings()
+      .then((list) => {
+        if (!cancelled) setAllBindings({ status: "ready", bindings: list })
+      })
+      .catch(() => {
+        if (!cancelled) setAllBindings({ status: "unavailable" })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const bindings: PaletteBindings =
+    allBindings.status === "ready"
+      ? {
+          status: "ready",
+          bindings: allBindings.bindings.filter((b) =>
+            SCOPE_ANCHORS[scope].includes(b.anchor),
+          ),
+        }
+      : allBindings
 
   useEffect(() => {
     let cancelled = false
@@ -86,10 +139,12 @@ export function ModuleBuilder({
         // resuming editing starts from the module as it currently stands.
         if (draft) {
           setFields(draft.schema.fields)
+          setScope(draft.schema.scope ?? "session")
         } else {
           const active = await getModuleActiveVersion(moduleId)
           if (cancelled) return
           setFields(active?.schema.fields ?? [])
+          setScope(active?.schema.scope ?? "session")
         }
         setStatus("ready")
       })
@@ -101,12 +156,37 @@ export function ModuleBuilder({
     }
   }, [moduleId])
 
-  function persist(next: Field[]) {
+  function persist(next: Field[], nextScope: ModuleScope = scope) {
     setFields(next)
     setSaveError(null)
-    saveModuleDraft(moduleId, next).catch(() => {
+    saveModuleDraft(moduleId, next, nextScope).catch(() => {
       setSaveError("Couldn't save this change — it may not persist.")
     })
+  }
+
+  // A module can only change scope once it holds nothing the new scope
+  // can't reach.
+  function handleScopeChange(next: ModuleScope) {
+    const unreachable = unreachableBoundFields(fields, next)
+    if (unreachable.length > 0) {
+      setSaveError(
+        `Remove ${unreachable.map((f) => f.label).join(", ")} first — ${
+          next === "session" ? "a once-per-session" : "a once-per-participant"
+        } module can't hold ${unreachable.length === 1 ? "it" : "them"}.`,
+      )
+      return
+    }
+    setScope(next)
+    persist(fields, next)
+  }
+
+  function handleDropBinding(key: string, index: number) {
+    if (bindings.status !== "ready") return
+    const binding = bindings.bindings.find((b) => b.key === key)
+    if (!binding) return
+    const field = createBoundField(binding)
+    persist([...fields.slice(0, index), field, ...fields.slice(index)])
+    setSelectedId(field.id)
   }
 
   function handleDrop(type: FieldType, index: number) {
@@ -176,6 +256,29 @@ export function ModuleBuilder({
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load this module.</p>}
+      {status === "ready" && (
+        <fieldset className="module-scope">
+          <legend>Filled in</legend>
+          <label>
+            <input
+              type="radio"
+              name="module-scope"
+              checked={scope === "session"}
+              onChange={() => handleScopeChange("session")}
+            />
+            Once per session
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="module-scope"
+              checked={scope === "participant"}
+              onChange={() => handleScopeChange("participant")}
+            />
+            Once per participant
+          </label>
+        </fieldset>
+      )}
       {saveError && <p role="alert">{saveError}</p>}
       {publishError && <p role="alert">{publishError}</p>}
 
@@ -185,11 +288,12 @@ export function ModuleBuilder({
 
       {status === "ready" && mode === "edit" && (
         <div className="form-builder__workspace">
-          <FieldPalette />
+          <FieldPalette bindings={bindings} />
           <FormCanvas
             fields={fields}
             selectedId={selectedId}
             onDrop={handleDrop}
+            onDropBinding={handleDropBinding}
             onReorder={handleReorder}
             onSelect={setSelectedId}
           />

@@ -1,8 +1,13 @@
-import type { Field } from "shared"
+import type {
+  Field,
+  SessionTemplateBindingContext,
+  SessionTemplateSection,
+} from "shared"
 import type {
   CreateSessionTemplateSubmissionInput,
   SessionTemplateSubmissionsRepository,
 } from "../repositories/session-template-submissions.js"
+import { participantData, type SessionBoundFieldsService } from "./session-bound-fields.js"
 import type { SessionTemplateVersionsService } from "./session-template-versions.js"
 
 export class NoActiveVersionError extends Error {
@@ -28,10 +33,31 @@ function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === ""
 }
 
-function requireFields(fields: Field[], data: Record<string, unknown>) {
-  const missingFieldIds = fields
+function missing(fields: Field[], data: Record<string, unknown>, prefix = "") {
+  return fields
     .filter((field) => field.required && isEmpty(data[field.id]))
-    .map((field) => field.id)
+    .map((field) => `${prefix}${field.id}`)
+}
+
+// Session-wide sections once; participant sections once per participant,
+// reported as `participants.<participant anchor id>.<field id>`.
+function requireFields(
+  sections: SessionTemplateSection[],
+  data: Record<string, unknown>,
+  participants: string[],
+) {
+  const missingFieldIds: string[] = []
+  for (const section of sections) {
+    if (section.scope === "session") {
+      missingFieldIds.push(...missing(section.fields, data))
+    } else {
+      for (const p of participants) {
+        missingFieldIds.push(
+          ...missing(section.fields, participantData(data, p), `participants.${p}.`),
+        )
+      }
+    }
+  }
   if (missingFieldIds.length > 0) {
     throw new MissingRequiredFieldsError(missingFieldIds)
   }
@@ -41,6 +67,7 @@ export class SessionTemplateSubmissionsService {
   constructor(
     private readonly versions: SessionTemplateVersionsService,
     private readonly repo: SessionTemplateSubmissionsRepository,
+    private readonly boundFields?: SessionBoundFieldsService,
   ) {}
 
   // Validates the submission against the template's active version before
@@ -51,11 +78,19 @@ export class SessionTemplateSubmissionsService {
     sessionTemplateId: string,
     data: Record<string, unknown>,
     submittedBy?: string | null,
+    binding?: SessionTemplateBindingContext,
   ) {
     const active = await this.versions.getActiveVersion(sessionTemplateId)
     if (!active) throw new NoActiveVersionError(sessionTemplateId)
 
-    requireFields(active.fields, data)
+    // Who a participant section is filled for: the session's participants,
+    // or -- with no session picked -- whoever the data has values for.
+    const participants =
+      binding?.participants.map((p) => p.participant) ??
+      Object.keys(
+        data.participants && typeof data.participants === "object" ? data.participants : {},
+      )
+    requireFields(active.sections, data, participants)
 
     const input: CreateSessionTemplateSubmissionInput = {
       sessionTemplateId,
@@ -63,7 +98,14 @@ export class SessionTemplateSubmissionsService {
       data,
       submittedBy,
     }
-    return this.repo.create(input)
+    const row = await this.repo.create(input)
+    const bindingResults = await this.boundFields?.commit(
+      row.id,
+      active.sections,
+      data,
+      binding,
+    )
+    return { ...row, ...(bindingResults ? { bindingResults } : {}) }
   }
 
   list(sessionTemplateId: string) {
@@ -83,10 +125,12 @@ export class SessionTemplateSubmissionsService {
     // but a submission with no resolvable version can't be rendered.
     if (!version) return null
 
+    const bindingResults = await this.boundFields?.resultsFor(row.id)
     return {
       ...row,
       sessionTemplateVersionNumber: version.version,
-      schema: { fields: version.fields },
+      schema: { fields: version.fields, sections: version.sections },
+      ...(bindingResults ? { bindingResults } : {}),
     }
   }
 }

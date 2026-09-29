@@ -539,7 +539,9 @@ Acceptance criteria:
 
 ## Epic US-14: Sessions, cases and participants
 
-Data-bound content at the session and participant levels (§16), including joint and group sessions with several participants. Design: the proposal's "Anchors beyond the client". Stories 14.1–14.11 are the prototype slice; 14.12–14.16 are designed but not yet built.
+Data-bound content at the session and participant levels (§16), including joint and group sessions with several participants. Design: the proposal's "Anchors beyond the client". Stories 14.1–14.11 are the prototype slice, built in richard-orchard-rewa/formbuilder#82 against the mock ICIS; 14.12–14.16 are designed but not yet built.
+
+The thread running through the epic: a once-per-participant module gets **one copy per person**, held under that person's participant anchor. That anchor maps to exactly one attendance record, and through it to one client, so what's written back lands on that person's records, and what's read back later is shown against that person.
 
 ### US-14.1 Session and participant anchors
 
@@ -567,6 +569,7 @@ Acceptance criteria:
   - its client (`ClientAnchor`: anchor ID, number, name);
   - its attendance status label.
 - [ ] Unknown or ambiguous client numbers return 404.
+- [ ] `GET /anchors/participants/:id` says who a participant anchor is: its client and attendance, as the store has them now. 404 for anything that isn't a participant anchor, including a client's or a session's.
 
 ### US-14.3 Session bindings from the booking
 
@@ -610,6 +613,7 @@ Acceptance criteria:
 - [ ] The module builder's Data bound palette offers only the bindings the scope can reach:
   - once per session: `session` bindings;
   - once per participant: `participant` and `client` bindings.
+- [ ] Saving a module draft with a binding its scope can't reach is refused (422), naming the bindings. The builder won't switch scope while the module holds one.
 - [ ] Changing a published module's scope creates a new version, like any change.
 
 ### US-14.7 Session templates keep their modules as sections
@@ -659,6 +663,8 @@ Acceptance criteria:
 
 Acceptance criteria:
 - [ ] The submission view renders session sections once, and participant sections once per participant stored, read-only.
+- [ ] Each participant's copy is read back from under their participant anchor and headed with who that anchor is (`GET /anchors/participants/:id`), so every copy is shown against the right client. Without the DBS, copies still show, numbered.
+- [ ] What happened to each bound value on submit is shown per participant, by name.
 
 ### US-14.12 Case anchor and case-level modules (designed, not built)
 
@@ -1065,6 +1071,15 @@ interface SessionTemplateBindingResults {
 
 Commit per anchor: session bindings with `{ session }`, each participant's `participant` bindings with `{ participant }`, and their `client` bindings with `{ client }`. Each commit is one conditional write to one record (A.3).
 
+`GET /anchors/participants/:id` returns one `SessionParticipant`: who that participant anchor is now. It's how a saved note labels each participant's copy.
+
+Which bindings each module scope can reach (`SCOPE_ANCHORS` in `shared`):
+
+| Scope | Bindings on |
+|---|---|
+| `session` | `session` |
+| `participant` | `participant`, `client` |
+
 ### B. Data Binding Service HTTP API
 
 JSON over HTTP, served on port 3100 by default. Requests are validated against the contracts in A, and a malformed request returns 400.
@@ -1077,8 +1092,10 @@ JSON over HTTP, served on port 3100 by default. Requests are validated against t
 | `GET /bindings/:key` | — | `BindingDescriptor` | 404 unknown binding |
 | `GET /bindings/:key/options` | — | `BindingOptions` | 404 unknown or not a lookup |
 | `GET /anchors/client?clientNumber=` | `clientNumber` required | `ClientAnchor` | 404 no unambiguous match |
-| `POST /resolve` | `ResolveRequest` | `ResolveResponse` | 404 unknown binding(s) or anchor |
-| `POST /commit` | `CommitRequest` | `CommitResponse` | 404 unknown binding(s) or anchor |
+| `GET /anchors/sessions?clientNumber=` | `clientNumber` required | `SessionAnchor[]`, newest first (A.6) | 404 no unambiguous match |
+| `GET /anchors/participants/:id` | — | `SessionParticipant` (A.6) | 404 not a participant anchor |
+| `POST /resolve` | `ResolveRequest` | `ResolveResponse` | 400 a binding not on the request's anchor type; 404 unknown binding(s) or anchor |
+| `POST /commit` | `CommitRequest` | `CommitResponse` | 400 a binding not on the request's anchor type; 404 unknown binding(s) or anchor |
 | `GET /admin/attributes?anchor=client` | `anchor` default `client` | `AttributeCandidate[]` | — |
 | `GET /admin/bindings` | — | `ManagedBinding[]` | — |
 | `POST /admin/bindings` | `CreateBindingRequest` | `ManagedBinding` | 422 rule refused (A.4, H) |
@@ -1092,8 +1109,8 @@ Every error body is `{ "message": string }`. `/admin/*` is for data stewards onl
 {
   "service": "Data Binding Service",
   "description": "Owns the dictionary of data-bound fields and all access to the backing store. Consumers never talk to the store directly.",
-  "anchors": ["client"],
-  "strategies": ["attribute", "lookup"],
+  "anchors": ["client", "session", "participant"],
+  "strategies": ["attribute", "lookup", "choice"],
   "endpoints": { "GET /bindings?anchor=client": "Published bindings, as descriptors a form can render", "...": "one entry per endpoint above" }
 }
 ```
@@ -1140,12 +1157,29 @@ paths:
       responses:
         '200': { description: Client, content: { application/json: { schema: { $ref: '#/components/schemas/ClientAnchor' } } } }
         '404': { $ref: '#/components/responses/Error' }
+  /anchors/sessions:
+    get:
+      summary: A client's sessions, each with everyone who took part (A.6)
+      parameters:
+        - { name: clientNumber, in: query, required: true, schema: { type: string, minLength: 1 } }
+      responses:
+        '200': { description: Sessions, newest first, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SessionAnchor' } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /anchors/participants/{id}:
+    get:
+      summary: Who a participant anchor is -- their client and attendance
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Participant, content: { application/json: { schema: { $ref: '#/components/schemas/SessionParticipant' } } } }
+        '404': { $ref: '#/components/responses/Error' }
   /resolve:
     post:
       summary: Current values for bindings on an anchor
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveRequest' } } } }
       responses:
         '200': { description: Values, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
   /commit:
     post:
@@ -1153,6 +1187,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CommitRequest' } } } }
       responses:
         '200': { description: Per-binding results, content: { application/json: { schema: { $ref: '#/components/schemas/CommitResponse' } } } }
+        '400': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
   /admin/attributes:
     get:
@@ -1339,14 +1374,17 @@ form-builder's server relays these endpoints to the DBS unchanged, so the browse
 | `GET /api/bindings?anchor=` | `GET /bindings` |
 | `GET /api/bindings/:key/options` | `GET /bindings/:key/options` |
 | `GET /api/anchors/client?clientNumber=` | `GET /anchors/client` |
+| `GET /api/anchors/sessions?clientNumber=` | `GET /anchors/sessions` |
+| `GET /api/anchors/participants/:id` | `GET /anchors/participants/:id` |
 | `POST /api/bindings/resolve` | `POST /resolve` |
 | `GET /api/binding-admin/attributes` | `GET /admin/attributes` |
 | `GET /api/binding-admin/bindings` | `GET /admin/bindings` |
 | `POST /api/binding-admin/bindings` | `POST /admin/bindings` |
 | `POST /api/binding-admin/bindings/:key/publish` | `POST /admin/bindings/:key/publish` |
 
-- The DBS's 404 and 422 pass through with their messages. Anything else, or an unreachable DBS, becomes **502** `{ "message": "The Data Binding Service is unavailable" }` (or the DBS's own message).
-- `POST /commit` is **not** relayed; the server calls it itself after saving a submission (US-10.7).
+- The DBS's 400, 404 and 422 pass through with their messages. Anything else, or an unreachable DBS, becomes **502** `{ "message": "The Data Binding Service is unavailable" }` (or the DBS's own message).
+- `POST /commit` is **not** relayed; the server calls it itself after saving a submission (US-10.7), once per anchor for a session note (US-14.10).
+- `PUT /api/modules/:id/draft` refuses (422) a draft holding bindings its scope can't reach (US-14.6).
 - The DBS address is `BINDING_SERVICE_URL` (default `http://localhost:3100`).
 
 ### D. Store adapter interface
@@ -1356,13 +1394,14 @@ What every backing store implements inside the DBS. Store IDs and names appear o
 ```ts
 // Where a binding's value lives in a store. DBS-internal.
 interface BindingSource {
-  strategy: "attribute" | "lookup"
+  strategy: "attribute" | "lookup" | "choice"
   entity: string          // e.g. "contact"
   attribute: string       // e.g. "csg_alias"
-  target?: string         // lookups: the reference table, e.g. "csg_salutation"
+  target?: string         // lookups: the reference table, e.g. "csg_salutation";
+                          // choices: "<entity>.<attribute>", the option set's own name
 }
 
-type StoreValue = string | null   // text, or a lookup's STORE row ID
+type StoreValue = string | null   // text, a lookup's STORE row ID, or a choice's integer as a string
 
 interface StoredRecord {
   values: Record<string /* attribute */, StoreValue>
@@ -1374,11 +1413,11 @@ interface Change { source: BindingSource; value: StoreValue }
 interface AttributeMetadata {
   attribute: string
   displayName: string
-  kind: "text" | "lookup" | "other"
+  kind: "text" | "lookup" | "choice" | "other"
   maxLength?: number
   requiredLevel: "none" | "recommended" | "required"
   updatable: boolean
-  lookupTarget?: string
+  lookupTarget?: string            // lookups: the table; choices: "<entity>.<attribute>"
 }
 
 interface ServicePermissions {
@@ -1396,9 +1435,23 @@ interface ClientSummary {
   lastName: string | null
 }
 
+// A session and everyone who took part, in STORE IDs. DBS-internal.
+interface SessionSummary {
+  id: string                      // the session's store ID
+  subject: string | null
+  start: string | null
+  end: string | null
+  participants: Array<{
+    id: string                    // the attendance record's store ID
+    client: ClientSummary
+    attendanceLabel: string | null
+  }>
+}
+
 interface RecordStore {
   readonly name: string           // "icis", "fake", ...; keys identity refs
   findClientByNumber(clientNumber: string): Promise<ClientSummary | null> // null unless exactly one match
+  sessionsForClient(clientId: string): Promise<SessionSummary[]>        // newest first
   read(entity: string, id: string, sources: BindingSource[]): Promise<StoredRecord | null>
   // One conditional update. Throws ConcurrentUpdateError if the row version
   // doesn't match, StoreWriteError (with a user-safe message) if refused.
@@ -1418,6 +1471,8 @@ interface RecordStore {
 | Write | `PATCH <entitySet>(<id>)` with `If-Match: <etag>`, body `{ "<attr>": value, "<nav>@odata.bind": "/<targetSet>(<rowId>)" }`. 412 means a concurrent change. |
 | Clear a lookup | `DELETE <entitySet>(<id>)/<nav>/$ref` |
 | Options | `GET <targetSet>?$select=<primaryId>,<primaryName>&$filter=statecode eq 0&$orderby=<primaryName>`; 403 means `unavailable` (the salutation list alone falls back) |
+| Choice options | `GET EntityDefinitions(LogicalName='<e>')/Attributes(LogicalName='<a>')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`: metadata, so no table privilege needed. A choice is written as its integer, in the same `PATCH`. |
+| A client's sessions | `GET csg_attendances?$filter=_csg_contactid_value eq <id>`, then `GET wp_sessions?$filter=activityid eq <id> or …`, `GET csg_attendances?$filter=_csg_sessionid_value eq <id> or …` and `GET contacts?$filter=contactid eq <id> or …` |
 | Entity info | `GET EntityDefinitions(LogicalName='<e>')?$select=EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,Privileges` |
 | Lookup navigation property | `GET EntityDefinitions(LogicalName='contact')/ManyToOneRelationships?$select=ReferencingEntityNavigationPropertyName&$filter=ReferencingAttribute eq '<attr>'` |
 | Attribute metadata | `GET EntityDefinitions(LogicalName='contact')/Attributes?$select=LogicalName,AttributeType,DisplayName,RequiredLevel,IsValidForUpdate&$filter=LogicalName eq '<a>' or …`, plus `…/Microsoft.Dynamics.CRM.StringAttributeMetadata?$select=LogicalName,MaxLength` and `…/Microsoft.Dynamics.CRM.LookupAttributeMetadata?$select=LogicalName,Targets` |
@@ -1513,7 +1568,7 @@ The transaction then reads and, if needed, inserts. The unique indexes back this
 1. Insert `configured_bindings`, or do nothing if the key exists. A different source for an existing key, or a unique violation on `configured_bindings_attribute`, is refused.
 2. Upsert each version on `(key, version)`, but **only update rows whose `status = 'draft'`**.
 
-#### E.2 form-builder's database: one new table
+#### E.2 form-builder's database: two new tables
 
 ```sql
 -- Each attempt to send a submission's bound values to the DBS.
@@ -1529,7 +1584,25 @@ CREATE TABLE submission_bindings (
 CREATE INDEX submission_bindings_submission_id ON submission_bindings (submission_id);
 ```
 
-Form definitions need no schema change: a `bound` field (A.5) is stored in the existing `form_versions.schema` jsonb, with its descriptor snapshot.
+```sql
+-- Each commit of a session note's bound values: one per anchor (US-14.10).
+CREATE TABLE session_template_submission_bindings (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id uuid NOT NULL REFERENCES session_template_submissions(id) ON DELETE CASCADE,
+  participant   text,             -- participant anchor ID; null for the session's own commit
+  anchor        jsonb,            -- AnchorContext committed to, or null if no session was chosen
+  baseline      jsonb,
+  "values"      jsonb NOT NULL,
+  results       jsonb NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX session_template_submission_bindings_submission_id
+  ON session_template_submission_bindings (submission_id);
+```
+
+`participant` groups a participant's two commits (their attendance record and their client), so the results read back as `{ session, participants: { <id>: … } }`.
+
+Form definitions need no schema change: a `bound` field (A.5) is stored in the existing `form_versions.schema` jsonb, with its descriptor snapshot. Likewise a module's `scope` (A.6) lives in `module_versions.schema`, and sections are resolved from the snapshotted module versions.
 
 ### F. Built-in bindings and the allow-list
 
@@ -1541,6 +1614,12 @@ Form definitions need no schema change: a `bound` field (A.5) is stored in the e
 | `client.firstName` | First name | readWrite | text, max 50 | `contact.firstname` |
 | `client.lastName` | Last name | readWrite | text, max 50 | `contact.lastname` |
 | `client.clientNumber` | Client number | read | text | `contact.csg_clientid` |
+| `session.subject` | Session | read | text | `wp_session.subject` |
+| `session.start` | Start | read | text (ISO 8601) | `wp_session.scheduledstart` |
+| `session.end` | End | read | text (ISO 8601) | `wp_session.scheduledend` |
+| `participant.attendance` | Attendance | readWrite | lookup (choice) | `csg_attendance.wp_attendancestatus` (option set) |
+
+Anchors map to ICIS entities: `client` → `contact`, `session` → `wp_session` (keyed by `activityid`), `participant` → `csg_attendance`. The `session` and `participant` allow-lists are empty for now: their bindings are built in until a data owner approves attributes.
 
 **The allow-list** for the `client` anchor, on ICIS entity `contact`:
 
@@ -1568,7 +1647,9 @@ Form definitions need no schema change: a `bound` field (A.5) is stored in the e
 
 ### G. Mock ICIS API subset
 
-The mock serves exactly the calls in D's Dataverse table, under `/api/data/v9.2/`, for entities `contact`, `csg_salutation`, `csg_gender`, `csg_language` and `systemuser`.
+The mock serves exactly the calls in D's Dataverse table, under `/api/data/v9.2/`, for entities `contact`, `wp_session`, `csg_attendance`, `csg_salutation`, `csg_gender`, `csg_language` and `systemuser`.
+- Record entities are listed only when filtered (`$filter` on the key, a lookup's `_x_value`, or a text column, joined by `or`/`and`); option-set attributes answer `PicklistAttributeMetadata`.
+- Seed sessions: an intake and a counselling session (Bob McGee), a joint mediation session (Aisha Rahimi 00152077 and Tariq Haddad 00152082), and a parenting group (Bob, Grace 00152079, and Liam 00152084 marked DNA).
 - It accepts only `Authorization: Bearer mock-icis-demo-token`; anything else is 401.
 - It enforces the service account's privileges on each call, with Dataverse's 403 message format.
 - It returns 412 on an `If-Match` mismatch, and 400 on a text value over its maximum length.
@@ -1579,11 +1660,12 @@ Its screens:
 | Screen | Path | Does |
 |---|---|---|
 | Clients | `GET /clients`, `GET /clients/:id`, `POST /clients/:id` | List and search; view every column; save as ICIS staff, which bumps the row version |
-| Service account | `GET /service-account`, `POST /service-account` | Tick or untick the DBS account's privileges (Read/Write/Append on Contact; Read/Append To on each list; Read on User) |
+| Sessions | `GET /sessions`, `POST /sessions/attendance/:id` | Each session with its participants; change an attendance status as ICIS staff |
+| Service account | `GET /service-account`, `POST /service-account` | Tick or untick the DBS account's privileges (Read/Write/Append on Contact; Read/Append To on each list; Read on Session; Read/Write on Attendance; Read on User) |
 | API log | `GET /api-log` | Every Web API call, newest first |
 | Reset | `POST /reset` | Restore the seed data, privileges and log |
 
-The seed privileges are `prvReadContact`, `prvReadCsg_salutation` and `prvReadUser`, mirroring the real test account.
+The seed privileges are `prvReadContact`, `prvReadCsg_salutation` and `prvReadUser`, mirroring the real test account, plus `prvReadwp_session` and `prvReadcsg_attendance` so sessions can be listed from the start. (Whether the real account can read sessions and attendance isn't confirmed yet.)
 
 ### H. Messages
 

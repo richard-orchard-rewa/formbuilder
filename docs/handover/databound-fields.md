@@ -1,4 +1,4 @@
-# Handover: data-bound fields (as of 2026-09-25)
+# Handover: data-bound fields (as of 2026-09-29)
 
 Where the data-bound fields work got to, so it can be picked up later. The design and reasoning are in [the proposal](../proposals/databound-fields.md); this document is the "where are we, and how do I get going again" view.
 
@@ -28,11 +28,17 @@ All of it is a prototype on one branch, not yet merged.
   | `8a660bc` | Self-describing descriptors (presentations, options link, validation rules, operations); options validated at commit; Dropdown/Radio per form |
   | `aa2492b` | DBS-issued client anchor IDs and logical option codes; nothing in form-builder holds a Dataverse ID |
   | `991d359` | Identity registry moved into the DBS's own Postgres database |
-  | *(latest)* | Configured bindings moved into that database too, with immutable published versions; docs and handover brought up to date |
+  | `3a83798` | Configured bindings moved into that database too, with immutable published versions; docs and handover brought up to date |
+| `afa372e`, `3a2f393` | User stories with acceptance criteria, and the contracts, API and schemas written out inline |
+| `dae7e50` | Design: data-bound content for sessions, cases and participants (proposal section, epic US-14) |
+| `8512409` | DBS and mock ICIS: session and participant anchors, `GET /anchors/sessions`, the `choice` strategy |
+| *(latest)* | form-builder: module scope, sections, per-participant copies, per-anchor commits, read-back by participant; docs |
 
 - **Checks at the latest commit:**
   - Typecheck clean in all six workspaces.
-  - 136 unit tests pass: shared 12, server 22, binding-service 72, mock-icis 7, client 23. That includes 13 Postgres tests for the DBS's database; they need `BINDING_TEST_DATABASE_URL`, and CI's e2e job runs them.
+  - 152 unit tests pass: shared 12, server 27, binding-service 80, mock-icis 8, client 25. That includes 14 Postgres tests for the DBS's database; they need `BINDING_TEST_DATABASE_URL`, and CI's e2e job runs them.
+  - The 7 Playwright e2e tests pass locally.
+  - The joint-session walkthrough (demo step 7) was run end to end against the mock ICIS.
   - `npm audit --omit=dev` is clean.
   - CI (including the Playwright e2e suite and the DBS database tests) runs on #82.
 
@@ -49,9 +55,9 @@ To hand this to a developer, see [databound-fields-user-stories.md](../proposals
 | ICIS account setup | [`docs/setup/icis-binding-service-account.md`](../setup/icis-binding-service-account.md) | Entra app registration + Dataverse application user with a read-only role |
 | DBS | `binding-service/` | `dictionary.ts` (built-in bindings), `allow-list.ts`, `creator.ts`, `service.ts`, `registry.ts` (configured bindings), `identity.ts` (anchor IDs, option codes), `descriptors.ts`, `validators.ts`, `db/` (its own Postgres: schema, migrations), `adapters/icis.ts` (the only ICIS-aware code), `adapters/fake.ts` |
 | Contracts | `shared/src/schemas/binding.ts`; `bound` field in `shared/src/schemas/field.ts` | Bound fields render through the normal `toJsonSchema` → JSON Forms path |
-| form-builder server | `server/src/modules/bindings/` | Relays the DBS to the browser; commits bound values after a submission is saved; `submission_bindings` table (migration `0011`) |
-| form-builder client | `FieldPalette`, `FieldInspector`, `FormFill` (client picker, results), `DataBindings.tsx` (creator page), `schema/useBindingOptions.ts` | |
-| Mock ICIS | `mock-icis/` | Dataverse Web API subset + Clients / Service account / API log screens; `contract.test.ts` runs the DBS's real adapter against it |
+| form-builder server | `server/src/modules/bindings/`; `session-templates/services/session-bound-fields.ts` | Relays the DBS to the browser; commits bound values after a submission is saved (`submission_bindings`, migration `0011`), and per anchor for session notes (`session_template_submission_bindings`, `0012`) |
+| form-builder client | `FieldPalette`, `FieldInspector`, `FormFill` (client picker), `BindingResultsSummary`, `ModuleBuilder` (scope), `SessionTemplateFill` (session picker, per-participant copies), `SessionTemplateSubmissionView`, `DataBindings.tsx` (creator page), `schema/useBindingOptions.ts` | |
+| Mock ICIS | `mock-icis/` | Dataverse Web API subset + Clients / Sessions / Service account / API log screens; `contract.test.ts` runs the DBS's real adapter against it |
 
 ## Running it again
 
@@ -93,7 +99,19 @@ npm run dev       # the same, but the DBS uses binding-service/.env (ADAPTER=fak
 - **It can't read any of the reference tables behind contact's custom lookups** (salutation, gender, language, country, …). Title falls back to five known values, and no new lookup binding can be published.
 - **`contact`'s updatable attributes include portal password hashes, the DSS/DEX client ID and government card numbers.** That's why the allow-list exists.
 
-## Latest: self-describing descriptors (after the handover was first written)
+## Latest: sessions and participants (2026-09-29)
+
+Session notes can now hold data for several people in one session, and each person's data stays theirs.
+- **Anchors:** `session` (ICIS `wp_session`) and `participant` (`csg_attendance`: one person at one session), alongside `client`. All get DBS-issued IDs, checked against their type.
+- **Module scope:** a module is filled in *once per session* or *once per participant*, chosen in the module builder. The palette offers only the bindings the scope can reach; the server refuses anything else.
+- **Filling in:** pick a client's session, and each once-per-participant module renders one copy per person. Each copy pre-fills from that person's own attendance record and client record.
+- **Storage:** participant values live under `data.participants[<participant anchor id>]`. On submit the server commits once per anchor (session; each attendance record; each participant's client) and records each attempt in `session_template_submission_bindings` (migration `0012`).
+- **Reading back:** the submission view reads each copy from under its anchor and heads it with who that anchor is now (`GET /anchors/participants/:id`).
+- **New strategy:** `choice`, for Dataverse option sets (attendance status). Values cross the API as codes (`attended`, `dna`), never integers.
+- **Mock ICIS** gains sessions (a joint mediation session with Aisha Rahimi and Tariq Haddad, a group, individual ones) and a Sessions screen.
+- Design and stories: the proposal's "Anchors beyond the client", and epic US-14. Cases, case participants, related-record paths and the disclosure boundary are designed, not built.
+
+## Earlier: self-describing descriptors
 
 Descriptors now say how to show, list, check, read and write each value:
 - `presentations`: dropdown and/or radio for lookups; the form admin picks **Show as** per form.
@@ -114,7 +132,7 @@ The steward can narrow the presentations in the binding creator. See the proposa
 
 1. **Get [#82](https://github.com/richard-orchard-rewa/formbuilder/pull/82) reviewed and merged** once CI is green.
 2. **Get the DBS its own ICIS account**, per the [setup guide](../setup/icis-binding-service-account.md). Start read-only; add Write, Append and Append To to see real writes land in test ICIS. Then update `binding-service/.env`, the note in `CLAUDE.md`, and the proposal's findings.
-3. **Bound fields in modules and session templates.** At the moment only the form builder offers them, and session-template fill doesn't commit.
+3. **Decide the open US-14 questions:** which attendance statuses make someone a participant, how a participant copy is marked "not completed", and the §16 disclosure boundary for joint sessions. Then cases (US-14.12–14.13).
 4. **Remember the client when a draft is resumed.** Today a resumed draft forgets which client it was for.
 5. **An outbox for commits** (a queue with retries, like `feedback`'s ICIS sync), so an ICIS or DBS outage never blocks finalising.
 6. **Show when a list's options fail to load.** Today the field renders with no control and no message (e.g. if the DBS is briefly unreachable).

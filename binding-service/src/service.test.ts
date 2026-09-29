@@ -288,6 +288,16 @@ describe("BindingService sessions and participants", () => {
     expect(await attendance(bob.id)).toBe("attended")
   })
 
+  it("says who a participant anchor is, so saved per-participant data is shown against the right person", async () => {
+    const { service } = await build()
+    const [session] = (await service.findSessions("00152076"))!
+    const [bob, alex] = session.participants
+    expect(await service.getParticipant(alex.id)).toEqual(alex)
+    expect(await service.getParticipant(bob.id)).toEqual(bob)
+    // A client's anchor isn't a participant's.
+    expect(await service.getParticipant(bob.client.id)).toBeNull()
+  })
+
   it("serves a choice binding's options by code", async () => {
     const { service } = await build()
     expect((await service.getOptions("participant.attendance")).options).toEqual([

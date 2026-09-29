@@ -464,13 +464,14 @@ Paths are developer-maintained, like strategies, since they encode §7's referen
 4. **The disclosure boundary** (§16) for joint sessions.
 5. **Case-level scope:** which case records are anchors (`incident` alone, or the case pathway's stages too, §14).
 
-### Prototype slice
+### Prototype slice (built)
 
-Proving sessions and participants end to end, against the mock ICIS:
+Proves sessions and participants end to end, against the mock ICIS (richard-orchard-rewa/formbuilder#82):
 
 - **DBS**
   - `session` and `participant` anchors.
-  - `GET /anchors/sessions?clientNumber=`.
+  - `GET /anchors/sessions?clientNumber=`, and `GET /anchors/participants/:id` (who a participant anchor is now, for labelling saved notes).
+  - Anchor IDs are checked against their type: a client's ID is never accepted as a participant's.
   - Read-only session bindings: start, end, subject.
   - A participant binding, attendance status, using the new `choice` strategy.
   - resolve and commit per anchor type, refusing a binding used with the wrong anchor.
@@ -479,7 +480,9 @@ Proving sessions and participants end to end, against the mock ICIS:
   - A module's scope is chosen in the module builder: once per session, or once per participant. The palette offers only the bindings that scope can reach.
   - Session templates keep modules as sections.
   - The session-template fill page picks a session, renders participant modules once per participant, and saves per participant.
-  - The submission view shows the sections too.
+  - The submission view shows the sections too, and reads each participant's copy back from under their anchor, headed with who that anchor is. So what was captured for Aisha is always shown, and written, as Aisha's.
+  - The server refuses a module draft holding a binding its scope can't reach.
+- **Simplified in the slice:** a once-per-participant module offers `participant` and `client` bindings only, not the derived `session` ones the table above allows.
 - **Not in the slice:** case and case-participant anchors, related-record paths, the "not completed" marker, and the disclosure rules.
 
 ## Phase 1 and beyond (sketch)

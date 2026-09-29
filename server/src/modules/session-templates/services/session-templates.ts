@@ -1,4 +1,4 @@
-import type { Field, ModuleSchema } from "shared"
+import type { Field, ModuleSchema, SessionTemplateSection } from "shared"
 import type { ModuleVersionsService } from "../../module-builder/services/module-versions.js"
 import type {
   CreateSessionTemplateInput,
@@ -63,9 +63,12 @@ export class SessionTemplatesService {
   // "live reference" decision in docs/proposals/modules-and-session-
   // templates.md becomes visible: republishing a module changes this
   // without touching the template.
-  async previewSchema(sessionTemplateId: string): Promise<{ fields: Field[] }> {
+  async previewSchema(
+    sessionTemplateId: string,
+  ): Promise<{ fields: Field[]; sections: SessionTemplateSection[] }> {
     const composition = await this.repo.getComposition(sessionTemplateId)
     const fields: Field[] = []
+    const sections: SessionTemplateSection[] = []
     for (const item of composition) {
       const active = await this.moduleVersions.getActiveVersion(item.moduleId)
       // Shouldn't happen -- setComposition only ever admits published
@@ -74,7 +77,13 @@ export class SessionTemplatesService {
       if (!active) continue
       const schema = active.schema as ModuleSchema
       fields.push(...schema.fields)
+      sections.push({
+        moduleId: item.moduleId,
+        moduleName: item.name,
+        scope: schema.scope ?? "session",
+        fields: schema.fields,
+      })
     }
-    return { fields }
+    return { fields, sections }
   }
 }
