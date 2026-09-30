@@ -7,8 +7,9 @@ import { z } from "zod"
 // DBS over HTTP; these schemas are shared for prototype convenience.
 
 // The record a binding is "about" (requirements §7: a module type is
-// anchored to a core table). Only `client` exists in the prototype.
-export const BindingAnchorSchema = z.enum(["client"])
+// anchored to a core table): a client, a case, a session, or one client's
+// participation in a session (their attendance).
+export const BindingAnchorSchema = z.enum(["client", "case", "session", "sessionParticipant"])
 
 export type BindingAnchor = z.infer<typeof BindingAnchorSchema>
 
@@ -27,8 +28,11 @@ export const BindingControlSchema = z.discriminatedUnion("kind", [
 export type BindingControl = z.infer<typeof BindingControlSchema>
 
 // How a binding's value is read and written. Strategies are code; a
-// binding is a strategy plus configuration.
-export const BindingStrategySchema = z.enum(["attribute", "lookup"])
+// binding is a strategy plus configuration. `lookup` points at a row of a
+// reference table; `choice` is one value of a fixed option set on the
+// record itself (Dataverse's choice / picklist columns, e.g. attendance).
+// Both render as a `lookup` control: a choice from a list.
+export const BindingStrategySchema = z.enum(["attribute", "lookup", "choice"])
 
 export type BindingStrategy = z.infer<typeof BindingStrategySchema>
 
@@ -122,10 +126,19 @@ export const BindingOptionsSchema = z.object({
 
 export type BindingOptions = z.infer<typeof BindingOptionsSchema>
 
-// Identifies the anchor record(s) a resolve/commit applies to.
-export const AnchorContextSchema = z.object({
-  client: z.guid(),
-})
+// Identifies the anchor record(s) a resolve/commit applies to: one
+// DBS-issued ID per anchor the request's bindings are about. A session note
+// resolving session and case bindings together passes both.
+export const AnchorContextSchema = z
+  .object({
+    client: z.guid().optional(),
+    case: z.guid().optional(),
+    session: z.guid().optional(),
+    sessionParticipant: z.guid().optional(),
+  })
+  .refine((anchor) => Object.values(anchor).some(Boolean), {
+    message: "At least one anchor is required",
+  })
 
 export type AnchorContext = z.infer<typeof AnchorContextSchema>
 
@@ -146,6 +159,56 @@ export const ClientAnchorSchema = z.object({
 })
 
 export type ClientAnchor = z.infer<typeof ClientAnchorSchema>
+
+// --- Anchor navigation. A session-notes system works a case at a time: the
+// case's clients and sessions, and who attended each session. These give
+// it the DBS-issued anchor IDs to resolve and commit against, plus just
+// enough to list and label them; everything else about a record is read
+// through bindings. ---
+
+export const SessionStatusSchema = z.enum(["scheduled", "completed", "cancelled"])
+
+export type SessionStatus = z.infer<typeof SessionStatusSchema>
+
+export const SessionAnchorSchema = z.object({
+  id: z.guid(),
+  subject: z.string(),
+  scheduledStart: z.iso.datetime().nullable(),
+  status: SessionStatusSchema,
+})
+
+export type SessionAnchor = z.infer<typeof SessionAnchorSchema>
+
+// `GET /anchors/case?caseNumber=`
+export const CaseAnchorSchema = z.object({
+  id: z.guid(),
+  caseNumber: z.string().nullable(),
+  displayName: z.string(),
+})
+
+export type CaseAnchor = z.infer<typeof CaseAnchorSchema>
+
+// `GET /anchors/case/:id` -- the case, its clients and its sessions.
+export const CaseContextSchema = CaseAnchorSchema.extend({
+  clients: z.array(ClientAnchorSchema.extend({ primary: z.boolean() })),
+  sessions: z.array(SessionAnchorSchema),
+})
+
+export type CaseContext = z.infer<typeof CaseContextSchema>
+
+// `GET /anchors/session/:id` -- the session, its case, and each client
+// booked into it as a `sessionParticipant` anchor.
+export const SessionContextSchema = SessionAnchorSchema.extend({
+  case: CaseAnchorSchema.nullable(),
+  participants: z.array(
+    z.object({
+      id: z.guid(),
+      client: ClientAnchorSchema,
+    }),
+  ),
+})
+
+export type SessionContext = z.infer<typeof SessionContextSchema>
 
 export const ResolveRequestSchema = z.object({
   anchor: AnchorContextSchema,

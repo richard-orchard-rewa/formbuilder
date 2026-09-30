@@ -55,6 +55,17 @@
         "binding-service"
       ],
       "port": 3100
+    },
+    {
+      "name": "practitioner-portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "practitioner-portal"
+      ],
+      "port": 5180
     }
   ]
 }

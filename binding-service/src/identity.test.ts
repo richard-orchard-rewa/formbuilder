@@ -20,14 +20,21 @@ function registryContract(name: string, make: () => Promise<IdentityRegistry>) {
       expect(await ids.anchorFor("client", "icis", "contact-guid-1")).toBe(first)
       expect(await ids.anchorFor("client", "icis", "contact-guid-2")).not.toBe(first)
       expect(first).not.toContain("contact-guid")
-      expect(await ids.storeIdForAnchor(first, "icis")).toBe("contact-guid-1")
+      expect(await ids.storeIdForAnchor(first, "icis", "client")).toBe("contact-guid-1")
     })
 
     it("knows nothing about a store the record hasn't been linked to", async () => {
       const ids = await make()
       const id = await ids.anchorFor("client", "icis", "contact-guid-1")
-      expect(await ids.storeIdForAnchor(id, "clients")).toBeNull()
-      expect(await ids.storeIdForAnchor("not-an-anchor", "icis")).toBeNull()
+      expect(await ids.storeIdForAnchor(id, "clients", "client")).toBeNull()
+      expect(await ids.storeIdForAnchor("not-an-anchor", "icis", "client")).toBeNull()
+    })
+
+    it("won't accept one kind of anchor as another", async () => {
+      const ids = await make()
+      const caseId = await ids.anchorFor("case", "icis", "incident-guid-1")
+      expect(await ids.storeIdForAnchor(caseId, "icis", "case")).toBe("incident-guid-1")
+      expect(await ids.storeIdForAnchor(caseId, "icis", "client")).toBeNull()
     })
 
     it("agrees on one ID when asked for the same record concurrently", async () => {

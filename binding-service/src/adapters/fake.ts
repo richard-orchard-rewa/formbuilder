@@ -3,10 +3,13 @@ import {
   ConcurrentUpdateError,
   type AttributeMetadata,
   type BindingSource,
+  type CaseRecord,
+  type CaseSummary,
   type Change,
   type ClientSummary,
   type RecordStore,
   type ServicePermissions,
+  type SessionRecord,
   type StoreValue,
   type StoredRecord,
 } from "./adapter.js"
@@ -22,6 +25,11 @@ export const KNOWN_TITLES: BindingOptions["options"] = [
 ]
 
 export const FAKE_CLIENT_ID = "00000000-0000-0000-0000-000000152076"
+// One case for Bob, with one session he's booked into.
+export const FAKE_CASE_ID = "00000000-0000-0000-0000-00000c100001"
+export const FAKE_SESSION_ID = "00000000-0000-0000-0000-00000e100001"
+export const FAKE_ATTENDANCE_ID = "00000000-0000-0000-0000-00000a100001"
+export const FAKE_CASE_NUMBER = "100001"
 
 // Metadata mirroring test ICIS's `contact` for the allow-listed attributes
 // (display names and lengths as probed on 2026-09-25).
@@ -65,6 +73,24 @@ const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
     { value: "7c1c5d2e-0000-4000-8000-000000000003", label: "Non-binary" },
     { value: "7c1c5d2e-0000-4000-8000-000000000004", label: "Not stated" },
   ],
+  csg_sessionsetting: [
+    { value: "7c1c5d2e-0000-4000-8000-000000000101", label: "Centre Based" },
+    { value: "7c1c5d2e-0000-4000-8000-000000000102", label: "Telephone" },
+    { value: "7c1c5d2e-0000-4000-8000-000000000103", label: "Video Conference" },
+  ],
+}
+
+// Choice columns' option sets, as ICIS numbers them.
+const FAKE_CHOICES: Record<string, BindingOptions["options"]> = {
+  "csg_attendance.wp_attendancestatus": [
+    { value: "1", label: "Invited" },
+    { value: "2", label: "Did Not Attend" },
+    { value: "4", label: "Attended" },
+  ],
+  "incident.csg_casestage": [
+    { value: "100000000", label: "Intake" },
+    { value: "100000001", label: "Service delivery" },
+  ],
 }
 
 // An in-memory store so development, unit tests and e2e run without ICIS.
@@ -82,7 +108,10 @@ export class FakeRecordStore implements RecordStore {
     public privileges: {
       writeEntity: boolean
       readableTargets: Set<string>
-    } = { writeEntity: true, readableTargets: new Set(["csg_salutation", "csg_gender"]) },
+    } = {
+      writeEntity: true,
+      readableTargets: new Set(["csg_salutation", "csg_gender", "csg_sessionsetting"]),
+    },
   ) {
     this.records.set(FAKE_CLIENT_ID, {
       version: 1,
@@ -96,6 +125,61 @@ export class FakeRecordStore implements RecordStore {
         mobilephone: null,
       },
     })
+    this.records.set(FAKE_CASE_ID, {
+      version: 1,
+      values: { ticketnumber: FAKE_CASE_NUMBER, title: "McGee — Individual counselling", csg_casestage: "100000001" },
+    })
+    this.records.set(FAKE_SESSION_ID, {
+      version: 1,
+      values: {
+        subject: "Session 1 · Bob McGee",
+        scheduledstart: "2026-10-01T02:30:00.000Z",
+        csg_sessionsettingid: FAKE_OPTIONS.csg_sessionsetting[0].value,
+      },
+    })
+    this.records.set(FAKE_ATTENDANCE_ID, { version: 1, values: { wp_attendancestatus: "1" } })
+  }
+
+  private client(id: string): ClientSummary {
+    const values = this.records.get(id)!.values
+    return {
+      id,
+      clientNumber: values.csg_clientid ?? null,
+      firstName: values.firstname ?? null,
+      lastName: values.lastname ?? null,
+    }
+  }
+
+  async findCaseByNumber(caseNumber: string): Promise<CaseSummary | null> {
+    if (caseNumber !== FAKE_CASE_NUMBER) return null
+    const values = this.records.get(FAKE_CASE_ID)!.values
+    return { id: FAKE_CASE_ID, caseNumber, title: values.title ?? null }
+  }
+
+  async readCase(id: string): Promise<CaseRecord | null> {
+    if (id !== FAKE_CASE_ID) return null
+    const summary = (await this.findCaseByNumber(FAKE_CASE_NUMBER))!
+    const session = (await this.readSession(FAKE_SESSION_ID))!
+    return {
+      ...summary,
+      clients: [{ ...this.client(FAKE_CLIENT_ID), primary: true }],
+      sessions: [
+        { id: session.id, subject: session.subject, scheduledStart: session.scheduledStart, status: session.status },
+      ],
+    }
+  }
+
+  async readSession(id: string): Promise<SessionRecord | null> {
+    if (id !== FAKE_SESSION_ID) return null
+    const values = this.records.get(id)!.values
+    return {
+      id,
+      subject: values.subject ?? null,
+      scheduledStart: values.scheduledstart ?? null,
+      status: "scheduled",
+      case: await this.findCaseByNumber(FAKE_CASE_NUMBER),
+      participants: [{ id: FAKE_ATTENDANCE_ID, client: this.client(FAKE_CLIENT_ID) }],
+    }
   }
 
   private byClientNumber(clientNumber: string) {
@@ -152,6 +236,11 @@ export class FakeRecordStore implements RecordStore {
       return { options: [], source: "unavailable" }
     }
     return { options: FAKE_OPTIONS[target], source: "live" }
+  }
+
+  async choiceOptions(entity: string, attribute: string): Promise<BindingOptions> {
+    const options = FAKE_CHOICES[`${entity}.${attribute}`]
+    return options ? { options, source: "live" } : { options: [], source: "unavailable" }
   }
 
   async describe(_entity: string, attributes: string[]): Promise<AttributeMetadata[]> {

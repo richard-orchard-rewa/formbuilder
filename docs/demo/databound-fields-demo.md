@@ -18,7 +18,7 @@ Background: [the proposal](../proposals/databound-fields.md).
 
 - **Mock ICIS** ([`mock-icis/`](../../mock-icis/)) is a stand-in for ICIS's Dataverse Web API.
   - It speaks exactly the subset of the protocol the service uses: metadata, contact reads and PATCHes, lookup lists and privilege checks. It uses the same URL shapes, etags and error messages as the real thing.
-  - It holds 20 made-up clients shaped like ICIS `contact` records. Phone numbers are from ACMA's ranges reserved for fiction, and emails use `example.com`.
+  - It holds 26 made-up clients shaped like ICIS `contact` records (6 of them the [practitioner portal demo](practitioner-portal-demo.md)'s caseload, with their cases and sessions). Phone numbers are from ACMA's ranges reserved for fiction, and emails use `example.com`.
   - Its screens let you play ICIS staff (edit clients), the ICIS admin (grant the service's privileges) and an observer (watch every API call).
 - **The Data Binding Service runs unchanged.** It uses its real ICIS adapter, pointed at the mock by [`binding-service/.env.demo`](../../binding-service/.env.demo). The only differences from real ICIS are a fixed token instead of an Entra sign-in (refused for anything but localhost) and privileges re-checked on every request. A contract test ([`mock-icis/src/contract.test.ts`](../../mock-icis/src/contract.test.ts)) runs the real adapter against the mock, so the two can't drift apart silently.
 
@@ -137,4 +137,4 @@ About 20 minutes. Each part is one role.
   - Linked data, i.e. presenting needs and referrals, which need two more strategies.
   - The validation library (phone, email, Medicare).
   - Real identity. The service uses a service account, which §8 of the requirements rules out for real clinical writes.
-  - Bound fields in modules and session templates.
+  - Bound fields in form-builder's modules and session templates. The [practitioner portal demo](practitioner-portal-demo.md) shows the idea with seeded modules on cases, sessions and clients.

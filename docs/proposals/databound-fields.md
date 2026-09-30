@@ -219,6 +219,24 @@ Every descriptor the DBS serves tells a consumer how to show, list, check, read 
 - Binding-version migration beyond "same key carries over".
 - The "changed in ICIS since" indicator when re-viewing a submission (decision 1).
 
+## Phase 0.6 — case, session and participant anchors (2026-09-29)
+
+Built to walk a developer through the design with a realistic consumer: a mocked-up practitioner portal ([`practitioner-portal/`](../../practitioner-portal/), walkthrough in [practitioner-portal-demo.md](../demo/practitioner-portal-demo.md)). Its session notes are made of modules scoped to a case, a session, each client, or each client's attendance.
+
+- **Anchors.** `case` (ICIS `incident`), `session` (`wp_session`, regarding the case) and `sessionParticipant` (`csg_attendance`) join `client`.
+  - `GET /anchors/case?caseNumber=`, `GET /anchors/case/:id` (clients and sessions) and `GET /anchors/session/:id` (case and participants) return DBS-issued IDs only.
+  - An anchor ID knows its kind: a client's ID sent as a case's is unknown.
+- **Multi-anchor resolve and commit.** `anchor` may carry several IDs (`{ session, case }`). The DBS groups the bindings by anchor and does one read, and at most one conditional write, per record. A commit spanning records can partly succeed; the per-binding results say which. Naming a binding whose anchor wasn't given is a 422.
+- **A third strategy, `choice`,** for Dataverse option sets (attendance status, case stage).
+  - Options come from the column's metadata (`PicklistAttributeMetadata`), are coded like lookups (`attended`), and are written as the option's integer.
+  - It renders as a `lookup` control, so forms needed no change.
+- **Built-in bindings** (code only; the steward allow-lists for these anchors are empty):
+  - case: number, program, location, referral source, stage
+  - session: subject, type, setting
+  - participant: attendance
+- **The mock ICIS** gained the matching tables, `$expand`, GUID filters and option-set metadata, and a demo caseload. Sessions use Dataverse's shared **Activity** privileges, so writing a session's setting needs `prvWriteActivity`, which is write on every activity type.
+- **Read refusals** now name the missing privilege, as write refusals already did, instead of passing on Dataverse's message with its principal IDs.
+
 ## Creating bindings without a developer
 
 Phase 0's dictionary is code, so every new bound field needs a developer. That doesn't scale: most requests will be "let this form show/edit the client's X". The answer is to split what a developer must write from what a data steward can configure.

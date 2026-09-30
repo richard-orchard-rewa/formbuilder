@@ -1,8 +1,13 @@
 import type { BindingAnchor } from "shared"
 
-// Which store entity each anchor maps to.
+// Which store entity each anchor maps to. In ICIS a case is an `incident`,
+// a session a `wp_session` activity regarding it, and a client's
+// participation in a session their `csg_attendance` row.
 export const ANCHOR_ENTITIES: Record<BindingAnchor, string> = {
   client: "contact",
+  case: "incident",
+  session: "wp_session",
+  sessionParticipant: "csg_attendance",
 }
 
 export interface AllowedAttribute {
@@ -38,6 +43,13 @@ export const ALLOW_LIST: Record<BindingAnchor, AllowedAttribute[]> = {
     // The client's identifier: displayable, never editable from a form.
     { attribute: "csg_clientid", maxAccess: "read" },
   ],
+  // Not yet opened to stewards: case, session and attendance bindings are
+  // code-only (dictionary.ts) until a data owner approves their attributes.
+  // Session and attendance columns feed the DEX export, so that approval
+  // has to weigh DEX timing (docs/proposals/databound-fields.md).
+  case: [],
+  session: [],
+  sessionParticipant: [],
 }
 
 export function allowedAttribute(

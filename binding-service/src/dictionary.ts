@@ -68,4 +68,55 @@ export const CODE_BINDINGS: DictionaryEntry[] = [
       overridable: ["label"],
     },
   },
+
+  // --- Case (`incident`). The case's identity and service are set when
+  // it's opened in ICIS, so display-only; the practitioner keeps its
+  // referral source and stage current from their notes. ---
+  entry("case", "caseNumber", "Case number", "The case's ICIS case number. Display only.", "read",
+    { strategy: "attribute", entity: "incident", attribute: "ticketnumber" }),
+  entry("case", "program", "Program", "The service program the case is delivered under.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_programid", target: "csg_program" }),
+  entry("case", "location", "Location", "The RAWA location delivering the case.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_locationid", target: "csg_location" }),
+  entry("case", "referralSource", "Referral source", "Who referred the client(s) to the service.", "readWrite",
+    { strategy: "lookup", entity: "incident", attribute: "csg_referralsourceid", target: "csg_referralsource" }),
+  entry("case", "stage", "Case stage", "Where the case is in the service: intake, delivery, review or closure.", "readWrite",
+    { strategy: "choice", entity: "incident", attribute: "csg_casestage" }),
+
+  // --- Session (`wp_session`). Its subject and type come from the
+  // booking; how it was delivered is confirmed in the session note. ---
+  entry("session", "subject", "Session", "The booked session's subject. Display only.", "read",
+    { strategy: "attribute", entity: "wp_session", attribute: "subject" }),
+  entry("session", "sessionType", "Session type", "Intake, counselling session or case review, as booked.", "read",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessiontypeid", target: "csg_sessiontype" }),
+  entry("session", "setting", "Session setting", "How and where the session was delivered.", "readWrite",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessionsettingid", target: "csg_sessionsetting" }),
+
+  // --- Session participant (`csg_attendance`): one per client booked into
+  // a session. ---
+  entry("sessionParticipant", "attendance", "Attendance", "Whether this client attended the session.", "readWrite",
+    { strategy: "choice", entity: "csg_attendance", attribute: "wp_attendancestatus" }),
 ]
+
+function entry(
+  anchor: DictionaryEntry["descriptor"]["anchor"],
+  name: string,
+  label: string,
+  description: string,
+  access: "read" | "readWrite",
+  source: BindingSource,
+): DictionaryEntry {
+  return {
+    source,
+    descriptor: {
+      key: `${anchor}.${name}`,
+      version: 1,
+      label,
+      description,
+      anchor,
+      access,
+      control: source.strategy === "attribute" ? { kind: "text" } : { kind: "lookup" },
+      overridable: access === "read" ? ["label"] : ["label", "required"],
+    },
+  }
+}

@@ -11,7 +11,7 @@ import {
 } from "../../binding-service/src/registry.js"
 import { BindingService } from "../../binding-service/src/service.js"
 import { buildMockIcis } from "./app.js"
-import { LOOKUP_ROWS, SERVICE_ACCOUNT } from "./data.js"
+import { LOOKUP_ROWS, PORTAL_DEMO_PRIVILEGES, SERVICE_ACCOUNT } from "./data.js"
 
 // Contacts' Dataverse IDs, as the mock holds them. Consumers never see these.
 const BOB = "2c616f0e-d741-f011-8779-000d3ad0ea14"
@@ -188,6 +188,108 @@ describe("the creator's ceiling for lookups", () => {
     state.privileges.add("prvAppendToCsg_gender")
     const after = (await creator.candidates("client")).find((c) => c.attribute === "csg_genderid")
     expect(after?.maxAccess).toBe("readWrite")
+  })
+})
+
+describe("cases, sessions and attendance against the mock ICIS", () => {
+  async function hawkins() {
+    const built = build()
+    for (const p of PORTAL_DEMO_PRIVILEGES) built.state.privileges.add(p)
+    const found = (await built.service.findCase("104872"))!
+    const context = await built.service.caseContext(found.id)
+    const session3 = context.sessions.find((s) => s.subject.startsWith("Session 3"))!
+    const session = await built.service.sessionContext(session3.id)
+    return { ...built, found, context, session }
+  }
+
+  it("walks from a case to its clients and sessions, handing out DBS IDs only", async () => {
+    const { found, context, session } = await hawkins()
+    expect(found).toMatchObject({ caseNumber: "104872", displayName: "Hawkins — Couples counselling" })
+    expect(context.clients.map((c) => [c.displayName, c.primary])).toEqual([
+      ["Taylor Hawkins", true],
+      ["Adam Hawkins", false],
+    ])
+    expect(context.sessions.map((s) => s.status)).toEqual([
+      "completed", "completed", "completed", "scheduled", "scheduled",
+    ])
+    expect(session.case?.id).toBe(found.id)
+    expect(session.participants.map((p) => p.client.displayName)).toEqual([
+      "Taylor Hawkins",
+      "Adam Hawkins",
+    ])
+    // Neither the incident's, the sessions' nor the attendances' Dataverse IDs.
+    expect(JSON.stringify([context, session])).not.toMatch(/de30[4-7]000-/)
+  })
+
+  it("resolves case and session bindings in one request, as codes", async () => {
+    const { service, found, session } = await hawkins()
+    const { values } = await service.resolve({
+      anchor: { case: found.id, session: session.id },
+      bindings: ["case.caseNumber", "case.program", "case.stage", "session.subject", "session.setting"],
+    })
+    expect(values).toEqual({
+      "case.caseNumber": "104872",
+      "case.program": "couples-counselling",
+      "case.stage": "service-delivery",
+      "session.subject": "Session 3 · Taylor & Adam Hawkins",
+      "session.setting": "centre-based",
+    })
+  })
+
+  it("writes a session's setting and one client's attendance back to ICIS", async () => {
+    const { state, service, session } = await hawkins()
+    const setting = await service.commit({
+      anchor: { session: session.id },
+      values: { "session.setting": "video-conference" },
+    })
+    expect(setting.results["session.setting"]).toEqual({ status: "written" })
+    const sessionRow = [...state.table("wp_session").values()].find((r) =>
+      String(r.values.subject).startsWith("Session 3"),
+    )!
+    expect(state.lookupName("csg_sessionsetting", sessionRow.values.csg_sessionsettingid)).toBe(
+      "Video Conference",
+    )
+
+    const taylor = session.participants[0]
+    const opened = await service.resolve({
+      anchor: { sessionParticipant: taylor.id },
+      bindings: ["sessionParticipant.attendance"],
+    })
+    expect(opened.values["sessionParticipant.attendance"]).toBe("invited")
+    const attended = await service.commit({
+      anchor: { sessionParticipant: taylor.id },
+      values: { "sessionParticipant.attendance": "attended" },
+      baseline: opened.values,
+    })
+    expect(attended.results["sessionParticipant.attendance"]).toEqual({ status: "written" })
+    const attendance = [...state.table("csg_attendance").values()].find(
+      (r) => r.values.csg_sessionid === sessionRow.id && r.version > 2000,
+    )!
+    // ICIS holds the option's own value (4 = Attended), not the DBS's code.
+    expect(attendance.values.wp_attendancestatus).toBe(4)
+  })
+
+  it("names the Activity privilege when the account can't write sessions", async () => {
+    const { state, service, session } = await hawkins()
+    state.privileges.delete("prvWriteActivity")
+    const { results } = await service.commit({
+      anchor: { session: session.id },
+      values: { "session.setting": "telephone" },
+    })
+    expect(results["session.setting"]).toMatchObject({
+      status: "failed",
+      message: expect.stringContaining("prvWriteActivity"),
+    })
+  })
+
+  it("won't take one kind of anchor for another", async () => {
+    const { service, context } = await hawkins()
+    await expect(
+      service.resolve({ anchor: { case: context.clients[0].id }, bindings: ["case.caseNumber"] }),
+    ).rejects.toThrow(/No case/)
+    await expect(
+      service.resolve({ anchor: { client: context.clients[0].id }, bindings: ["case.caseNumber"] }),
+    ).rejects.toThrow(/need a case anchor/)
   })
 })
 

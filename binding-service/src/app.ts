@@ -11,7 +11,10 @@ import {
   BindingDescriptorSchema,
   BindingOptionsSchema,
   AttributeCandidateListSchema,
+  CaseAnchorSchema,
+  CaseContextSchema,
   ClientAnchorSchema,
+  SessionContextSchema,
   CommitRequestSchema,
   CreateBindingRequestSchema,
   ManagedBindingListSchema,
@@ -28,10 +31,13 @@ import {
 } from "./creator.js"
 import {
   AnchorNotFoundError,
+  MissingAnchorError,
   NoOptionsError,
   UnknownBindingError,
   type BindingService,
 } from "./service.js"
+
+import { StoreReadError } from "./adapters/adapter.js"
 
 const ErrorSchema = z.object({ message: z.string() })
 
@@ -54,8 +60,11 @@ export function buildApp(
     if (error instanceof AnchorNotFoundError || error instanceof BindingNotFoundError) {
       return reply.code(404).send({ message: error.message })
     }
-    if (error instanceof BindingRuleError) {
+    if (error instanceof BindingRuleError || error instanceof MissingAnchorError) {
       return reply.code(422).send({ message: error.message })
+    }
+    if (error instanceof StoreReadError) {
+      return reply.code(403).send({ message: error.message })
     }
     return reply.send(error)
   })
@@ -70,14 +79,26 @@ export function buildApp(
     service: "Data Binding Service",
     description:
       "Owns the dictionary of data-bound fields and all access to the backing store. Consumers never talk to the store directly.",
-    anchors: ["client"],
-    strategies: ["attribute", "lookup"],
+    anchors: {
+      client: "A client (ICIS contact)",
+      case: "A case (ICIS incident), with its clients and sessions",
+      session: "A booked session (ICIS wp_session) regarding a case",
+      sessionParticipant: "One client's participation in a session (ICIS csg_attendance)",
+    },
+    strategies: {
+      attribute: "One text value on the anchor record",
+      lookup: "One row of a reference table, linked from the anchor record",
+      choice: "One value of a fixed option set on the anchor record",
+    },
     endpoints: {
-      "GET /bindings?anchor=client": "Published bindings, as descriptors a form can render",
+      "GET /bindings?anchor=": "Published bindings, as descriptors a form can render",
       "GET /bindings/:key": "One binding's descriptor",
-      "GET /bindings/:key/options": "A lookup binding's options, served live",
-      "GET /anchors/client?clientNumber=": "Find the record to anchor on",
-      "POST /resolve": "Current values for bindings on an anchor",
+      "GET /bindings/:key/options": "A lookup or choice binding's options, served live",
+      "GET /anchors/client?clientNumber=": "Find a client to anchor on",
+      "GET /anchors/case?caseNumber=": "Find a case to anchor on",
+      "GET /anchors/case/:id": "A case with its clients and sessions, as anchors",
+      "GET /anchors/session/:id": "A session with its case and participants, as anchors",
+      "POST /resolve": "Current values for bindings on one or more anchors",
       "POST /commit": "Write changed values, refusing to overwrite changes made since resolve",
       "GET /admin/attributes?anchor=client": "Binding creator: allow-listed attributes, with store limits and this service's own privileges",
       "GET /admin/bindings": "Binding creator: every binding and version",
@@ -136,12 +157,49 @@ export function buildApp(
     },
   )
 
+  typed.get(
+    "/anchors/case",
+    {
+      schema: {
+        querystring: z.object({ caseNumber: z.string().trim().min(1) }),
+        response: { 200: CaseAnchorSchema, 404: ErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const found = await service.findCase(request.query.caseNumber)
+      if (!found) return reply.code(404).send({ message: "No matching case" })
+      return found
+    },
+  )
+
+  typed.get(
+    "/anchors/case/:id",
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 200: CaseContextSchema, 404: ErrorSchema },
+      },
+    },
+    async (request) => service.caseContext(request.params.id),
+  )
+
+  typed.get(
+    "/anchors/session/:id",
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: { 200: SessionContextSchema, 404: ErrorSchema },
+      },
+    },
+    async (request) => service.sessionContext(request.params.id),
+  )
+
   typed.post(
     "/resolve",
     {
       schema: {
         body: ResolveRequestSchema,
-        response: { 200: ResolveResponseSchema, 404: ErrorSchema },
+        response: { 200: ResolveResponseSchema, 404: ErrorSchema, 422: ErrorSchema },
       },
     },
     async (request) => service.resolve(request.body),
@@ -152,7 +210,7 @@ export function buildApp(
     {
       schema: {
         body: CommitRequestSchema,
-        response: { 200: CommitResponseSchema, 404: ErrorSchema },
+        response: { 200: CommitResponseSchema, 404: ErrorSchema, 422: ErrorSchema },
       },
     },
     async (request) => service.commit(request.body),

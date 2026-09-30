@@ -210,3 +210,39 @@ describe("BindingService.commit", () => {
     })
   })
 })
+
+describe("BindingService beyond the client anchor", () => {
+  it("walks case -> session -> participant, and writes a choice by code", async () => {
+    const { service } = await build()
+    const found = (await service.findCase("100001"))!
+    const context = await service.caseContext(found.id)
+    expect(context.clients.map((c) => c.displayName)).toEqual(["Bob McGee"])
+    const session = await service.sessionContext(context.sessions[0].id)
+    const participant = { sessionParticipant: session.participants[0].id }
+
+    const opened = await service.resolve({
+      anchor: { ...participant, session: session.id },
+      bindings: ["sessionParticipant.attendance", "session.setting"],
+    })
+    expect(opened.values).toEqual({
+      "sessionParticipant.attendance": "invited",
+      "session.setting": "centre-based",
+    })
+    expect((await service.getOptions("sessionParticipant.attendance")).options.map((o) => o.value))
+      .toEqual(["invited", "did-not-attend", "attended"])
+
+    const { results } = await service.commit({
+      anchor: participant,
+      values: { "sessionParticipant.attendance": "attended" },
+      baseline: opened.values,
+    })
+    expect(results["sessionParticipant.attendance"]).toEqual({ status: "written" })
+  })
+
+  it("refuses bindings on an anchor the request didn't give", async () => {
+    const { service, anchor } = await build()
+    await expect(
+      service.resolve({ anchor, bindings: ["client.firstName", "case.caseNumber"] }),
+    ).rejects.toThrow("case.caseNumber need a case anchor")
+  })
+})
