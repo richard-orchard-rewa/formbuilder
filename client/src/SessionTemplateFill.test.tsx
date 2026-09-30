@@ -131,6 +131,67 @@ describe("SessionTemplateFill with participant sections", () => {
   })
 })
 
+describe("SessionTemplateFill defaults and validation", () => {
+  const fantastic: Field = {
+    id: "fantastic",
+    type: "dropdown",
+    label: "Fantastic",
+    required: true,
+    options: [
+      { value: "Yes", label: "Yes" },
+      { value: "No", label: "No" },
+    ],
+    defaultValue: "Yes",
+  }
+  const defaults: SessionTemplateVersion = {
+    ...version,
+    schema: {
+      fields: [fantastic],
+      sections: [{ moduleId: "m1", moduleName: "Details", scope: "session", fields: [fantastic] }],
+    },
+  }
+
+  it("starts a required dropdown on its default, so submitting works untouched", async () => {
+    vi.spyOn(api, "getSessionTemplateActiveVersion").mockResolvedValue(defaults)
+    const submit = vi.spyOn(api, "submitSessionTemplate").mockResolvedValue({
+      id: "sub-1",
+      sessionTemplateId: "t1",
+      sessionTemplateVersionId: "v1",
+      data: {},
+      submittedBy: null,
+      submittedAt: "2026-10-06T00:00:00.000Z",
+    })
+    const user = userEvent.setup()
+    render(<SessionTemplateFill sessionTemplateId="t1" sessionTemplateName="Note" onBack={() => {}} />)
+
+    expect(await screen.findByLabelText("Fantastic*")).toHaveValue("Yes")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await user.click(screen.getByRole("button", { name: "Submit" }))
+    await waitFor(() => expect(submit).toHaveBeenCalled())
+    expect(submit.mock.calls[0][1]).toEqual({ fantastic: "Yes" })
+  })
+
+  it("says why nothing was submitted when a required field is empty", async () => {
+    const noDefault = { ...fantastic, defaultValue: undefined }
+    vi.spyOn(api, "getSessionTemplateActiveVersion").mockResolvedValue({
+      ...defaults,
+      schema: {
+        fields: [noDefault],
+        sections: [{ moduleId: "m1", moduleName: "Details", scope: "session", fields: [noDefault] }],
+      },
+    })
+    const submit = vi.spyOn(api, "submitSessionTemplate")
+    const user = userEvent.setup()
+    render(<SessionTemplateFill sessionTemplateId="t1" sessionTemplateName="Note" onBack={() => {}} />)
+
+    await screen.findByLabelText("Fantastic*")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await user.click(screen.getByRole("button", { name: "Submit" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Please fill out all required fields.")
+    expect(submit).not.toHaveBeenCalled()
+  })
+})
+
 describe("SessionTemplateSubmissionView with participant sections", () => {
   it("reads each participant's copy back and labels it with who that participant is", async () => {
     vi.spyOn(api, "getSessionTemplateSubmission").mockResolvedValue({
