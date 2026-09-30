@@ -536,3 +536,14 @@ body.show-bindings .binding-chip { display: inline-flex; }
   .appt .tag.good, .appt .tag.warn, .appt .tag.neutral { display: none; }
   .profile { display: none; }
 }
+
+/* Session templates from form-builder */
+.template-picker { margin-top: 22px; }
+.template-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.template-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.template-list li span { display: flex; flex-direction: column; gap: 2px; }
+.template-list small { color: var(--muted, #5b7183); }
+.participant-copy { padding: 14px 0; border-top: 1px solid var(--line); }
+.participant-copy:first-child { border-top: 0; padding-top: 0; }
+.participant-copy h3 { margin: 0 0 10px; font-size: 15px; }
+.participant-copy h3 small { font-weight: 500; color: var(--muted, #5b7183); }
