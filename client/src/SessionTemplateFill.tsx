@@ -38,6 +38,22 @@ type Data = Record<string, unknown>
 const boundOn = (fields: Field[], anchor: BindingAnchor) =>
   fields.filter(isBoundField).filter((field) => field.binding.anchor === anchor)
 
+// The answers a field starts with: a dropdown/radio's default option and a
+// checkbox's default state. The JSON Schema `default` alone isn't applied to
+// the form's data, so a required dropdown with a default would otherwise
+// start empty and block the submit.
+function defaultsFor(fields: Field[]): Data {
+  const data: Data = {}
+  for (const field of fields) {
+    if ((field.type === "dropdown" || field.type === "radio") && field.defaultValue !== undefined) {
+      data[field.id] = field.defaultValue
+    } else if (field.type === "checkbox" && field.defaultChecked) {
+      data[field.id] = true
+    }
+  }
+  return data
+}
+
 // Resolves `fields`' bindings against one anchor, returning the values by
 // binding key and the same values keyed by field id for the form's data.
 async function resolveInto(
@@ -89,6 +105,15 @@ export function SessionTemplateFill({
       .then((active) => {
         if (cancelled) return
         setVersion(active)
+        if (active) {
+          setSessionData(
+            defaultsFor(
+              sectionsOf(active.schema)
+                .filter((s) => s.scope === "session")
+                .flatMap((s) => s.fields),
+            ),
+          )
+        }
         setStatus(active ? "ready" : "no-active")
       })
       .catch(() => {
@@ -131,7 +156,10 @@ export function SessionTemplateFill({
     setSessionData((current) => ({ ...current, ...forSession.data }))
     setParticipantData(
       Object.fromEntries(
-        perParticipant.map((p) => [p.id, { ...p.attendance.data, ...p.client.data }]),
+        perParticipant.map((p) => [
+          p.id,
+          { ...defaultsFor(participantFields), ...p.attendance.data, ...p.client.data },
+        ]),
       ),
     )
     setBaseline({
@@ -153,6 +181,7 @@ export function SessionTemplateFill({
     }
     if (Object.values(errors).some((list) => list.length > 0)) {
       setShowValidation(true)
+      setSubmitError("Please fill out all required fields.")
       return
     }
     setSubmitError(null)
