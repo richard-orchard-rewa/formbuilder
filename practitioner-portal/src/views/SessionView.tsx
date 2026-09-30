@@ -4,7 +4,7 @@ import type {
   BindingDescriptor,
   BoundValues,
   CaseContext,
-  SessionContext,
+  SessionAnchor,
 } from "shared"
 import { href } from "../App"
 import { BoundControl, useDisplayValue } from "../components/BoundControl"
@@ -23,14 +23,13 @@ import {
   changesFor,
   instancesFor,
   outcomeText,
-  SHARED_GROUP,
   type BindingGroup,
   type ModuleInstance,
 } from "../session-note"
 
 interface Loaded {
-  session: SessionContext
-  caseContext: CaseContext | null
+  caseContext: CaseContext
+  session: SessionAnchor
   dictionary: Map<string, BindingDescriptor>
   template: SessionTemplate
   instances: ModuleInstance[]
@@ -40,42 +39,35 @@ interface Loaded {
   resolvedAt: string
 }
 
-// Every case/session binding any template might use: resolved first, so
-// the session's own type can pick the template.
-const SHARED_BINDINGS = [
-  ...new Set(
-    MODULES.filter((m) => m.scope === "case" || m.scope === "session").flatMap((m) =>
-      boundFields(m).map((f) => f.binding),
-    ),
-  ),
+// Every session binding any template might use: resolved first, so the
+// session's own type can pick the template.
+const SESSION_BINDINGS = [
+  ...new Set(MODULES.filter((m) => m.scope === "session").flatMap((m) => boundFields(m).map((f) => f.binding))),
 ]
 
-async function load(sessionId: string): Promise<Loaded> {
-  const [session, dictionary] = await Promise.all([dbs.sessionContext(sessionId), bindingDictionary()])
-  const sharedAnchor = { session: session.id, ...(session.case ? { case: session.case.id } : {}) }
-  const sharedKeys = SHARED_BINDINGS.filter(
-    (k) => dictionary.has(k) && (session.case || dictionary.get(k)!.anchor !== "case"),
-  )
-  const [shared, caseContext] = await Promise.all([
-    dbs.resolve(sharedAnchor, sharedKeys),
-    session.case ? dbs.caseContext(session.case.id) : Promise.resolve(null),
-  ])
-  const template = templateFor(shared.values["session.sessionType"])
+// Opens the session through its case: the case's anchors give the session
+// and each participant, then each group resolves against its own anchor --
+// the DBS takes one anchor per call.
+async function load(caseNumber: string, sessionId: string): Promise<Loaded> {
+  const [caseContext, dictionary] = await Promise.all([dbs.findCase(caseNumber), bindingDictionary()])
+  const session = caseContext.sessions.find((s) => s.id === sessionId)
+  if (!session) throw new Error(`No such session on case ${caseNumber}`)
+  const sessionKeys = SESSION_BINDINGS.filter((k) => dictionary.has(k))
+  const sessionValues = (await dbs.resolve({ session: session.id }, sessionKeys)).values
+  const template = templateFor(sessionValues["session.sessionType"])
   const instances = instancesFor(template, session)
-  const groups = bindingGroups(instances, dictionary)
+  const groups = bindingGroups(instances, session, caseContext, dictionary)
   const baseline: Record<string, BoundValues> = {}
   await Promise.all(
     groups.map(async (group) => {
-      if (group.id === SHARED_GROUP) {
-        baseline[group.id] = Object.fromEntries(group.bindings.map((k) => [k, shared.values[k] ?? null]))
-      } else {
-        baseline[group.id] = (await dbs.resolve(group.anchor, group.bindings)).values
-      }
+      baseline[group.id] =
+        "session" in group.anchor
+          ? Object.fromEntries(group.bindings.map((k) => [k, sessionValues[k] ?? null]))
+          : (await dbs.resolve(group.anchor, group.bindings)).values
     }),
   )
-  return { session, caseContext, dictionary, template, instances, groups, baseline, resolvedAt: shared.resolvedAt }
+  return { caseContext, session, dictionary, template, instances, groups, baseline, resolvedAt: new Date().toISOString() }
 }
-
 // The note field values that are missing but required.
 function missingRequired(instances: ModuleInstance[], answers: Record<string, ModuleAnswers>) {
   const missing: string[] = []
@@ -84,7 +76,7 @@ function missingRequired(instances: ModuleInstance[], answers: Record<string, Mo
       if (field.kind === "bound" || !("required" in field) || !field.required) continue
       const value = answers[instance.key]?.[field.id]
       if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
-        missing.push(`${instance.module.title}${instance.client ? ` (${instance.client.displayName})` : ""}: ${(field as NoteFieldDef).label}`)
+        missing.push(`${instance.module.title}${instance.participant ? ` (${instance.participant.client.displayName})` : ""}: ${(field as NoteFieldDef).label}`)
       }
     }
   }
@@ -112,7 +104,7 @@ function ResultLine({
   )
 }
 
-export function SessionView({ sessionId }: { sessionId: string }) {
+export function SessionView({ caseNumber, sessionId }: { caseNumber: string; sessionId: string }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, ModuleAnswers>>({})
@@ -123,14 +115,14 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [notice, setNotice] = useState<{ tone: "info" | "good" | "bad"; text: string } | null>(null)
   const [active, setActive] = useState<string | null>(null)
 
-  const key = loaded ? noteKey(loaded.session.case?.caseNumber ?? null, loaded.session.subject) : null
+  const key = loaded ? noteKey(loaded.caseContext.caseNumber, loaded.session.subject) : null
 
   const open = useCallback(
     (keepAnswers?: Record<string, ModuleAnswers>) => {
       setError(null)
-      load(sessionId).then(
+      load(caseNumber, sessionId).then(
         (l) => {
-          const saved = loadNote(noteKey(l.session.case?.caseNumber ?? null, l.session.subject))
+          const saved = loadNote(noteKey(l.caseContext.caseNumber, l.session.subject))
           setLoaded(l)
           setNote(saved)
           setAnswers(keepAnswers ?? saved?.answers ?? {})
@@ -144,7 +136,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         (e: Error) => setError(e.message),
       )
     },
-    [sessionId],
+    [caseNumber, sessionId],
   )
 
   useEffect(() => open(), [open])
@@ -163,7 +155,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   }, [loaded])
 
   const previous = useMemo(() => {
-    if (!loaded?.caseContext) return null
+    if (!loaded) return null
     const sessions = loaded.caseContext.sessions
     const index = sessions.findIndex((s) => s.id === loaded.session.id)
     for (let i = index - 1; i >= 0; i--) {
@@ -291,26 +283,19 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   return (
     <div className="note-screen">
       <div className="backbar">
-        {session.case ? (
-          <a href={href({ page: "case", caseNumber: session.case.caseNumber ?? "", tab: "sessions" })}>
-            <Icon name="arrowLeft" size={16} />
-            Back to case
-          </a>
-        ) : (
-          <a href={href({ page: "home" })}>
-            <Icon name="arrowLeft" size={16} />
-            Home
-          </a>
-        )}
+        <a href={href({ page: "case", caseNumber, tab: "sessions" })}>
+          <Icon name="arrowLeft" size={16} />
+          Back to case
+        </a>
       </div>
       <div className="note-top">
         <div className="note-identity">
           <p>
-            COUNSELLING{session.case ? ` · CASE ${session.case.caseNumber}` : ""} · {template.name.toUpperCase()}
+            COUNSELLING · CASE {caseNumber} · {template.name.toUpperCase()}
           </p>
           <h1>{session.subject}</h1>
           <span>
-            {formatDateTime(session.scheduledStart)} · {session.participants.map((p) => p.client.displayName).join(" & ")}
+            {formatDateTime(session.start)} · {session.participants.map((p) => p.client.displayName).join(" & ")}
           </span>
         </div>
         <div className="note-status">
@@ -357,7 +342,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               <b>{i + 1}</b>
               <span>
                 {instance.module.title}
-                {instance.client && <small>{instance.client.displayName}</small>}
+                {instance.participant && <small>{instance.participant.client.displayName}</small>}
               </span>
             </a>
           ))}
@@ -386,7 +371,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
                 <span>
                   <h2>Previous session summary</h2>
                   <p>
-                    From the note for {previous.session.subject} ({formatDateTime(previous.session.scheduledStart)}).
+                    From the note for {previous.session.subject} ({formatDateTime(previous.session.start)}).
                   </p>
                 </span>
                 <Icon name="chevronDown" />
@@ -409,7 +394,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
                   <span>
                     <h2>
                       {instance.module.title}
-                      {instance.client && <em> · {instance.client.displayName}</em>}
+                      {instance.participant && <em> · {instance.participant.client.displayName}</em>}
                     </h2>
                     <p>{instance.module.description}</p>
                   </span>
@@ -489,7 +474,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
                     <ResultLine
                       key={`${g.id}-${binding}`}
                       descriptor={dictionary.get(binding)}
-                      label={`${dictionary.get(binding)?.label ?? binding}${g.id === SHARED_GROUP ? "" : ` (${g.label})`}`}
+                      label={`${dictionary.get(binding)?.label ?? binding}${g.label === "Case" || g.label === "Session" ? "" : ` (${g.label.split(" · ")[0]})`}`}
                       result={result}
                     />
                   )),
@@ -507,7 +492,7 @@ const SCOPE_LABEL = {
   case: "Case module",
   session: "Session module",
   client: "Client module",
-  sessionParticipant: "Participant module",
+  participant: "Participant module",
 } as const
 
 function OutcomeHint({ descriptor, result }: { descriptor: BindingDescriptor | undefined; result: BindingCommitResult }) {

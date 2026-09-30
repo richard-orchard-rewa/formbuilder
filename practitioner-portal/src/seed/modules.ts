@@ -3,9 +3,10 @@ import type { ModuleDef, SessionTemplate } from "./types"
 // The module library a session note is assembled from. A stand-in for
 // form-builder's published modules and session templates
 // (docs/proposals/modules-and-session-templates.md): seeded here so the
-// portal can show case-, session- and client-anchored modules, with bound
-// and ordinary fields side by side, before form-builder's modules support
-// data-bound fields (US-L.4).
+// portal can show case-, session-, participant- and client-anchored
+// modules, with bound and ordinary fields side by side. form-builder's
+// modules take session and participant bindings (PR #83), but not case
+// scope yet.
 
 const MAIN_REASONS = [
   "Family functioning",
@@ -49,9 +50,9 @@ export const MODULES: ModuleDef[] = [
     id: "attendance",
     title: "Attendance",
     description: "Record whether each booked client attended.",
-    scope: "sessionParticipant",
+    scope: "participant",
     fields: [
-      { kind: "bound", id: "attendance", binding: "sessionParticipant.attendance", presentation: "radio" },
+      { kind: "bound", id: "attendance", binding: "participant.attendance", presentation: "radio" },
     ],
   },
   {

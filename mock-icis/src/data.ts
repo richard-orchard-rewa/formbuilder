@@ -4,12 +4,7 @@
 // reserved for fictional use (0491 57x xxx) and landlines from the
 // (08) 5550 xxxx drama range; emails use example.com.
 
-export type AttributeType = "String" | "Lookup" | "DateTime" | "Picklist" | "Boolean" | "State"
-
-export interface ChoiceOption {
-  value: number
-  label: string
-}
+export type AttributeType = "String" | "Lookup" | "DateTime" | "Picklist"
 
 export interface AttributeDef {
   logicalName: string
@@ -17,12 +12,8 @@ export interface AttributeDef {
   type: AttributeType
   maxLength?: number
   target?: string
-  // A lookup's single-valued navigation property, where it isn't the
-  // attribute's own name (a polymorphic regardingobjectid is
-  // regardingobjectid_<target>).
-  navigation?: string
-  // A Picklist's (or State's) option set.
-  options?: ChoiceOption[]
+  // Picklist (option set) values and labels.
+  options?: Array<{ value: number; label: string }>
   requiredLevel: "None" | "Recommended" | "ApplicationRequired"
   validForUpdate: boolean
   // Shown in the mock's admin UI to make the allow-list's point: the store
@@ -75,41 +66,13 @@ const text = (
   ...extra,
 })
 
-const lookup = (
-  logicalName: string,
-  displayName: string,
-  target: string,
-  extra: Partial<AttributeDef> = {},
-): AttributeDef => ({
+const lookup = (logicalName: string, displayName: string, target: string): AttributeDef => ({
   logicalName,
   displayName,
   type: "Lookup",
   target,
   requiredLevel: "None",
   validForUpdate: true,
-  ...extra,
-})
-
-const picklist = (
-  logicalName: string,
-  displayName: string,
-  options: ChoiceOption[],
-  extra: Partial<AttributeDef> = {},
-): AttributeDef => ({
-  logicalName,
-  displayName,
-  type: "Picklist",
-  options,
-  requiredLevel: "None",
-  validForUpdate: true,
-  ...extra,
-})
-
-const privilegesFor = (schemaName: string) => ({
-  Read: `prvRead${schemaName}`,
-  Write: `prvWrite${schemaName}`,
-  Append: `prvAppend${schemaName}`,
-  AppendTo: `prvAppendTo${schemaName}`,
 })
 
 export const CONTACT: EntityDef = {
@@ -159,6 +122,87 @@ export const CONTACT: EntityDef = {
   ],
 }
 
+// Sessions are activities in ICIS; `activityid` is their key, as for every
+// activity entity. Attendance records join one contact to one session.
+export const WP_SESSION: EntityDef = {
+  logicalName: "wp_session",
+  displayName: "Session",
+  entitySet: "wp_sessions",
+  primaryId: "activityid",
+  primaryName: "subject",
+  privileges: {
+    Read: "prvReadwp_session",
+    Write: "prvWritewp_session",
+    Append: "prvAppendwp_session",
+    AppendTo: "prvAppendTowp_session",
+  },
+  attributes: [
+    text("subject", "Subject", 200),
+    {
+      logicalName: "scheduledstart",
+      displayName: "Start Time",
+      type: "DateTime",
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+    {
+      logicalName: "scheduledend",
+      displayName: "End Time",
+      type: "DateTime",
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+    // The case a session is about (regarding an incident), how it was
+    // booked, and how it was delivered.
+    { ...lookup("regardingobjectid", "Regarding", "incident"), validForUpdate: false },
+    lookup("csg_sessiontypeid", "Session Type", "csg_sessiontype"),
+    lookup("csg_sessionsettingid", "Session Setting", "csg_sessionsetting"),
+  ],
+}
+
+// wp_attendancestatus values as ICIS defines them (the feedback app's
+// AttendanceStatus enum); labels approximated.
+export const ATTENDANCE_STATUSES = [
+  { value: 1, label: "Invited" },
+  { value: 2, label: "DNA" },
+  { value: 3, label: "Cancelled" },
+  { value: 4, label: "Attended" },
+  { value: 5, label: "Postponed" },
+  { value: 6, label: "Not Required" },
+  { value: 100000000, label: "RAWA - Earlier Appointment" },
+  { value: 100000001, label: "RAWA - Postponed" },
+  { value: 100000002, label: "RAWA - Rescheduled" },
+  { value: 100000003, label: "Support Person Attended" },
+  { value: 100000004, label: "Child Not Present" },
+  { value: 100000005, label: "Client Not Present" },
+]
+
+export const CSG_ATTENDANCE: EntityDef = {
+  logicalName: "csg_attendance",
+  displayName: "Attendance",
+  entitySet: "csg_attendances",
+  primaryId: "csg_attendanceid",
+  primaryName: "csg_name",
+  privileges: {
+    Read: "prvReadcsg_attendance",
+    Write: "prvWritecsg_attendance",
+    Append: "prvAppendcsg_attendance",
+    AppendTo: "prvAppendTocsg_attendance",
+  },
+  attributes: [
+    { ...lookup("csg_sessionid", "Session", "wp_session"), validForUpdate: false },
+    { ...lookup("csg_contactid", "Contact", "contact"), validForUpdate: false },
+    {
+      logicalName: "wp_attendancestatus",
+      displayName: "Attendance Status",
+      type: "Picklist",
+      options: ATTENDANCE_STATUSES,
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+  ],
+}
+
 // A case. ICIS keeps cases in Dynamics' standard `incident` table; the
 // ticket number is the case number staff quote.
 export const INCIDENT: EntityDef = {
@@ -167,107 +211,50 @@ export const INCIDENT: EntityDef = {
   entitySet: "incidents",
   primaryId: "incidentid",
   primaryName: "title",
-  privileges: privilegesFor("Incident"),
+  privileges: {
+    Read: "prvReadIncident",
+    Write: "prvWriteIncident",
+    Append: "prvAppendIncident",
+    AppendTo: "prvAppendToIncident",
+  },
   attributes: [
-    text("ticketnumber", "Case Number", 100, { validForUpdate: false }),
-    text("title", "Case Title", 200, { requiredLevel: "ApplicationRequired" }),
+    { ...text("ticketnumber", "Case Number", 100), validForUpdate: false },
+    { ...text("title", "Case Title", 200), requiredLevel: "ApplicationRequired" },
     lookup("csg_programid", "Program", "csg_program"),
     lookup("csg_locationid", "Location", "csg_location"),
     lookup("csg_referralsourceid", "Referral Source", "csg_referralsource"),
-    picklist("csg_casestage", "Case Stage", [
-      { value: 100000000, label: "Intake" },
-      { value: 100000001, label: "Service delivery" },
-      { value: 100000002, label: "Case review" },
-      { value: 100000003, label: "Closure" },
-    ]),
+    {
+      logicalName: "csg_casestage",
+      displayName: "Case Stage",
+      type: "Picklist",
+      options: [
+        { value: 100000000, label: "Intake" },
+        { value: 100000001, label: "Service delivery" },
+        { value: 100000002, label: "Case review" },
+        { value: 100000003, label: "Closure" },
+      ],
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
   ],
 }
 
-// The clients on a case, one row each.
-export const CASECLIENT: EntityDef = {
+// The clients on a case: one csg_caseclient row per person.
+export const CSG_CASECLIENT: EntityDef = {
   logicalName: "csg_caseclient",
   displayName: "Case Client",
   entitySet: "csg_caseclients",
   primaryId: "csg_caseclientid",
   primaryName: "csg_name",
-  privileges: privilegesFor("Csg_caseclient"),
+  privileges: {
+    Read: "prvReadcsg_caseclient",
+    Write: "prvWritecsg_caseclient",
+    Append: "prvAppendcsg_caseclient",
+    AppendTo: "prvAppendTocsg_caseclient",
+  },
   attributes: [
-    lookup("csg_caseid", "Case", "incident"),
-    lookup("csg_contactid", "Client", "contact"),
-    {
-      logicalName: "csg_isprimary",
-      displayName: "Primary Client",
-      type: "Boolean",
-      requiredLevel: "None",
-      validForUpdate: true,
-    },
-  ],
-}
-
-// wp_session.statecode, as ICIS uses it.
-export const SESSION_STATES: ChoiceOption[] = [
-  { value: 0, label: "Open" },
-  { value: 1, label: "Completed" },
-  { value: 2, label: "Cancelled" },
-  { value: 3, label: "Scheduled" },
-]
-
-// A booked session. It's an *activity*, so -- as in real Dataverse -- its
-// privileges are the shared Activity ones: write on one activity type is
-// write on every activity type (wp_session included), which is why an ICIS
-// admin grants prvWriteActivity with care.
-export const WP_SESSION: EntityDef = {
-  logicalName: "wp_session",
-  displayName: "Session",
-  entitySet: "wp_sessions",
-  primaryId: "activityid",
-  primaryName: "subject",
-  privileges: privilegesFor("Activity"),
-  attributes: [
-    text("subject", "Subject", 200, { requiredLevel: "ApplicationRequired" }),
-    {
-      logicalName: "scheduledstart",
-      displayName: "Start Time",
-      type: "DateTime",
-      requiredLevel: "None",
-      validForUpdate: true,
-    },
-    lookup("regardingobjectid", "Regarding", "incident", {
-      navigation: "regardingobjectid_incident",
-    }),
-    lookup("csg_sessiontypeid", "Session Type", "csg_sessiontype"),
-    lookup("csg_sessionsettingid", "Session Setting", "csg_sessionsetting"),
-    {
-      logicalName: "statecode",
-      displayName: "Activity Status",
-      type: "State",
-      options: SESSION_STATES,
-      requiredLevel: "None",
-      validForUpdate: true,
-    },
-  ],
-}
-
-// One client booked into one session; ICIS creates these when a session is
-// saved. The attendance status is a choice (option set), not a lookup.
-export const ATTENDANCE: EntityDef = {
-  logicalName: "csg_attendance",
-  displayName: "Attendance",
-  entitySet: "csg_attendances",
-  primaryId: "csg_attendanceid",
-  primaryName: "csg_name",
-  privileges: privilegesFor("Csg_attendance"),
-  attributes: [
-    lookup("csg_sessionid", "Session", "wp_session"),
-    lookup("csg_contactid", "Client", "contact"),
-    picklist("wp_attendancestatus", "Attendance Status", [
-      { value: 1, label: "Invited" },
-      { value: 2, label: "Did Not Attend" },
-      { value: 3, label: "Cancelled" },
-      { value: 4, label: "Attended" },
-      { value: 5, label: "Postponed" },
-      { value: 6, label: "Not Required" },
-    ]),
+    { ...lookup("csg_caseid", "Case", "incident"), validForUpdate: false },
+    { ...lookup("csg_contactid", "Contact", "contact"), validForUpdate: false },
   ],
 }
 
@@ -282,9 +269,6 @@ export const LOOKUP_TABLES: EntityDef[] = [
   lookupTable("csg_sessionsetting", "Session Setting", "Csg_sessionsetting"),
 ]
 
-// The tables that hold records (as opposed to reference lists).
-export const RECORD_ENTITIES: EntityDef[] = [CONTACT, INCIDENT, CASECLIENT, WP_SESSION, ATTENDANCE]
-
 export const SYSTEMUSER: EntityDef = {
   logicalName: "systemuser",
   displayName: "User",
@@ -295,7 +279,18 @@ export const SYSTEMUSER: EntityDef = {
   attributes: [],
 }
 
-export const ENTITIES: EntityDef[] = [...RECORD_ENTITIES, ...LOOKUP_TABLES, SYSTEMUSER]
+export const ENTITIES: EntityDef[] = [
+  CONTACT,
+  WP_SESSION,
+  CSG_ATTENDANCE,
+  INCIDENT,
+  CSG_CASECLIENT,
+  ...LOOKUP_TABLES,
+  SYSTEMUSER,
+]
+
+// Entities whose rows the mock holds as records (as opposed to lookup lists).
+export const RECORD_ENTITIES = [CONTACT, WP_SESSION, CSG_ATTENDANCE, INCIDENT, CSG_CASECLIENT]
 
 export interface LookupRow {
   id: string
@@ -406,34 +401,31 @@ const SEEDS: Seed[] = [
   { number: "00152101", title: "Mrs", first: "Samira", last: "Patel", gender: "Female", language: "Hindi", birthdate: "1976-01-26", city: "Fremantle", postcode: "6160", email: true, home: true },
 ]
 
-export type Value = string | number | boolean | null
-
-// One record in a record table, as the mock holds it. `id` is its primary
-// key (contactid, incidentid, activityid, ...).
+// A row of a record entity (contact, session, attendance).
 export interface RecordRow {
   id: string
   version: number
   modifiedOn: string
   modifiedBy: string
-  values: Record<string, Value>
+  // Text, a lookup's row ID, a picklist's integer, or null.
+  values: Record<string, string | number | null>
 }
-
-export type ContactRow = RecordRow
 
 // The contact ID the Data Binding Service's test fixtures and earlier
 // demos use for Bob McGee in test ICIS, kept so the two line up.
 const BOB_ID = "2c616f0e-d741-f011-8779-000d3ad0ea14"
 
-const contactId = (number: string) =>
-  number === "00152076" ? BOB_ID : `de300000-0000-4000-8000-0000${number}`
+export function contactIdFor(clientNumber: string) {
+  return clientNumber === "00152076" ? BOB_ID : `de300000-0000-4000-8000-0000${clientNumber}`
+}
 
-export function seedContacts(): ContactRow[] {
+export function seedContacts(): RecordRow[] {
   return SEEDS.map((s, i) => {
     const email = s.email
       ? `${s.first.toLowerCase().replace(/\s+/g, ".")}.${s.last.toLowerCase().replace(/'/g, "")}@example.com`
       : null
     return {
-      id: contactId(s.number),
+      id: contactIdFor(s.number),
       version: 1000 + i,
       modifiedOn: "2026-09-01T00:00:00.000Z",
       modifiedBy: "Data migration",
@@ -463,9 +455,92 @@ export function seedContacts(): ContactRow[] {
   })
 }
 
-// --- Cases and sessions: the practitioner portal demo's caseload. Session
-// dates are relative to the day the mock starts (or is reset), in Perth
-// time, so "today's sessions" are always today's. ---
+// The Data Binding Service's application user in the mock. It starts with
+// the same shape of access the borrowed test-ICIS account has -- read
+// contacts, titles, sessions and attendance, nothing else -- so the demo
+// can grant more live.
+export const SERVICE_ACCOUNT = {
+  userId: "de309000-0000-4000-8000-000000000001",
+  name: "Data Binding Service (demo)",
+  token: "mock-icis-demo-token",
+}
+
+export const INITIAL_PRIVILEGES = [
+  "prvReadContact",
+  "prvReadwp_session",
+  "prvReadcsg_attendance",
+  "prvReadCsg_salutation",
+  "prvReadUser",
+]
+
+// Sessions and who attended them: an individual counselling session, a
+// joint FDR session with two participants, and a group session with three
+// (one of whom didn't attend). Times are UTC; Perth is UTC+8.
+const SESSION_SEEDS = [
+  {
+    n: 1,
+    subject: "Intake session",
+    start: "2026-09-15T01:00:00Z",
+    end: "2026-09-15T02:00:00Z",
+    attendees: [["00152076", 4]],
+  },
+  {
+    n: 2,
+    subject: "Joint mediation session",
+    start: "2026-10-06T02:00:00Z",
+    end: "2026-10-06T04:00:00Z",
+    attendees: [["00152077", 4], ["00152082", 4]],
+  },
+  {
+    n: 3,
+    subject: "Counselling session",
+    start: "2026-10-07T06:00:00Z",
+    end: "2026-10-07T07:00:00Z",
+    attendees: [["00152076", 4]],
+  },
+  {
+    n: 4,
+    subject: "Parenting after separation (group)",
+    start: "2026-10-08T10:00:00Z",
+    end: "2026-10-08T12:00:00Z",
+    attendees: [["00152076", 4], ["00152079", 4], ["00152084", 2]],
+  },
+] as const
+
+const seeded = (id: string, values: RecordRow["values"]): RecordRow => ({
+  id,
+  version: 5000,
+  modifiedOn: "2026-09-01T00:00:00.000Z",
+  modifiedBy: "Data migration",
+  values,
+})
+
+export function seedSessions(): RecordRow[] {
+  return SESSION_SEEDS.map((s) =>
+    seeded(id("de304000", s.n), {
+      subject: s.subject,
+      scheduledstart: s.start,
+      scheduledend: s.end,
+    }),
+  )
+}
+
+export function seedAttendances(): RecordRow[] {
+  return SESSION_SEEDS.flatMap((s) =>
+    s.attendees.map(([clientNumber, status], i) =>
+      seeded(id("de305000", s.n * 10 + i), {
+        csg_sessionid: id("de304000", s.n),
+        csg_contactid: contactIdFor(clientNumber),
+        wp_attendancestatus: status,
+      }),
+    ),
+  )
+}
+
+// --- Cases: the practitioner portal demo's caseload. Session dates are
+// relative to the day the mock starts (or is reset), in Perth time, so
+// "today's sessions" are always today's. IDs are clear of the sessions
+// above: portal sessions are de304000-…-0000000000nn from 11 up. ---
 
 interface CaseSeed {
   number: string
@@ -474,22 +549,22 @@ interface CaseSeed {
   location: string
   referral: string
   stage: string
-  // Client numbers; the first is the primary client.
   clients: string[]
   sessions: Array<{
     subject: string
     type: string
-    // Days from today, and the Perth time of day.
+    // Days from today, and the Perth time it starts; sessions run an hour.
     day: number
     time: string
     setting: string
-    // Attendance per client number; clients not listed aren't booked in.
-    attendance: Record<string, string>
+    // Attendance status (ATTENDANCE_STATUSES value) per client number.
+    attendance: Record<string, number>
   }>
 }
 
-const ATTENDED = "Attended"
-const INVITED = "Invited"
+const ATTENDED = 4
+const INVITED = 1
+const DNA = 2
 
 const CASE_SEEDS: CaseSeed[] = [
   {
@@ -529,7 +604,7 @@ const CASE_SEEDS: CaseSeed[] = [
     stage: "Service delivery",
     clients: ["00152099", "00152100"],
     sessions: [
-      { subject: "Session 5 · Daisy & Morgan Chen", type: "Counselling Session", day: -7, time: "13:00", setting: "Telephone", attendance: { "00152099": ATTENDED, "00152100": "Did Not Attend" } },
+      { subject: "Session 5 · Daisy & Morgan Chen", type: "Counselling Session", day: -7, time: "13:00", setting: "Telephone", attendance: { "00152099": ATTENDED, "00152100": DNA } },
       { subject: "Session 6 · Daisy & Morgan Chen", type: "Counselling Session", day: 0, time: "13:00", setting: "Centre Based", attendance: { "00152099": INVITED, "00152100": INVITED } },
     ],
   },
@@ -548,109 +623,75 @@ const CASE_SEEDS: CaseSeed[] = [
   },
 ]
 
-const optionValue = (entity: EntityDef, attribute: string, label: string) =>
-  entity.attributes.find((a) => a.logicalName === attribute)!.options!.find((o) => o.label === label)!.value
-
 // Perth is UTC+8 all year.
-function perthDateTime(today: Date, days: number, time: string): string {
-  const perthToday = new Date(today.getTime() + 8 * 3600_000)
+function perth(today: Date, days: number, time: string, plusHours = 0): string {
+  const local = new Date(today.getTime() + 8 * 3600_000)
   const [h, m] = time.split(":").map(Number)
-  const utc = Date.UTC(
-    perthToday.getUTCFullYear(),
-    perthToday.getUTCMonth(),
-    perthToday.getUTCDate() + days,
-    h - 8,
-    m,
-  )
-  return new Date(utc).toISOString()
+  return new Date(
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + days, h - 8 + plusHours, m),
+  ).toISOString()
 }
 
-export interface CaseTables {
-  incident: RecordRow[]
-  csg_caseclient: RecordRow[]
-  wp_session: RecordRow[]
-  csg_attendance: RecordRow[]
-}
+const caseStage = (label: string) =>
+  INCIDENT.attributes.find((a) => a.logicalName === "csg_casestage")!.options!.find((o) => o.label === label)!.value
 
-export function seedCases(today = new Date()): CaseTables {
-  const tables: CaseTables = { incident: [], csg_caseclient: [], wp_session: [], csg_attendance: [] }
-  const row = (rowId: string, values: Record<string, Value>): RecordRow => ({
-    id: rowId,
-    version: 2000,
-    modifiedOn: "2026-09-01T00:00:00.000Z",
-    modifiedBy: "Data migration",
-    values,
-  })
-  let sessionN = 0
-  let attendanceN = 0
+export function seedCases(today = new Date()) {
+  const incidents: RecordRow[] = []
+  const caseClients: RecordRow[] = []
+  const sessions: RecordRow[] = []
+  const attendances: RecordRow[] = []
+  let sessionN = 10
   CASE_SEEDS.forEach((c, caseIndex) => {
-    const caseId = id("de304000", caseIndex + 1)
-    tables.incident.push(
-      row(caseId, {
+    const caseId = id("de306000", caseIndex + 1)
+    incidents.push(
+      seeded(caseId, {
         ticketnumber: c.number,
         title: c.title,
         csg_programid: ref("csg_program", c.program),
         csg_locationid: ref("csg_location", c.location),
         csg_referralsourceid: ref("csg_referralsource", c.referral),
-        csg_casestage: optionValue(INCIDENT, "csg_casestage", c.stage),
+        csg_casestage: caseStage(c.stage),
       }),
     )
-    c.clients.forEach((number, i) => {
-      tables.csg_caseclient.push(
-        row(id("de305000", caseIndex * 10 + i + 1), {
+    c.clients.forEach((number, i) =>
+      caseClients.push(
+        seeded(id("de307000", caseIndex * 10 + i + 1), {
           csg_name: `${c.number} · ${number}`,
           csg_caseid: caseId,
-          csg_contactid: contactId(number),
-          csg_isprimary: i === 0,
+          csg_contactid: contactIdFor(number),
         }),
-      )
-    })
+      ),
+    )
     for (const s of c.sessions) {
-      const sessionId = id("de306000", ++sessionN)
-      tables.wp_session.push(
-        row(sessionId, {
+      const n = ++sessionN
+      sessions.push(
+        seeded(id("de304000", n), {
           subject: s.subject,
-          scheduledstart: perthDateTime(today, s.day, s.time),
+          scheduledstart: perth(today, s.day, s.time),
+          scheduledend: perth(today, s.day, s.time, 1),
           regardingobjectid: caseId,
           csg_sessiontypeid: ref("csg_sessiontype", s.type),
           csg_sessionsettingid: ref("csg_sessionsetting", s.setting),
-          statecode: optionValue(WP_SESSION, "statecode", s.day < 0 ? "Completed" : "Scheduled"),
         }),
       )
-      for (const [number, status] of Object.entries(s.attendance)) {
-        tables.csg_attendance.push(
-          row(id("de307000", ++attendanceN), {
-            csg_name: `${s.subject} · ${number}`,
-            csg_sessionid: sessionId,
-            csg_contactid: contactId(number),
-            wp_attendancestatus: optionValue(ATTENDANCE, "wp_attendancestatus", status),
+      Object.entries(s.attendance).forEach(([number, status], i) =>
+        attendances.push(
+          seeded(id("de305000", n * 10 + i), {
+            csg_sessionid: id("de304000", n),
+            csg_contactid: contactIdFor(number),
+            wp_attendancestatus: status,
           }),
-        )
-      }
+        ),
+      )
     }
   })
-  return tables
+  return { incidents, caseClients, sessions, attendances }
 }
 
-// The Data Binding Service's application user in the mock. It starts with
-// the same shape of access the borrowed test-ICIS account has -- read
-// contacts and titles, nothing else -- so the demo can grant more live.
-export const SERVICE_ACCOUNT = {
-  userId: "de309000-0000-4000-8000-000000000001",
-  name: "Data Binding Service (demo)",
-  token: "mock-icis-demo-token",
-}
-
-export const INITIAL_PRIVILEGES = [
-  "prvReadContact",
-  "prvReadCsg_salutation",
-  "prvReadUser",
-]
-
-// Everything the practitioner portal demo needs: read cases, sessions and
-// attendance and their lists; write clients, cases, sessions and attendance;
-// link records to the lists their editable lookups use. Home language is
-// deliberately left unreadable, as in the data-bound fields demo.
+// Everything the practitioner portal demo needs: read cases, their clients,
+// sessions, attendance and lists; write clients, cases, sessions and
+// attendance; link records to the lists their editable lookups use. Home
+// language stays unreadable, as in the data-bound fields demo.
 export const PORTAL_DEMO_PRIVILEGES = [
   ...INITIAL_PRIVILEGES,
   "prvWriteContact",
@@ -661,12 +702,10 @@ export const PORTAL_DEMO_PRIVILEGES = [
   "prvReadIncident",
   "prvWriteIncident",
   "prvAppendIncident",
-  "prvReadCsg_caseclient",
-  "prvReadActivity",
-  "prvWriteActivity",
-  "prvAppendActivity",
-  "prvReadCsg_attendance",
-  "prvWriteCsg_attendance",
+  "prvReadcsg_caseclient",
+  "prvWritewp_session",
+  "prvAppendwp_session",
+  "prvWritecsg_attendance",
   "prvReadCsg_program",
   "prvReadCsg_location",
   "prvReadCsg_referralsource",

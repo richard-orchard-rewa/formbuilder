@@ -297,6 +297,31 @@ export const sessionTemplateSubmissions = pgTable("session_template_submissions"
     .defaultNow(),
 })
 
+// One commit of a session note's data-bound values to the Data Binding
+// Service: one per anchor (the session, each attendance record, each
+// participant's client). `participant` groups a participant's commits so
+// what came back is shown against the right person.
+export const sessionTemplateSubmissionBindings = pgTable(
+  "session_template_submission_bindings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => sessionTemplateSubmissions.id, { onDelete: "cascade" }),
+    participant: text("participant"),
+    anchor: jsonb("anchor"),
+    baseline: jsonb("baseline"),
+    values: jsonb("values").notNull(),
+    results: jsonb("results").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("session_template_submission_bindings_submission_id").on(table.submissionId),
+  ],
+)
+
 // An immutable audit trail of edits made to a submitted submission (US-5.2,
 // US-6.1): one row per edit, capturing a full snapshot of the row as it
 // stood immediately before the edit applied. Populated by a Postgres

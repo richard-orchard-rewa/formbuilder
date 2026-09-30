@@ -353,7 +353,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .note-module.scope-case { border-left-color: var(--lemon); }
 .note-module.scope-session { border-left-color: var(--n300); }
 .note-module.scope-client { border-left-color: var(--a500); }
-.note-module.scope-sessionParticipant { border-left-color: var(--lav); }
+.note-module.scope-participant { border-left-color: var(--lav); }
 .note-module.previous { border-left-color: #b9c4cb; background: #fbfcfc; }
 .note-module summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 16px 18px; flex-wrap: wrap; }
 .note-module summary::-webkit-details-marker { display: none; }
@@ -368,7 +368,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .scope-badge.case { background: #fff0be; color: #6a4800; }
 .scope-badge.session { background: #d7efff; color: var(--n500); }
 .scope-badge.client { background: var(--a300); color: #0e4f4a; }
-.scope-badge.sessionParticipant { background: #efe9f6; color: #54397a; }
+.scope-badge.participant { background: #efe9f6; color: #54397a; }
 .icis-count { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 700; color: var(--icis); white-space: nowrap; }
 .module-body { border-top: 1px solid var(--line); padding: 18px; }
 .module-body.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }

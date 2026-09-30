@@ -19,8 +19,17 @@ import {
 } from "./test-fakes.js"
 
 function buildServices() {
-  const modulesRepo = new FakeModulesRepository([fakeModule("mod-a", "Module A")])
+  const modulesRepo = new FakeModulesRepository([
+    fakeModule("mod-a", "Module A"),
+    fakeModule("mod-p", "Per participant"),
+  ])
   const moduleVersionsRepo = new FakeModuleVersionsRepository([
+    fakeModuleVersion("mod-p-v1", "mod-p", {
+      schema: {
+        scope: "participant",
+        fields: [{ id: "progress", type: "textarea", label: "Progress", required: true }],
+      },
+    }),
     fakeModuleVersion("mod-a-v1", "mod-a", {
       schema: {
         fields: [
@@ -160,5 +169,64 @@ describe("SessionTemplateSubmissionsService.list / getDetail", () => {
     })
 
     expect(await submissions.getDetail("template-2", created.id)).toBeNull()
+  })
+})
+
+describe("SessionTemplateSubmissionsService with participant sections", () => {
+  const AISHA = "22222222-2222-4222-8222-222222222222"
+  const TARIQ = "44444444-4444-4444-8444-444444444444"
+
+  async function publishJoint() {
+    const built = buildServices()
+    built.templatesRepo.compositions.set("template-1", [
+      { moduleId: "mod-a", name: "Module A", position: 0 },
+      { moduleId: "mod-p", name: "Per participant", position: 1 },
+    ])
+    const active = await built.versions.publish("template-1")
+    return { ...built, active }
+  }
+
+  it("publishes each module as a section with its scope", async () => {
+    const { active } = await publishJoint()
+    expect(active.sections.map((s) => [s.moduleName, s.scope])).toEqual([
+      ["Module A", "session"],
+      ["Per participant", "participant"],
+    ])
+  })
+
+  it("requires a participant section's fields once for every participant, naming whose are missing", async () => {
+    const { submissions } = await publishJoint()
+    const binding = {
+      session: "11111111-1111-4111-8111-111111111111",
+      participants: [
+        { participant: AISHA, client: "33333333-3333-4333-8333-333333333333" },
+        { participant: TARIQ, client: "55555555-5555-4555-8555-555555555555" },
+      ],
+    }
+    await expect(
+      submissions.submit(
+        "template-1",
+        { name: "Joint", participants: { [AISHA]: { progress: "Good" } } },
+        null,
+        binding,
+      ),
+    ).rejects.toMatchObject({
+      constructor: MissingRequiredFieldsError,
+      missingFieldIds: [`participants.${TARIQ}.progress`],
+    })
+
+    const submission = await submissions.submit(
+      "template-1",
+      {
+        name: "Joint",
+        participants: { [AISHA]: { progress: "Good" }, [TARIQ]: { progress: "Quiet" } },
+      },
+      null,
+      binding,
+    )
+    // Stored per participant, so each person's values come back as theirs.
+    expect(submission.data).toMatchObject({
+      participants: { [AISHA]: { progress: "Good" }, [TARIQ]: { progress: "Quiet" } },
+    })
   })
 })

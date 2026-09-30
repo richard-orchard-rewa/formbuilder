@@ -85,6 +85,13 @@
       "when": 1790311211321,
       "tag": "0011_chemical_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790664305084,
+      "tag": "0012_high_mister_fear",
+      "breakpoints": true
     }
   ]
 }

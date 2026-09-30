@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import type { BindingDescriptor, SessionAnchor } from "shared"
 import { bindingDictionary } from "../dbs"
 import type { SessionNote } from "../seed/types"
+import { hasStarted } from "../session-note"
 import { useDisplayValue } from "./BoundControl"
 import { Icon } from "./Icon"
 
@@ -94,9 +95,7 @@ export function ErrorNote({ error, onRetry }: { error: string; onRetry?: () => v
 }
 
 export function sessionStatusLabel(session: SessionAnchor) {
-  if (session.status === "cancelled") return "Cancelled"
-  if (session.status === "completed") return "Completed"
-  return "Booked"
+  return hasStarted(session) ? "Held" : "Booked"
 }
 
 export function NoteBadge({ note }: { note: SessionNote | null }) {

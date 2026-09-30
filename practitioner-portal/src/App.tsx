@@ -9,19 +9,21 @@ import { HomeView } from "./views/HomeView"
 import { SessionView } from "./views/SessionView"
 
 // Routes, by hash: #/, #/cases, #/case/<case number>[/<tab>],
-// #/session/<session anchor ID>. Case numbers are what staff quote; a
+// #/case/<case number>/session/<session anchor ID>. Case numbers are what staff quote; a
 // session is identified by its DBS-issued anchor ID.
 export type Route =
   | { page: "home" }
   | { page: "cases" }
   | { page: "case"; caseNumber: string; tab?: string }
-  | { page: "session"; sessionId: string }
+  | { page: "session"; caseNumber: string; sessionId: string }
 
 function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent)
   if (parts[0] === "cases") return { page: "cases" }
+  if (parts[0] === "case" && parts[1] && parts[2] === "session" && parts[3]) {
+    return { page: "session", caseNumber: parts[1], sessionId: parts[3] }
+  }
   if (parts[0] === "case" && parts[1]) return { page: "case", caseNumber: parts[1], tab: parts[2] }
-  if (parts[0] === "session" && parts[1]) return { page: "session", sessionId: parts[1] }
   return { page: "home" }
 }
 
@@ -34,7 +36,7 @@ export const href = (route: Route) => {
     case "case":
       return `#/case/${encodeURIComponent(route.caseNumber)}${route.tab ? `/${route.tab}` : ""}`
     case "session":
-      return `#/session/${route.sessionId}`
+      return `#/case/${encodeURIComponent(route.caseNumber)}/session/${route.sessionId}`
   }
 }
 
@@ -116,7 +118,7 @@ export function App() {
           {route.page === "home" && <HomeView />}
           {route.page === "cases" && <CasesView />}
           {route.page === "case" && <CaseView key={route.caseNumber} caseNumber={route.caseNumber} tab={route.tab} />}
-          {route.page === "session" && <SessionView key={route.sessionId} sessionId={route.sessionId} />}
+          {route.page === "session" && <SessionView key={route.sessionId} caseNumber={route.caseNumber} sessionId={route.sessionId} />}
         </main>
       </div>
       <DevPanel />

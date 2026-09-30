@@ -18,7 +18,10 @@ function saved(): Record<string, SessionNote> {
   }
 }
 
-export const noteKey = (caseNumber: string | null, subject: string) => `${caseNumber ?? "—"}|${subject}`
+// Keyed by case number and session subject: both staff-facing and stable
+// across resets, unlike anchor IDs.
+export const noteKey = (caseNumber: string | null, subject: string | null) =>
+  `${caseNumber ?? "—"}|${subject ?? "(no subject)"}`
 
 export function loadNote(key: string): SessionNote | null {
   return memory[key] ?? saved()[key] ?? SEEDED_NOTES[key] ?? null

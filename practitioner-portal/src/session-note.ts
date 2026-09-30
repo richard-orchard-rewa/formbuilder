@@ -3,26 +3,28 @@ import type {
   BindingCommitResult,
   BindingDescriptor,
   BoundValues,
-  ClientAnchor,
-  SessionContext,
+  CaseContext,
+  SessionAnchor,
+  SessionParticipant,
 } from "shared"
 import { moduleById } from "./seed/modules"
 import type { BoundFieldDef, ModuleDef, SessionTemplate } from "./seed/types"
 
 // One module as it appears on a session note: a client module appears once
-// per client, anchored on that client.
+// per participant, anchored on that participant's client record.
 export interface ModuleInstance {
   key: string
   module: ModuleDef
   // Which resolve/commit group its bound fields belong to.
   group: string
-  anchor: AnchorContext
-  client?: ClientAnchor
+  participant?: SessionParticipant
 }
 
-// The bound fields sharing one resolve and one commit: the case and the
-// session together, and each person's client record together with their
-// attendance.
+// The bound fields read and written together: everything on one anchor --
+// the case, the session, one participant's client record, or one
+// participant's attendance. The DBS takes exactly one anchor per resolve
+// and commit, so each group is one call and, on submit, at most one write
+// to one ICIS record.
 export interface BindingGroup {
   id: string
   label: string
@@ -30,46 +32,63 @@ export interface BindingGroup {
   bindings: string[]
 }
 
-export const SHARED_GROUP = "shared"
-const personGroup = (client: ClientAnchor) => `person:${client.clientNumber ?? client.id}`
+// Stable across reloads (client numbers, not anchor IDs), so a saved note's
+// commit results line up with the groups when it's reopened.
+const groupFor = (module: ModuleDef, participant?: SessionParticipant) =>
+  participant ? `${module.scope}:${participant.client.clientNumber ?? participant.client.id}` : module.scope
 
-export function instancesFor(template: SessionTemplate, session: SessionContext): ModuleInstance[] {
+export function instancesFor(template: SessionTemplate, session: SessionAnchor): ModuleInstance[] {
   return template.modules.flatMap((id): ModuleInstance[] => {
     const module = moduleById(id)
-    switch (module.scope) {
-      case "case":
-        return session.case
-          ? [{ key: module.id, module, group: SHARED_GROUP, anchor: { case: session.case.id } }]
-          : []
-      case "session":
-        return [{ key: module.id, module, group: SHARED_GROUP, anchor: { session: session.id } }]
-      case "client":
-        return session.participants.map((p) => ({
-          key: `${module.id}:${p.client.clientNumber}`,
-          module,
-          group: personGroup(p.client),
-          anchor: { client: p.client.id },
-          client: p.client,
-        }))
-      case "sessionParticipant":
-        return session.participants.map((p) => ({
-          key: `${module.id}:${p.client.clientNumber}`,
-          module,
-          group: personGroup(p.client),
-          anchor: { sessionParticipant: p.id },
-          client: p.client,
-        }))
+    if (module.scope === "case" || module.scope === "session") {
+      return [{ key: module.id, module, group: groupFor(module) }]
     }
+    return session.participants.map((p) => ({
+      key: `${module.id}:${p.client.clientNumber}`,
+      module,
+      group: groupFor(module, p),
+      participant: p,
+    }))
   })
 }
 
 export const boundFields = (module: ModuleDef) =>
   module.fields.filter((f): f is BoundFieldDef => f.kind === "bound")
 
-// Groups every published binding the note's modules use by anchor, so the
-// note opens with one resolve per group rather than one per module.
+function anchorFor(instance: ModuleInstance, session: SessionAnchor, caseContext: CaseContext): AnchorContext {
+  switch (instance.module.scope) {
+    case "case":
+      return { case: caseContext.id }
+    case "session":
+      return { session: session.id }
+    case "client":
+      return { client: instance.participant!.client.id }
+    case "participant":
+      return { participant: instance.participant!.id }
+  }
+}
+
+function labelFor(instance: ModuleInstance) {
+  const who = instance.participant?.client.displayName
+  switch (instance.module.scope) {
+    case "case":
+      return "Case"
+    case "session":
+      return "Session"
+    case "client":
+      return `${who} · client record`
+    case "participant":
+      return `${who} · attendance`
+  }
+}
+
+// Every published binding the note's modules use, grouped by the anchor it
+// reads and writes. The modules on one anchor (Client details and ... for
+// the same person) share a group.
 export function bindingGroups(
   instances: ModuleInstance[],
+  session: SessionAnchor,
+  caseContext: CaseContext,
   dictionary: Map<string, BindingDescriptor>,
 ): BindingGroup[] {
   const groups = new Map<string, BindingGroup>()
@@ -80,11 +99,10 @@ export function bindingGroups(
     if (keys.length === 0) continue
     const group = groups.get(instance.group) ?? {
       id: instance.group,
-      label: instance.client ? instance.client.displayName : "Case and session",
-      anchor: {},
+      label: labelFor(instance),
+      anchor: anchorFor(instance, session, caseContext),
       bindings: [],
     }
-    group.anchor = { ...group.anchor, ...instance.anchor }
     group.bindings = [...new Set([...group.bindings, ...keys])]
     groups.set(instance.group, group)
   }
@@ -111,6 +129,10 @@ const norm = (value: string | null | undefined) => {
   const trimmed = (value ?? "").trim()
   return trimmed === "" ? null : trimmed
 }
+
+// Sessions carry no status: one that has started is past (or under way).
+export const hasStarted = (session: SessionAnchor) =>
+  session.start !== null && new Date(session.start).getTime() <= Date.now()
 
 // A commit result as the practitioner reads it.
 export function outcomeText(result: BindingCommitResult, currentLabel?: string): string {

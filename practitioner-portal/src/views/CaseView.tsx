@@ -15,7 +15,7 @@ import { dbs } from "../dbs"
 import { formatDateTime, initials } from "../format"
 import { loadNote, noteKey } from "../notes-store"
 import { moduleById } from "../seed/modules"
-import { boundFields } from "../session-note"
+import { boundFields, hasStarted } from "../session-note"
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -27,7 +27,7 @@ const TABS = [
 // module's, as far as the DBS has them published.
 const CLIENT_BINDINGS = boundFields(moduleById("client-details")).map((f) => f.binding)
 
-function ClientRecord({ client, primary, dictionary }: { client: ClientAnchor; primary: boolean; dictionary: Map<string, BindingDescriptor> }) {
+function ClientRecord({ client, dictionary }: { client: ClientAnchor; dictionary: Map<string, BindingDescriptor> }) {
   const keys = CLIENT_BINDINGS.filter((k) => dictionary.has(k))
   const { data, error } = useAsync(() => dbs.resolve({ client: client.id }, keys), [client.id, keys.join()])
   return (
@@ -37,7 +37,7 @@ function ClientRecord({ client, primary, dictionary }: { client: ClientAnchor; p
         <span>
           <strong>{client.displayName}</strong>
           <small>
-            {primary ? "Primary client" : "Case participant"} · Client number {client.clientNumber}
+            Case participant · Client number {client.clientNumber}
           </small>
         </span>
         <span className="icis-badge read">
@@ -72,14 +72,14 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
   if (loading && !data) return <div className="screen"><Loading what={`case ${caseNumber}`} /></div>
   if (error || !data) return <div className="screen"><ErrorNote error={error ?? "Not found"} onRetry={reload} /></div>
 
-  const { anchor, context, values } = data
-  const next = context.sessions.find((s) => s.status === "scheduled")
+  const { context, values } = data
+  const next = context.sessions.find((s) => !hasStarted(s))
   const tabHref = (id: string) => href({ page: "case", caseNumber, tab: id === "overview" ? undefined : id })
-  const sessions = context.sessions.map((s) => ({ session: s, note: loadNote(noteKey(anchor.caseNumber, s.subject)) }))
+  const sessions = context.sessions.map((s) => ({ session: s, note: loadNote(noteKey(context.caseNumber, s.subject)) }))
 
   return (
     <div className="screen">
-      <PageTitle eyebrow={`COUNSELLING · CASE ${anchor.caseNumber}`} title={context.clients.map((c) => c.displayName).join(" & ")} back={{ href: href({ page: "cases" }), label: "Cases" }} />
+      <PageTitle eyebrow={`COUNSELLING · CASE ${context.caseNumber}`} title={context.clients.map((c) => c.displayName).join(" & ")} back={{ href: href({ page: "cases" }), label: "Cases" }} />
       <div className="casebar">
         <div className="active-dot">
           <i />
@@ -103,7 +103,7 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
         </div>
         <div>
           <small>Next booking</small>
-          {next ? formatDateTime(next.scheduledStart) : "None"}
+          {next ? formatDateTime(next.start) : "None"}
         </div>
       </div>
 
@@ -127,19 +127,19 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
                     <p>NEXT SESSION</p>
                     <h2>{next.subject}</h2>
                   </div>
-                  <NoteBadge note={loadNote(noteKey(anchor.caseNumber, next.subject))} />
+                  <NoteBadge note={loadNote(noteKey(context.caseNumber, next.subject))} />
                 </div>
                 <div className="summary">
                   <span>
                     <Icon name="clock" size={16} />
-                    {formatDateTime(next.scheduledStart)}
+                    {formatDateTime(next.start)}
                   </span>
                   <span>
                     <Icon name="users" size={16} />
                     {context.clients.map((c) => c.displayName).join(" & ")}
                   </span>
                 </div>
-                <a className="button" href={href({ page: "session", sessionId: next.id })}>
+                <a className="button" href={href({ page: "session", caseNumber, sessionId: next.id })}>
                   Open session note <Icon name="chevronRight" size={16} />
                 </a>
               </div>
@@ -161,7 +161,7 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
                     <span>
                       <strong>{c.displayName}</strong>
                       <small>
-                        {c.primary ? "Primary client" : "Case participant"} · Client number {c.clientNumber}
+                        Case participant · Client number {c.clientNumber}
                       </small>
                     </span>
                   </div>
@@ -175,16 +175,16 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
               <h2>One case, three kinds of anchor</h2>
               <ul>
                 <li>
-                  <strong>Case</strong> — <code>GET /anchors/case?caseNumber={anchor.caseNumber}</code> gives the DBS's ID for
-                  it; <code>GET /anchors/case/:id</code> its clients and sessions.
+                  <strong>Case</strong> — one <code>GET /anchors/case?caseNumber={context.caseNumber}</code> gives the DBS's
+                  ID for the case, its clients, and every session regarding it with each session's participants.
                 </li>
                 <li>
-                  <strong>Case bar</strong> — one <code>POST /resolve</code> of the case bindings (program, location,
-                  stage, referral source), as option codes the portal labels from each binding's options.
+                  <strong>Case bar</strong> — one <code>POST /resolve</code> on the case anchor (program, location, stage,
+                  referral source), as option codes the portal labels from each binding's options.
                 </li>
                 <li>
-                  <strong>Clients</strong> and <strong>sessions</strong> each have their own DBS anchor ID; a session
-                  note resolves against all of them.
+                  <strong>Clients</strong>, <strong>sessions</strong> and <strong>participants</strong> each have their own DBS
+                  anchor ID. A session note resolves each module against the one anchor it's about.
                 </li>
               </ul>
               <p className="muted small">Open the DBS traffic panel (bottom right) to see each call.</p>
@@ -211,13 +211,13 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
                 </span>
                 <span>
                   <small>Date booked</small>
-                  {formatDateTime(session.scheduledStart)}
+                  {formatDateTime(session.start)}
                 </span>
                 <span>
                   <small>Session note</small>
                   <NoteBadge note={note} />
                 </span>
-                <a className="button ghost" href={href({ page: "session", sessionId: session.id })}>
+                <a className="button ghost" href={href({ page: "session", caseNumber, sessionId: session.id })}>
                   {note?.status === "submitted" ? "View note" : "Open session note"} <Icon name="chevronRight" size={16} />
                 </a>
               </div>
@@ -229,7 +229,7 @@ export function CaseView({ caseNumber, tab = "overview" }: { caseNumber: string;
       {tab === "clients" && dictionary && (
         <div className="client-grid">
           {context.clients.map((c) => (
-            <ClientRecord key={c.id} client={c} primary={c.primary} dictionary={dictionary} />
+            <ClientRecord key={c.id} client={c} dictionary={dictionary} />
           ))}
         </div>
       )}

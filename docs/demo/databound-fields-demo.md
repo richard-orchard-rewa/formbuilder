@@ -18,7 +18,7 @@ Background: [the proposal](../proposals/databound-fields.md).
 
 - **Mock ICIS** ([`mock-icis/`](../../mock-icis/)) is a stand-in for ICIS's Dataverse Web API.
   - It speaks exactly the subset of the protocol the service uses: metadata, contact reads and PATCHes, lookup lists and privilege checks. It uses the same URL shapes, etags and error messages as the real thing.
-  - It holds 26 made-up clients shaped like ICIS `contact` records (6 of them the [practitioner portal demo](practitioner-portal-demo.md)'s caseload, with their cases and sessions). Phone numbers are from ACMA's ranges reserved for fiction, and emails use `example.com`.
+  - It holds 20 made-up clients shaped like ICIS `contact` records. Phone numbers are from ACMA's ranges reserved for fiction, and emails use `example.com`.
   - Its screens let you play ICIS staff (edit clients), the ICIS admin (grant the service's privileges) and an observer (watch every API call).
 - **The Data Binding Service runs unchanged.** It uses its real ICIS adapter, pointed at the mock by [`binding-service/.env.demo`](../../binding-service/.env.demo). The only differences from real ICIS are a fixed token instead of an Entra sign-in (refused for anything but localhost) and privileges re-checked on every request. A contract test ([`mock-icis/src/contract.test.ts`](../../mock-icis/src/contract.test.ts)) runs the real adapter against the mock, so the two can't drift apart silently.
 
@@ -124,6 +124,25 @@ About 20 minutes. Each part is one role.
    - In **Data bindings**, every attribute is back to display-only.
 3. **Validation at the boundary.** The service re-checks length limits itself, so the rule holds even for a caller that skips the form's own checks.
 
+### 7. A joint session: one note, two people
+
+**Point:** in a joint session, each person's part of the note is theirs. It's saved to their records and read back as theirs.
+
+1. **Grant attendance writes.** In the mock's **Service account**, tick Attendance **Write** and save.
+2. **Build two modules** (Modules → new module → Build):
+   - *Joint session details*, **Filled in: once per session**. The palette's Data bound section now offers only **Session** bindings: add *Session* and *Start*, plus a required *Session summary* text area. Publish.
+   - *Each participant*, **Filled in: once per participant**. The palette offers **Participant** and **Client** bindings: add *Attendance* and *Preferred name*, plus a required *Progress this session* text area. Publish.
+   - Try switching *Each participant* to once per session: the builder refuses while it holds client and participant fields.
+3. **Compose and publish** a session template, *Joint mediation note*, from the two modules.
+4. **Fill it in.** Fill out → enter client number **00152077** (Aisha Rahimi) → **Find sessions** → choose **Joint mediation session**.
+   - The session details fill from the booking.
+   - *Each participant* appears twice, headed **Aisha Rahimi** and **Tariq Haddad**, each pre-filled from their own records (both *Attended*).
+5. Set Tariq's attendance to **DNA**, write a line of progress for each, and submit. The results are listed per person: Tariq's attendance **Saved to ICIS**, Aisha's **Unchanged**.
+6. In the mock's **Sessions**, the joint session shows Tariq as DNA and Aisha still as Attended.
+7. **Read it back.** Open the template's **Submissions** and the new one. Each copy is headed with the right person and shows what was written for them.
+
+The [practitioner portal demo](practitioner-portal-demo.md) shows the same service from a session-notes system's side: case, session and per-participant modules, via `npm run demo:portal`.
+
 ## Talking points
 
 - **Nobody talks to ICIS but the service.** form-builder only knows logical keys like `client.preferredName`. The API log proves it: form-builder never appears there.
@@ -137,4 +156,5 @@ About 20 minutes. Each part is one role.
   - Linked data, i.e. presenting needs and referrals, which need two more strategies.
   - The validation library (phone, email, Medicare).
   - Real identity. The service uses a service account, which §8 of the requirements rules out for real clinical writes.
-  - Bound fields in form-builder's modules and session templates. The [practitioner portal demo](practitioner-portal-demo.md) shows the idea with seeded modules on cases, sessions and clients.
+  - Case-level content, case participants, and fields on related records (designed in epic US-14).
+  - Who counts as a participant, and what one participant may see of another's entries (the §16 disclosure boundary).

@@ -6,16 +6,17 @@ import {
   SERVICE_ACCOUNT,
   type AttributeDef,
   type EntityDef,
-  type Value,
+  type RecordRow,
 } from "./data.js"
 import { touch, type MockIcisState } from "./state.js"
 
 // A stand-in for the Dataverse Web API (v9.2) that speaks exactly the subset
-// the Data Binding Service's ICIS adapter uses -- metadata, record reads
-// (with a single-level $expand) and PATCHes, filtered lists, lookup lists,
-// WhoAmI and RetrieveUserPrivileges -- with Dataverse's own URL shapes,
-// etags and error bodies. Anything outside that subset answers 400 saying
-// so, rather than pretending.
+// the Data Binding Service's ICIS adapter uses -- metadata (including option
+// sets), record reads, filtered lists and conditional PATCHes for contacts,
+// sessions and attendance records, lookup lists, WhoAmI and
+// RetrieveUserPrivileges -- with Dataverse's own URL shapes, etags and error
+// bodies. Anything outside that subset answers 400 saying so, rather than
+// pretending.
 
 const PREFIX = "/api/data/v9.2/"
 const GUID = "[0-9a-fA-F-]{36}"
@@ -52,10 +53,8 @@ function entityBySet(entitySet: string) {
 
 const isRecordEntity = (entity: EntityDef) => RECORD_ENTITIES.includes(entity)
 
-const navigationOf = (a: AttributeDef) => a.navigation ?? a.logicalName
-
-// Only `field eq 'value'` / `field eq <guid>` / `field eq 0` clauses joined
-// by a single kind of `or`/`and` -- all the adapter ever sends.
+// Only `field eq 'text'`, `field eq <guid>` and `field eq <number>` clauses,
+// joined by a single kind of `or`/`and` -- all the adapter ever sends.
 function parseFilter(filter: string | undefined) {
   if (!filter) return { join: "and" as const, clauses: [] }
   const join = / or /.test(filter) ? ("or" as const) : ("and" as const)
@@ -71,12 +70,12 @@ function selectList(select: string | undefined) {
   return select ? select.split(",").map((s) => s.trim()) : []
 }
 
-// `nav($select=a,b)` -- one single-valued navigation property, one level.
-function parseExpand(expand: string | undefined) {
-  if (!expand) return null
-  const match = /^(\w+)\(\$select=([\w,]+)\)$/.exec(expand.trim())
-  if (!match) unsupported(`the expand "${expand}"`)
-  return { navigation: match[1], select: selectList(match[2]) }
+// A record's value for one filter or select column: its primary key, a
+// lookup as `_<attribute>_value`, or a plain attribute.
+function columnValue(entity: EntityDef, row: RecordRow, column: string) {
+  if (column === entity.primaryId) return row.id
+  const lookup = /^_(\w+)_value$/.exec(column)
+  return row.values[lookup ? lookup[1] : column] ?? null
 }
 
 export function registerOData(app: FastifyInstance, state: MockIcisState) {
@@ -102,29 +101,10 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
     }
   }
 
-  function notFound(entity: EntityDef, id: string) {
-    return new ODataError(404, `Entity '${entity.logicalName}' With Id = ${id} Does Not Exist`)
-  }
-
-  function noProperty(entity: EntityDef, column: string) {
-    return new ODataError(
-      400,
-      `Could not find a property named '${column}' on type 'Microsoft.Dynamics.CRM.${entity.logicalName}'.`,
-      "0x80060888",
-    )
-  }
-
-  function recordJson(
-    entity: EntityDef,
-    id: string,
-    select: string[],
-    expand: ReturnType<typeof parseExpand> = null,
-  ) {
-    const record = state.table(entity.logicalName).get(id)
-    if (!record) throw notFound(entity, id)
-    const row: Record<string, unknown> = {
-      "@odata.etag": `W/"${record.version}"`,
-      [entity.primaryId]: record.id,
+  function recordJson(entity: EntityDef, row: RecordRow, select: string[]) {
+    const json: Record<string, unknown> = {
+      "@odata.etag": `W/"${row.version}"`,
+      [entity.primaryId]: row.id,
     }
     for (const column of select) {
       if (column === entity.primaryId) continue
@@ -132,23 +112,21 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
       const attribute = lookup ? lookup[1] : column
       const def = entity.attributes.find((a) => a.logicalName === attribute)
       if (!def || (lookup ? def.type !== "Lookup" : def.type === "Lookup")) {
-        throw noProperty(entity, column)
+        throw new ODataError(
+          400,
+          `Could not find a property named '${column}' on type 'Microsoft.Dynamics.CRM.${entity.logicalName}'.`,
+          "0x80060888",
+        )
       }
-      row[column] = record.values[attribute] ?? null
+      json[column] = row.values[attribute] ?? null
     }
-    if (expand) {
-      const def = entity.attributes.find(
-        (a) => a.type === "Lookup" && navigationOf(a) === expand.navigation,
-      )
-      if (!def) throw noProperty(entity, expand.navigation)
-      const target = entityByName(def.target!)
-      if (!isRecordEntity(target)) unsupported(`expanding ${expand.navigation}`)
-      demand(target, "Read")
-      const refId = record.values[def.logicalName]
-      row[expand.navigation] =
-        typeof refId === "string" && state.table(target.logicalName).has(refId)
-          ? recordJson(target, refId, expand.select)
-          : null
+    return json
+  }
+
+  function getRow(entity: EntityDef, id: string) {
+    const row = state.table(entity.logicalName).get(id)
+    if (!row) {
+      throw new ODataError(404, `Entity '${entity.logicalName}' With Id = ${id} Does Not Exist`)
     }
     return row
   }
@@ -199,13 +177,13 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
           })),
         }
       }
-      // A choice column's option set: metadata, so no record privilege needed.
+      // An option set's values: Attributes(LogicalName='x')/…PicklistAttributeMetadata
       const picklist = /^Attributes\(LogicalName='(\w+)'\)\/Microsoft\.Dynamics\.CRM\.PicklistAttributeMetadata$/.exec(rest)
       if (picklist) {
-        const def = entity.attributes.find((a) => a.logicalName === picklist[1])
-        if (!def || def.type !== "Picklist") {
-          throw new ODataError(404, `No picklist attribute ${picklist[1]} on ${entity.logicalName}`)
-        }
+        const def = entity.attributes.find(
+          (a) => a.logicalName === picklist[1] && a.type === "Picklist",
+        )
+        if (!def) throw new ODataError(404, `No picklist attribute ${picklist[1]} on ${entity.logicalName}`)
         return {
           LogicalName: def.logicalName,
           OptionSet: {
@@ -228,7 +206,7 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
                 {
                   ReferencingAttribute: def.logicalName,
                   ReferencedEntity: def.target,
-                  ReferencingEntityNavigationPropertyName: navigationOf(def),
+                  ReferencingEntityNavigationPropertyName: def.logicalName,
                 },
               ]
             : [],
@@ -262,14 +240,13 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
     if (m && method === "DELETE") {
       const entity = entityBySet(m[1])
       if (!isRecordEntity(entity)) unsupported(`writing ${entity.entitySet}`)
-      const def = entity.attributes.find((a) => navigationOf(a) === m![3] && a.type === "Lookup")
+      const def = entity.attributes.find((a) => a.logicalName === m![3] && a.type === "Lookup")
       if (!def) unsupported(`the navigation property ${m[3]}`)
       demand(entity, "Write")
       demand(entity, "Append")
-      const record = state.table(entity.logicalName).get(m[2])
-      if (!record) throw notFound(entity, m[2])
-      record.values[def.logicalName] = null
-      touch(record, SERVICE_ACCOUNT.name)
+      const row = getRow(entity, m[2])
+      row.values[def.logicalName] = null
+      touch(row, SERVICE_ACCOUNT.name)
       return null
     }
 
@@ -279,7 +256,7 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
       if (!isRecordEntity(entity)) unsupported(`single-record access to ${entity.entitySet}`)
       if (method === "GET") {
         demand(entity, "Read")
-        return recordJson(entity, m[2], selectList(query.$select), parseExpand(query.$expand))
+        return recordJson(entity, getRow(entity, m[2]), selectList(query.$select))
       }
       if (method === "PATCH") {
         return patchRecord(request, entity, m[2])
@@ -292,26 +269,20 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
       demand(entity, "Read")
       const { join, clauses } = parseFilter(query.$filter)
       if (isRecordEntity(entity)) {
-        // $orderby is accepted and ignored: callers sort for themselves.
+        // Record entities are only ever listed filtered, as Dataverse
+        // consumers should; an unfiltered dump isn't part of the subset.
         if (clauses.length === 0) unsupported(`listing ${entity.entitySet} without a filter`)
-        const matches = (values: Record<string, Value>) => {
-          const results = clauses.map((c) => {
-            const lookup = /^_(\w+)_value$/.exec(c.field)
-            const attribute = lookup ? lookup[1] : c.field
-            const def = entity.attributes.find((a) => a.logicalName === attribute)
-            if (!def) throw noProperty(entity, c.field)
-            return String(values[attribute] ?? "").toLowerCase() === String(c.value).toLowerCase()
-          })
-          return join === "or" ? results.some(Boolean) : results.every(Boolean)
+        const matches = (row: RecordRow) => {
+          const hits = clauses.map((c) => String(columnValue(entity, row, c.field)) === c.value)
+          return join === "or" ? hits.some(Boolean) : hits.every(Boolean)
         }
         const top = Number(query.$top ?? 5000)
         const select = selectList(query.$select)
-        const expand = parseExpand(query.$expand)
         return {
           value: [...state.table(entity.logicalName).values()]
-            .filter((r) => matches(r.values))
+            .filter(matches)
             .slice(0, top)
-            .map((r) => recordJson(entity, r.id, select, expand)),
+            .map((row) => recordJson(entity, row, select)),
         }
       }
       const rows = LOOKUP_ROWS[entity.logicalName]
@@ -331,55 +302,43 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
     unsupported(`${method} ${path}`)
   }
 
-  // Does `id` name a row of `target` -- a reference list's, or a record's?
-  function rowExists(target: EntityDef, id: string) {
-    return isRecordEntity(target)
-      ? state.table(target.logicalName).has(id)
-      : Boolean(LOOKUP_ROWS[target.logicalName]?.some((r) => r.id === id))
-  }
-
   function patchRecord(request: FastifyRequest, entity: EntityDef, id: string) {
     demand(entity, "Write")
-    const record = state.table(entity.logicalName).get(id)
-    if (!record) throw notFound(entity, id)
+    const row = getRow(entity, id)
     const ifMatch = request.headers["if-match"]
-    if (ifMatch && ifMatch !== "*" && ifMatch !== `W/"${record.version}"`) {
+    if (ifMatch && ifMatch !== "*" && ifMatch !== `W/"${row.version}"`) {
       throw new ODataError(412, "The version of the existing record doesn't match the RowVersion property provided.", "0x80060882")
     }
 
     const body = (request.body ?? {}) as Record<string, unknown>
-    const changes: Record<string, Value> = {}
+    const changes: RecordRow["values"] = {}
     for (const [key, value] of Object.entries(body)) {
       const bind = /^(\w+)@odata\.bind$/.exec(key)
       if (bind) {
-        const def = entity.attributes.find((a) => navigationOf(a) === bind[1] && a.type === "Lookup")
+        const def = entity.attributes.find((a) => a.logicalName === bind[1] && a.type === "Lookup")
         if (!def) throw new ODataError(400, `An undeclared property '${bind[1]}' which only has property annotations in the payload but no property value was found in the payload.`)
         const target = entityByName(def.target!)
         demand(entity, "Append")
         demand(target, "AppendTo")
         const ref = new RegExp(`^/${target.entitySet}\\((${GUID})\\)$`).exec(String(value))
-        if (!ref || !rowExists(target, ref[1])) {
+        const row = ref && LOOKUP_ROWS[target.logicalName]?.find((r) => r.id === ref[1])
+        if (!row) {
           throw new ODataError(404, `Entity '${target.logicalName}' With Id = ${ref?.[1] ?? value} Does Not Exist`)
         }
-        changes[def.logicalName] = ref[1]
+        changes[def.logicalName] = row.id
         continue
       }
       const def = entity.attributes.find((a) => a.logicalName === key)
-      if (!def || def.type === "Lookup") {
+      if (!def || def.type === "Lookup" || !def.validForUpdate) {
         throw new ODataError(400, `The property '${key}' does not exist on type 'Microsoft.Dynamics.CRM.${entity.logicalName}'.`, "0x80060888")
       }
       if (def.type === "Picklist") {
-        if (value !== null && !(typeof value === "number" && def.options!.some((o) => o.value === value))) {
-          throw new ODataError(
-            400,
-            `A validation error occurred. The value ${String(value)} of '${key}' on record of type '${entity.logicalName}' is outside the valid range.`,
-            "0x8004431A",
-          )
+        if (value !== null && !def.options!.some((o) => o.value === value)) {
+          throw new ODataError(400, `${String(value)} is not a valid value for ${key} (an option set).`, "0x8004431A")
         }
         changes[key] = value as number | null
         continue
       }
-      if (def.type !== "String") unsupported(`writing ${def.type} attributes`)
       if (value !== null && typeof value !== "string") {
         throw new ODataError(400, `Cannot convert the literal to the expected type for '${key}'.`)
       }
@@ -392,8 +351,8 @@ export function registerOData(app: FastifyInstance, state: MockIcisState) {
       }
       changes[key] = value
     }
-    record.values = { ...record.values, ...changes }
-    touch(record, SERVICE_ACCOUNT.name)
+    row.values = { ...row.values, ...changes }
+    touch(row, SERVICE_ACCOUNT.name)
     return null
   }
 

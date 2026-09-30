@@ -10,7 +10,7 @@ import type { BindingSource } from "./adapters/adapter.js"
 export const STRATEGY_PRESENTATIONS: Record<BindingStrategy, BindingPresentation[]> = {
   attribute: ["text"],
   lookup: ["dropdown", "radio"],
-  choice: ["radio", "dropdown"],
+  choice: ["dropdown", "radio"],
 }
 
 // The rules that follow from a binding's control alone.

@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest"
 import { StoreWriteError } from "./adapters/adapter.js"
-import { FAKE_CLIENT_ID, FakeRecordStore, KNOWN_TITLES } from "./adapters/fake.js"
+import {
+  FAKE_ATTENDANCE_IDS,
+  FAKE_CASE_ID,
+  FAKE_CLIENT_ID,
+  FakeRecordStore,
+  KNOWN_TITLES,
+} from "./adapters/fake.js"
 import { BindingCreator } from "./creator.js"
 import { InMemoryIdentityRegistry } from "./identity.js"
 import { BindingRegistry, InMemoryConfiguredBindingRepository } from "./registry.js"
-import { AnchorNotFoundError, BindingService, UnknownBindingError } from "./service.js"
+import {
+  AnchorMismatchError,
+  AnchorNotFoundError,
+  BindingService,
+  UnknownBindingError,
+} from "./service.js"
 
 // Titles by code, as the DBS presents them.
 const MR = "mr"
@@ -211,38 +222,133 @@ describe("BindingService.commit", () => {
   })
 })
 
-describe("BindingService beyond the client anchor", () => {
-  it("walks case -> session -> participant, and writes a choice by code", async () => {
-    const { service } = await build()
-    const found = (await service.findCase("100001"))!
-    const context = await service.caseContext(found.id)
-    expect(context.clients.map((c) => c.displayName)).toEqual(["Bob McGee"])
-    const session = await service.sessionContext(context.sessions[0].id)
-    const participant = { sessionParticipant: session.participants[0].id }
+describe("BindingService sessions and participants", () => {
+  const attendanceOf = (store: FakeRecordStore, attendanceId: string) =>
+    store
+      .read("csg_attendance", attendanceId, [
+        { strategy: "choice", entity: "csg_attendance", attribute: "wp_attendancestatus" },
+      ])
+      .then((r) => r?.values.wp_attendancestatus)
 
-    const opened = await service.resolve({
-      anchor: { ...participant, session: session.id },
-      bindings: ["sessionParticipant.attendance", "session.setting"],
-    })
-    expect(opened.values).toEqual({
-      "sessionParticipant.attendance": "invited",
-      "session.setting": "centre-based",
-    })
-    expect((await service.getOptions("sessionParticipant.attendance")).options.map((o) => o.value))
-      .toEqual(["invited", "did-not-attend", "attended"])
-
-    const { results } = await service.commit({
-      anchor: participant,
-      values: { "sessionParticipant.attendance": "attended" },
-      baseline: opened.values,
-    })
-    expect(results["sessionParticipant.attendance"]).toEqual({ status: "written" })
+  it("lists a client's sessions with everyone in them, all under DBS anchor IDs", async () => {
+    const { service, anchor } = await build()
+    const sessions = await service.findSessions("00152076")
+    expect(sessions).toHaveLength(1)
+    const [session] = sessions!
+    expect(session.subject).toBe("Joint session")
+    expect(session.participants.map((p) => [p.client.displayName, p.attendance])).toEqual([
+      ["Bob McGee", "Attended"],
+      ["Alex Rivera", "Invited"],
+    ])
+    // The same client anchor as finding the client directly.
+    expect(session.participants[0].client.id).toBe(anchor.client)
+    // Nothing from the store leaks through.
+    expect(JSON.stringify(sessions)).not.toContain(FAKE_ATTENDANCE_IDS[0])
+    expect(await service.findSessions("99999999")).toBeNull()
   })
 
-  it("refuses bindings on an anchor the request didn't give", async () => {
+  it("resolves session details against the session anchor", async () => {
+    const { service } = await build()
+    const [session] = (await service.findSessions("00152076"))!
+    const { values } = await service.resolve({
+      anchor: { session: session.id },
+      bindings: ["session.subject", "session.start"],
+    })
+    expect(values).toEqual({
+      "session.subject": "Joint session",
+      "session.start": "2026-10-06T02:00:00Z",
+    })
+  })
+
+  it("reads and writes each participant's own attendance, never another's", async () => {
+    const { service, store } = await build()
+    const [session] = (await service.findSessions("00152076"))!
+    const [bob, alex] = session.participants
+    const attendance = async (participant: string) =>
+      (
+        await service.resolve({
+          anchor: { participant },
+          bindings: ["participant.attendance"],
+        })
+      ).values["participant.attendance"]
+
+    expect(await attendance(bob.id)).toBe("attended")
+    expect(await attendance(alex.id)).toBe("invited")
+
+    const { results } = await service.commit({
+      anchor: { participant: alex.id },
+      values: { "participant.attendance": "dna" },
+      baseline: { "participant.attendance": "invited" },
+    })
+    expect(results["participant.attendance"]).toEqual({ status: "written" })
+    // Written back to Alex's attendance row (the option's integer), and
+    // read back for Alex only.
+    expect(await attendanceOf(store, FAKE_ATTENDANCE_IDS[1])).toBe("2")
+    expect(await attendanceOf(store, FAKE_ATTENDANCE_IDS[0])).toBe("4")
+    expect(await attendance(alex.id)).toBe("dna")
+    expect(await attendance(bob.id)).toBe("attended")
+  })
+
+  it("says who a participant anchor is, so saved per-participant data is shown against the right person", async () => {
+    const { service } = await build()
+    const [session] = (await service.findSessions("00152076"))!
+    const [bob, alex] = session.participants
+    expect(await service.getParticipant(alex.id)).toEqual(alex)
+    expect(await service.getParticipant(bob.id)).toEqual(bob)
+    // A client's anchor isn't a participant's.
+    expect(await service.getParticipant(bob.client.id)).toBeNull()
+  })
+
+  it("serves a choice binding's options by code", async () => {
+    const { service } = await build()
+    expect((await service.getOptions("participant.attendance")).options).toEqual([
+      { value: "invited", label: "Invited" },
+      { value: "dna", label: "DNA" },
+      { value: "attended", label: "Attended" },
+    ])
+  })
+
+  it("refuses bindings asked for against the wrong kind of anchor", async () => {
     const { service, anchor } = await build()
     await expect(
-      service.resolve({ anchor, bindings: ["client.firstName", "case.caseNumber"] }),
-    ).rejects.toThrow("case.caseNumber need a case anchor")
+      service.resolve({ anchor, bindings: ["participant.attendance"] }),
+    ).rejects.toBeInstanceOf(AnchorMismatchError)
+    // A client's anchor ID isn't accepted as a participant's.
+    await expect(
+      service.resolve({
+        anchor: { participant: anchor.client },
+        bindings: ["participant.attendance"],
+      }),
+    ).rejects.toBeInstanceOf(AnchorNotFoundError)
+  })
+})
+
+describe("BindingService case anchors", () => {
+  it("opens a case by number: its clients and sessions, as DBS anchors only", async () => {
+    const { service } = await build()
+    const found = (await service.findCase("100001"))!
+    expect(found).toMatchObject({ caseNumber: "100001", displayName: "McGee & Rivera — Mediation" })
+    expect(found.clients.map((c) => c.displayName)).toEqual(["Bob McGee", "Alex Rivera"])
+    expect(found.sessions.map((s) => s.subject)).toEqual(["Joint session"])
+    expect(found.sessions[0].participants.map((p) => p.client.displayName)).toEqual([
+      "Bob McGee",
+      "Alex Rivera",
+    ])
+    expect(found.id).not.toBe(FAKE_CASE_ID)
+    expect(await service.findCase("999999")).toBeNull()
+  })
+
+  it("resolves case bindings on the case anchor, and only there", async () => {
+    const { service, anchor } = await build()
+    const found = (await service.findCase("100001"))!
+    const { values } = await service.resolve({ anchor: { case: found.id }, bindings: ["case.caseNumber"] })
+    expect(values).toEqual({ "case.caseNumber": "100001" })
+    await expect(service.resolve({ anchor, bindings: ["case.caseNumber"] })).rejects.toThrow(
+      AnchorMismatchError,
+    )
+    // A client's anchor ID isn't a case's.
+    await expect(
+      service.resolve({ anchor: { case: anchor.client }, bindings: ["case.caseNumber"] }),
+    ).rejects.toThrow(AnchorNotFoundError)
   })
 })

@@ -1,5 +1,5 @@
 import type { BindingDescriptor } from "shared"
-import type { BindingSource } from "./adapters/adapter.js"
+import { choiceTarget, type BindingSource } from "./adapters/adapter.js"
 
 export interface DictionaryEntry {
   descriptor: BindingDescriptor
@@ -10,8 +10,48 @@ export interface DictionaryEntry {
 // binding creator (see registry.ts); these are the ones the prototype
 // started with, kept in code so they can't be edited out from under forms.
 // Keys are store-agnostic; `source` is the only ICIS-specific part.
-export const CODE_BINDINGS: DictionaryEntry[] = [
-  {
+const sessionRead = (
+  key: string,
+  label: string,
+  attribute: string,
+  description: string,
+): DictionaryEntry => ({
+  source: { strategy: "attribute", entity: "wp_session", attribute },
+  descriptor: {
+    key,
+    version: 1,
+    label,
+    description,
+    anchor: "session",
+    access: "read",
+    control: { kind: "text" },
+    overridable: ["label"],
+  },
+})
+
+// A built-in binding on any anchor, for the case and session details a
+// session note shows and keeps current.
+const entry = (
+  key: string,
+  label: string,
+  description: string,
+  access: "read" | "readWrite",
+  source: BindingSource,
+): DictionaryEntry => ({
+  source,
+  descriptor: {
+    key,
+    version: 1,
+    label,
+    description,
+    anchor: key.split(".")[0] as BindingDescriptor["anchor"],
+    access,
+    control: source.strategy === "attribute" ? { kind: "text" } : { kind: "lookup" },
+    overridable: access === "read" ? ["label"] : ["label", "required"],
+  },
+})
+
+export const CODE_BINDINGS: DictionaryEntry[] = [  {
     source: {
       strategy: "lookup",
       entity: "contact",
@@ -68,55 +108,48 @@ export const CODE_BINDINGS: DictionaryEntry[] = [
       overridable: ["label"],
     },
   },
-
-  // --- Case (`incident`). The case's identity and service are set when
-  // it's opened in ICIS, so display-only; the practitioner keeps its
-  // referral source and stage current from their notes. ---
-  entry("case", "caseNumber", "Case number", "The case's ICIS case number. Display only.", "read",
-    { strategy: "attribute", entity: "incident", attribute: "ticketnumber" }),
-  entry("case", "program", "Program", "The service program the case is delivered under.", "read",
-    { strategy: "lookup", entity: "incident", attribute: "csg_programid", target: "csg_program" }),
-  entry("case", "location", "Location", "The RAWA location delivering the case.", "read",
-    { strategy: "lookup", entity: "incident", attribute: "csg_locationid", target: "csg_location" }),
-  entry("case", "referralSource", "Referral source", "Who referred the client(s) to the service.", "readWrite",
-    { strategy: "lookup", entity: "incident", attribute: "csg_referralsourceid", target: "csg_referralsource" }),
-  entry("case", "stage", "Case stage", "Where the case is in the service: intake, delivery, review or closure.", "readWrite",
-    { strategy: "choice", entity: "incident", attribute: "csg_casestage" }),
-
-  // --- Session (`wp_session`). Its subject and type come from the
-  // booking; how it was delivered is confirmed in the session note. ---
-  entry("session", "subject", "Session", "The booked session's subject. Display only.", "read",
-    { strategy: "attribute", entity: "wp_session", attribute: "subject" }),
-  entry("session", "sessionType", "Session type", "Intake, counselling session or case review, as booked.", "read",
-    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessiontypeid", target: "csg_sessiontype" }),
-  entry("session", "setting", "Session setting", "How and where the session was delivered.", "readWrite",
-    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessionsettingid", target: "csg_sessionsetting" }),
-
-  // --- Session participant (`csg_attendance`): one per client booked into
-  // a session. ---
-  entry("sessionParticipant", "attendance", "Attendance", "Whether this client attended the session.", "readWrite",
-    { strategy: "choice", entity: "csg_attendance", attribute: "wp_attendancestatus" }),
-]
-
-function entry(
-  anchor: DictionaryEntry["descriptor"]["anchor"],
-  name: string,
-  label: string,
-  description: string,
-  access: "read" | "readWrite",
-  source: BindingSource,
-): DictionaryEntry {
-  return {
-    source,
-    descriptor: {
-      key: `${anchor}.${name}`,
-      version: 1,
-      label,
-      description,
-      anchor,
-      access,
-      control: source.strategy === "attribute" ? { kind: "text" } : { kind: "lookup" },
-      overridable: access === "read" ? ["label"] : ["label", "required"],
+  // Session details from the booking: display only (requirements §8 --
+  // referenced values are shown, not re-entered).
+  sessionRead("session.subject", "Session", "subject", "The session's subject, from the booking."),
+  sessionRead("session.start", "Start", "scheduledstart", "When the session starts, from the booking."),
+  sessionRead("session.end", "End", "scheduledend", "When the session ends, from the booking."),
+  // One person's attendance at the session -- data about the participant
+  // in this session, not about the client in general.
+  {
+    source: {
+      strategy: "choice",
+      entity: "csg_attendance",
+      attribute: "wp_attendancestatus",
+      target: choiceTarget("csg_attendance", "wp_attendancestatus"),
     },
-  }
-}
+    descriptor: {
+      key: "participant.attendance",
+      version: 1,
+      label: "Attendance",
+      description: "Whether this participant attended the session.",
+      anchor: "participant",
+      access: "readWrite",
+      control: { kind: "lookup" },
+      overridable: ["label", "required"],
+    },
+  },
+  // How the session was booked and delivered: its type from the booking
+  // (display only), its setting confirmed in the note.
+  entry("session.sessionType", "Session type", "Intake, counselling session or case review, as booked.", "read",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessiontypeid", target: "csg_sessiontype" }),
+  entry("session.setting", "Session setting", "How and where the session was delivered.", "readWrite",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessionsettingid", target: "csg_sessionsetting" }),
+  // The case (an incident). Its identity and programme are set when it's
+  // opened in ICIS, so display only; the practitioner keeps its referral
+  // source and stage current from their notes.
+  entry("case.caseNumber", "Case number", "The case's ICIS case number. Display only.", "read",
+    { strategy: "attribute", entity: "incident", attribute: "ticketnumber" }),
+  entry("case.program", "Program", "The service program the case is delivered under.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_programid", target: "csg_program" }),
+  entry("case.location", "Location", "The RAWA location delivering the case.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_locationid", target: "csg_location" }),
+  entry("case.referralSource", "Referral source", "Who referred the client(s) to the service.", "readWrite",
+    { strategy: "lookup", entity: "incident", attribute: "csg_referralsourceid", target: "csg_referralsource" }),
+  entry("case.stage", "Case stage", "Where the case is: intake, service delivery, case review or closure.", "readWrite",
+    { strategy: "choice", entity: "incident", attribute: "csg_casestage", target: choiceTarget("incident", "csg_casestage") }),
+]

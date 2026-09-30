@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
-import type { BoundValues, CaseAnchor, CaseContext } from "shared"
+import type { BoundValues, CaseContext } from "shared"
 import { dbs } from "./dbs"
 
-// A case as the portal lists it: its anchor graph (clients, sessions) and
-// the case-level bound values it shows in headers.
+// A case as the portal lists it: its anchors (clients, sessions and their
+// participants) and the case-level bound values it shows in headers.
 export interface CaseView {
-  anchor: CaseAnchor
   context: CaseContext
   values: BoundValues
 }
@@ -13,12 +12,9 @@ export interface CaseView {
 export const CASE_HEADER_BINDINGS = ["case.program", "case.location", "case.stage", "case.referralSource"]
 
 export async function loadCase(caseNumber: string): Promise<CaseView> {
-  const anchor = await dbs.findCase(caseNumber)
-  const [context, resolved] = await Promise.all([
-    dbs.caseContext(anchor.id),
-    dbs.resolve({ case: anchor.id }, CASE_HEADER_BINDINGS),
-  ])
-  return { anchor, context, values: resolved.values }
+  const context = await dbs.findCase(caseNumber)
+  const { values } = await dbs.resolve({ case: context.id }, CASE_HEADER_BINDINGS)
+  return { context, values }
 }
 
 export function useAsync<T>(load: () => Promise<T>, deps: unknown[]) {

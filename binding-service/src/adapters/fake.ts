@@ -1,15 +1,16 @@
 import type { BindingOptions } from "shared"
 import {
+  choiceTarget,
   ConcurrentUpdateError,
+  isChoiceTarget,
   type AttributeMetadata,
   type BindingSource,
-  type CaseRecord,
-  type CaseSummary,
   type Change,
+  type CaseSummary,
   type ClientSummary,
   type RecordStore,
   type ServicePermissions,
-  type SessionRecord,
+  type SessionSummary,
   type StoreValue,
   type StoredRecord,
 } from "./adapter.js"
@@ -25,11 +26,16 @@ export const KNOWN_TITLES: BindingOptions["options"] = [
 ]
 
 export const FAKE_CLIENT_ID = "00000000-0000-0000-0000-000000152076"
-// One case for Bob, with one session he's booked into.
-export const FAKE_CASE_ID = "00000000-0000-0000-0000-00000c100001"
-export const FAKE_SESSION_ID = "00000000-0000-0000-0000-00000e100001"
-export const FAKE_ATTENDANCE_ID = "00000000-0000-0000-0000-00000a100001"
+export const FAKE_CLIENT_2_ID = "00000000-0000-0000-0000-000000152099"
+export const FAKE_SESSION_ID = "00000000-0000-0000-0000-00000000a001"
+// A case both clients are on, which the joint session regards.
+export const FAKE_CASE_ID = "00000000-0000-0000-0000-00000000c001"
 export const FAKE_CASE_NUMBER = "100001"
+export const FAKE_ATTENDANCE_IDS = [
+  "00000000-0000-0000-0000-00000000b001",
+  "00000000-0000-0000-0000-00000000b002",
+] as const
+export const ATTENDANCE_TARGET = choiceTarget("csg_attendance", "wp_attendancestatus")
 
 // Metadata mirroring test ICIS's `contact` for the allow-listed attributes
 // (display names and lengths as probed on 2026-09-25).
@@ -67,147 +73,158 @@ export const FAKE_CONTACT_METADATA: AttributeMetadata[] = [
 
 const FAKE_OPTIONS: Record<string, BindingOptions["options"]> = {
   csg_salutation: KNOWN_TITLES,
+  [ATTENDANCE_TARGET]: [
+    { value: "1", label: "Invited" },
+    { value: "2", label: "DNA" },
+    { value: "4", label: "Attended" },
+  ],
   csg_gender: [
     { value: "7c1c5d2e-0000-4000-8000-000000000001", label: "Female" },
     { value: "7c1c5d2e-0000-4000-8000-000000000002", label: "Male" },
     { value: "7c1c5d2e-0000-4000-8000-000000000003", label: "Non-binary" },
     { value: "7c1c5d2e-0000-4000-8000-000000000004", label: "Not stated" },
   ],
-  csg_sessionsetting: [
-    { value: "7c1c5d2e-0000-4000-8000-000000000101", label: "Centre Based" },
-    { value: "7c1c5d2e-0000-4000-8000-000000000102", label: "Telephone" },
-    { value: "7c1c5d2e-0000-4000-8000-000000000103", label: "Video Conference" },
-  ],
-}
-
-// Choice columns' option sets, as ICIS numbers them.
-const FAKE_CHOICES: Record<string, BindingOptions["options"]> = {
-  "csg_attendance.wp_attendancestatus": [
-    { value: "1", label: "Invited" },
-    { value: "2", label: "Did Not Attend" },
-    { value: "4", label: "Attended" },
-  ],
-  "incident.csg_casestage": [
-    { value: "100000000", label: "Intake" },
-    { value: "100000001", label: "Service delivery" },
-  ],
 }
 
 // An in-memory store so development, unit tests and e2e run without ICIS.
-// Seeded with a stand-in for the test-ICIS contact the prototype uses. The
-// account's privileges are adjustable so the creator's ceilings can be
-// exercised; by default it may do everything except read the language list.
+// Seeded with a stand-in for the test-ICIS contact the prototype uses, a
+// second client, and a joint session both attended. The account's
+// privileges are adjustable so the creator's ceilings can be exercised; by
+// default it may do everything except read the language list.
 export class FakeRecordStore implements RecordStore {
   readonly name = "fake"
   private readonly records = new Map<
     string,
-    { values: Record<string, StoreValue>; version: number }
+    { entity: string; values: Record<string, StoreValue>; version: number }
   >()
 
   constructor(
     public privileges: {
       writeEntity: boolean
       readableTargets: Set<string>
-    } = {
-      writeEntity: true,
-      readableTargets: new Set(["csg_salutation", "csg_gender", "csg_sessionsetting"]),
-    },
+    } = { writeEntity: true, readableTargets: new Set(["csg_salutation", "csg_gender"]) },
   ) {
-    this.records.set(FAKE_CLIENT_ID, {
-      version: 1,
-      values: {
-        csg_clientid: "00152076",
-        csg_salutationid: KNOWN_TITLES[1].value,
-        firstname: "Bob",
-        lastname: "McGee",
-        middlename: null,
-        csg_alias: "Bobby",
-        mobilephone: null,
-      },
+    const add = (entity: string, id: string, values: Record<string, StoreValue>) =>
+      this.records.set(id, { entity, values, version: 1 })
+    add("contact", FAKE_CLIENT_ID, {
+      csg_clientid: "00152076",
+      csg_salutationid: KNOWN_TITLES[1].value,
+      firstname: "Bob",
+      lastname: "McGee",
+      middlename: null,
+      csg_alias: "Bobby",
+      mobilephone: null,
     })
-    this.records.set(FAKE_CASE_ID, {
-      version: 1,
-      values: { ticketnumber: FAKE_CASE_NUMBER, title: "McGee — Individual counselling", csg_casestage: "100000001" },
+    add("contact", FAKE_CLIENT_2_ID, {
+      csg_clientid: "00152099",
+      csg_salutationid: KNOWN_TITLES[3].value,
+      firstname: "Alex",
+      lastname: "Rivera",
+      csg_alias: null,
     })
-    this.records.set(FAKE_SESSION_ID, {
-      version: 1,
-      values: {
-        subject: "Session 1 · Bob McGee",
-        scheduledstart: "2026-10-01T02:30:00.000Z",
-        csg_sessionsettingid: FAKE_OPTIONS.csg_sessionsetting[0].value,
-      },
+    add("wp_session", FAKE_SESSION_ID, {
+      subject: "Joint session",
+      regardingobjectid: FAKE_CASE_ID,
+      scheduledstart: "2026-10-06T02:00:00Z",
+      scheduledend: "2026-10-06T04:00:00Z",
     })
-    this.records.set(FAKE_ATTENDANCE_ID, { version: 1, values: { wp_attendancestatus: "1" } })
+    add("incident", FAKE_CASE_ID, { ticketnumber: FAKE_CASE_NUMBER, title: "McGee & Rivera — Mediation" })
+    add("csg_caseclient", "00000000-0000-4000-8000-0000000cc001", { csg_caseid: FAKE_CASE_ID, csg_contactid: FAKE_CLIENT_ID })
+    add("csg_caseclient", "00000000-0000-4000-8000-0000000cc002", { csg_caseid: FAKE_CASE_ID, csg_contactid: FAKE_CLIENT_2_ID })
+    add("csg_attendance", FAKE_ATTENDANCE_IDS[0], {
+      csg_sessionid: FAKE_SESSION_ID,
+      csg_contactid: FAKE_CLIENT_ID,
+      wp_attendancestatus: "4",
+    })
+    add("csg_attendance", FAKE_ATTENDANCE_IDS[1], {
+      csg_sessionid: FAKE_SESSION_ID,
+      csg_contactid: FAKE_CLIENT_2_ID,
+      wp_attendancestatus: "1",
+    })
   }
 
-  private client(id: string): ClientSummary {
-    const values = this.records.get(id)!.values
-    return {
-      id,
-      clientNumber: values.csg_clientid ?? null,
-      firstName: values.firstname ?? null,
-      lastName: values.lastname ?? null,
-    }
-  }
-
-  async findCaseByNumber(caseNumber: string): Promise<CaseSummary | null> {
-    if (caseNumber !== FAKE_CASE_NUMBER) return null
-    const values = this.records.get(FAKE_CASE_ID)!.values
-    return { id: FAKE_CASE_ID, caseNumber, title: values.title ?? null }
-  }
-
-  async readCase(id: string): Promise<CaseRecord | null> {
-    if (id !== FAKE_CASE_ID) return null
-    const summary = (await this.findCaseByNumber(FAKE_CASE_NUMBER))!
-    const session = (await this.readSession(FAKE_SESSION_ID))!
-    return {
-      ...summary,
-      clients: [{ ...this.client(FAKE_CLIENT_ID), primary: true }],
-      sessions: [
-        { id: session.id, subject: session.subject, scheduledStart: session.scheduledStart, status: session.status },
-      ],
-    }
-  }
-
-  async readSession(id: string): Promise<SessionRecord | null> {
-    if (id !== FAKE_SESSION_ID) return null
-    const values = this.records.get(id)!.values
-    return {
-      id,
-      subject: values.subject ?? null,
-      scheduledStart: values.scheduledstart ?? null,
-      status: "scheduled",
-      case: await this.findCaseByNumber(FAKE_CASE_NUMBER),
-      participants: [{ id: FAKE_ATTENDANCE_ID, client: this.client(FAKE_CLIENT_ID) }],
-    }
+  private rows(entity: string) {
+    return [...this.records].filter(([, r]) => r.entity === entity)
   }
 
   private byClientNumber(clientNumber: string) {
-    for (const [id, record] of this.records) {
+    for (const [id, record] of this.rows("contact")) {
       if (record.values.csg_clientid === clientNumber) return { id, record }
     }
     return null
   }
 
-  async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {
-    const found = this.byClientNumber(clientNumber)
-    if (!found) return null
-    const { values } = found.record
+  private summary(id: string): ClientSummary {
+    const values = this.records.get(id)?.values ?? {}
     return {
-      id: found.id,
+      id,
       clientNumber: values.csg_clientid ?? null,
       firstName: values.firstname ?? null,
       lastName: values.lastname ?? null,
     }
   }
 
+  async sessionsForClient(clientId: string): Promise<SessionSummary[]> {
+    const attendances = this.rows("csg_attendance")
+    const sessionIds = new Set(
+      attendances
+        .filter(([, a]) => a.values.csg_contactid === clientId)
+        .map(([, a]) => a.values.csg_sessionid),
+    )
+    return this.sessionSummaries(([id]) => sessionIds.has(id)).sort((a, b) =>
+      String(b.start).localeCompare(String(a.start)),
+    )
+  }
+
+  async findCaseByNumber(caseNumber: string): Promise<CaseSummary | null> {
+    const found = this.rows("incident").find(([, r]) => r.values.ticketnumber === caseNumber)
+    if (!found) return null
+    const [caseId, record] = found
+    return {
+      id: caseId,
+      caseNumber: record.values.ticketnumber ?? null,
+      title: record.values.title ?? null,
+      clients: this.rows("csg_caseclient")
+        .filter(([, cc]) => cc.values.csg_caseid === caseId)
+        .map(([, cc]) => this.summary(String(cc.values.csg_contactid))),
+      sessions: this.sessionSummaries(([, s]) => s.values.regardingobjectid === caseId),
+    }
+  }
+
+  private sessionSummaries(
+    which: (row: [string, { values: Record<string, StoreValue> }]) => boolean,
+  ): SessionSummary[] {
+    const attendances = this.rows("csg_attendance")
+    const labels = new Map(FAKE_OPTIONS[ATTENDANCE_TARGET].map((o) => [o.value, o.label]))
+    return this.rows("wp_session")
+      .filter(which)
+      .map(([id, session]) => ({
+        id,
+        subject: session.values.subject ?? null,
+        start: session.values.scheduledstart ?? null,
+        end: session.values.scheduledend ?? null,
+        participants: attendances
+          .filter(([, a]) => a.values.csg_sessionid === id)
+          .map(([attendanceId, a]) => ({
+            id: attendanceId,
+            client: this.summary(String(a.values.csg_contactid)),
+            attendanceLabel: labels.get(String(a.values.wp_attendancestatus)) ?? null,
+          })),
+      }))
+  }
+
+  async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {
+    const found = this.byClientNumber(clientNumber)
+    return found ? this.summary(found.id) : null
+  }
+
   async read(
-    _entity: string,
+    entity: string,
     id: string,
     sources: BindingSource[],
   ): Promise<StoredRecord | null> {
     const found = this.records.get(id)
-    if (!found) return null
+    if (!found || found.entity !== entity) return null
     const values: Record<string, StoreValue> = {}
     for (const source of sources) {
       values[source.attribute] = found.values[source.attribute] ?? null
@@ -216,13 +233,13 @@ export class FakeRecordStore implements RecordStore {
   }
 
   async write(
-    _entity: string,
+    entity: string,
     id: string,
     changes: Change[],
     etag: string,
   ): Promise<void> {
     const found = this.records.get(id)
-    if (!found || String(found.version) !== etag) {
+    if (!found || found.entity !== entity || String(found.version) !== etag) {
       throw new ConcurrentUpdateError()
     }
     for (const change of changes) {
@@ -232,15 +249,12 @@ export class FakeRecordStore implements RecordStore {
   }
 
   async lookupOptions(target: string): Promise<BindingOptions> {
+    // An option set's values are metadata: always readable.
+    if (isChoiceTarget(target)) return { options: FAKE_OPTIONS[target] ?? [], source: "live" }
     if (!this.privileges.readableTargets.has(target) || !FAKE_OPTIONS[target]) {
       return { options: [], source: "unavailable" }
     }
     return { options: FAKE_OPTIONS[target], source: "live" }
-  }
-
-  async choiceOptions(entity: string, attribute: string): Promise<BindingOptions> {
-    const options = FAKE_CHOICES[`${entity}.${attribute}`]
-    return options ? { options, source: "live" } : { options: [], source: "unavailable" }
   }
 
   async describe(_entity: string, attributes: string[]): Promise<AttributeMetadata[]> {

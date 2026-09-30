@@ -44,7 +44,7 @@ function CallRow({ call }: { call: DbsCall }) {
   )
 }
 
-const ANCHOR_ORDER = ["case", "session", "sessionParticipant", "client"]
+const ANCHOR_ORDER = ["case", "session", "participant", "client"]
 
 function Dictionary() {
   const [list, setList] = useState<BindingDescriptor[] | null>(null)

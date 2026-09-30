@@ -5,23 +5,23 @@ import { loadCase, useAsync } from "../data"
 import { formatDate, formatTime, isToday, todayHeading } from "../format"
 import { loadNote, noteKey } from "../notes-store"
 import { CASELOAD, PRACTITIONER } from "../seed/notes"
+import { hasStarted } from "../session-note"
 
 export function HomeView() {
   const { data: cases, error, loading, reload } = useAsync(() => Promise.all(CASELOAD.map(loadCase)), [])
   const dictionary = useDictionary()
 
   const sessions = (cases ?? []).flatMap((c) =>
-    c.context.sessions.map((s) => ({ session: s, view: c, note: loadNote(noteKey(c.anchor.caseNumber, s.subject)) })),
+    c.context.sessions.map((s) => ({ session: s, view: c, note: loadNote(noteKey(c.context.caseNumber, s.subject)) })),
   )
   const today = sessions
-    .filter((s) => isToday(s.session.scheduledStart))
-    .sort((a, b) => String(a.session.scheduledStart).localeCompare(String(b.session.scheduledStart)))
+    .filter((s) => isToday(s.session.start))
+    .sort((a, b) => String(a.session.start).localeCompare(String(b.session.start)))
   // A note is due for every session that has happened (or is today) and
   // hasn't been submitted.
   const due = sessions.filter(
     (s) =>
-      s.session.status !== "cancelled" &&
-      (s.session.status === "completed" || isToday(s.session.scheduledStart)) &&
+      (hasStarted(s.session) || isToday(s.session.start)) &&
       s.note?.status !== "submitted",
   )
   const clients = new Set((cases ?? []).flatMap((c) => c.context.clients.map((cl) => cl.id)))
@@ -74,11 +74,11 @@ export function HomeView() {
             <div className="list-card">
               {due.length === 0 && <p className="muted pad">All caught up.</p>}
               {due.map(({ session, view, note }) => (
-                <a className="row-link" key={session.id} href={href({ page: "session", sessionId: session.id })}>
+                <a className="row-link" key={session.id} href={href({ page: "session", caseNumber: view.context.caseNumber ?? "", sessionId: session.id })}>
                   <span>
                     <strong>{session.subject}</strong>
                     <small>
-                      Case {view.anchor.caseNumber} · {formatDate(session.scheduledStart)}
+                      Case {view.context.caseNumber} · {formatDate(session.start)}
                     </small>
                   </span>
                   <NoteBadge note={note} />
@@ -96,15 +96,15 @@ export function HomeView() {
             </div>
             {today.length === 0 && <p className="muted">No sessions today.</p>}
             {today.map(({ session, view, note }) => (
-              <a key={session.id} className="appt" href={href({ page: "session", sessionId: session.id })}>
-                <time>{formatTime(session.scheduledStart)}</time>
+              <a key={session.id} className="appt" href={href({ page: "session", caseNumber: view.context.caseNumber ?? "", sessionId: session.id })}>
+                <time>{formatTime(session.start)}</time>
                 <span>
                   <strong>{session.subject}</strong>
                   <small>
                     <span className="tag aqua">
                       <BoundText dictionary={dictionary} binding="case.program" value={view.values["case.program"]} />
                     </span>
-                    Case {view.anchor.caseNumber}
+                    Case {view.context.caseNumber}
                   </small>
                 </span>
                 <NoteBadge note={note} />

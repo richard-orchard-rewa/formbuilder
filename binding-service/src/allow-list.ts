@@ -1,13 +1,13 @@
 import type { BindingAnchor } from "shared"
 
-// Which store entity each anchor maps to. In ICIS a case is an `incident`,
-// a session a `wp_session` activity regarding it, and a client's
-// participation in a session their `csg_attendance` row.
+// Which store entity each anchor maps to. A `participant` is one person's
+// attendance at one session -- ICIS's csg_attendance -- not the person.
 export const ANCHOR_ENTITIES: Record<BindingAnchor, string> = {
   client: "contact",
+  // A case is an `incident`; its sessions are the wp_sessions regarding it.
   case: "incident",
   session: "wp_session",
-  sessionParticipant: "csg_attendance",
+  participant: "csg_attendance",
 }
 
 export interface AllowedAttribute {
@@ -43,13 +43,12 @@ export const ALLOW_LIST: Record<BindingAnchor, AllowedAttribute[]> = {
     // The client's identifier: displayable, never editable from a form.
     { attribute: "csg_clientid", maxAccess: "read" },
   ],
-  // Not yet opened to stewards: case, session and attendance bindings are
-  // code-only (dictionary.ts) until a data owner approves their attributes.
-  // Session and attendance columns feed the DEX export, so that approval
-  // has to weigh DEX timing (docs/proposals/databound-fields.md).
+  // Session and participant bindings are built in (dictionary.ts) for now;
+  // none are steward-creatable until a data owner approves attributes.
+  // Case bindings are built in too (dictionary.ts), for the same reason.
   case: [],
   session: [],
-  sessionParticipant: [],
+  participant: [],
 }
 
 export function allowedAttribute(

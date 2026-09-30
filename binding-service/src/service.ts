@@ -5,7 +5,6 @@ import type {
   BindingDescriptor,
   BindingOptions,
   BoundValues,
-  CaseAnchor,
   CaseContext,
   ClientAnchor,
   CommitRequest,
@@ -13,19 +12,17 @@ import type {
   ResolveRequest,
   ResolveResponse,
   SessionAnchor,
-  SessionContext,
+  SessionParticipant,
 } from "shared"
 import {
+  choiceTarget,
   ConcurrentUpdateError,
   StoreWriteError,
-  optionListOf,
   type BindingSource,
-  type CaseSummary,
   type Change,
   type ClientSummary,
   type RecordStore,
   type SessionSummary,
-  type StoredRecord,
 } from "./adapters/adapter.js"
 import { ANCHOR_ENTITIES } from "./allow-list.js"
 import { firstFailure } from "./validators.js"
@@ -47,6 +44,18 @@ export class AnchorNotFoundError extends Error {
   }
 }
 
+// A binding asked for against the wrong kind of record -- a participant's
+// attendance resolved against a client, say.
+export class AnchorMismatchError extends Error {
+  constructor(
+    public readonly anchor: BindingAnchor,
+    public readonly keys: string[],
+  ) {
+    super(`Not ${anchor} binding(s): ${keys.join(", ")}`)
+    this.name = "AnchorMismatchError"
+  }
+}
+
 export class NoOptionsError extends Error {
   constructor(key: string) {
     super(`Binding ${key} has no option list`)
@@ -54,36 +63,17 @@ export class NoOptionsError extends Error {
   }
 }
 
-// A request named bindings on an anchor it didn't give an ID for.
-export class MissingAnchorError extends Error {
-  constructor(anchor: BindingAnchor, keys: string[]) {
-    super(`${keys.join(", ")} need a ${anchor} anchor, and none was given`)
-    this.name = "MissingAnchorError"
-  }
-}
-
 function displayName(first: string | null, last: string | null) {
   return [first, last].filter(Boolean).join(" ") || "(no name)"
 }
-
-// One anchor's share of a resolve or commit: the store record it names,
-// read once, and the bindings on it.
-interface AnchorGroup {
-  anchor: BindingAnchor
-  recordId: string
-  entries: DictionaryEntry[]
-  stored: StoredRecord
-}
-
-type OptionLists = (source: BindingSource) => Promise<BindingOptions>
 
 // The runtime half of the DBS: what forms use to render, fill and submit
 // data-bound fields. The creator (creator.ts) is the build-time half.
 //
 // Everything that crosses this boundary uses the DBS's own identities, never
-// the store's: a client, case, session or participant is a DBS-issued
-// anchor ID, and a lookup or choice value is an option code (identity.ts).
-// Translation to and from the store's IDs happens here, and only here.
+// the store's: a client is a DBS-issued anchor ID and a lookup value is an
+// option code (identity.ts). Translation to and from the store's IDs
+// happens here, and only here.
 export class BindingService {
   constructor(
     private readonly store: RecordStore,
@@ -109,47 +99,105 @@ export class BindingService {
 
   async getOptions(key: string): Promise<BindingOptions> {
     const [entry] = await this.entriesFor([key])
-    if (!optionListOf(entry.source)) throw new NoOptionsError(key)
-    return this.codedOptions(entry.source)
+    if (entry.source.strategy === "attribute" || !entry.source.target) {
+      throw new NoOptionsError(key)
+    }
+    return this.codedOptions(entry.source.target)
   }
-
-  // --- Anchors: finding the records forms are about, and walking from a
-  // case to its clients and sessions. Every ID handed out is the DBS's. ---
 
   async findClient(clientNumber: string): Promise<ClientAnchor | null> {
     const found = await this.store.findClientByNumber(clientNumber)
     return found ? this.clientAnchor(found) : null
   }
 
-  async findCase(caseNumber: string): Promise<CaseAnchor | null> {
-    const found = await this.store.findCaseByNumber(caseNumber)
-    return found ? this.caseAnchor(found) : null
+  // A client's sessions, each with everyone who took part. Sessions,
+  // participants and clients all come back as DBS anchor IDs: a participant
+  // anchor is the one person's attendance at that session, so data captured
+  // for them is written back to -- and read back from -- that person only.
+  async findSessions(clientNumber: string): Promise<SessionAnchor[] | null> {
+    const client = await this.store.findClientByNumber(clientNumber)
+    if (!client) return null
+    const sessions = await this.store.sessionsForClient(client.id)
+    return Promise.all(sessions.map((session) => this.sessionAnchor(session)))
   }
 
-  async caseContext(anchorId: string): Promise<CaseContext> {
-    const record = await this.store.readCase(await this.recordIdFor("case", anchorId))
-    if (!record) throw new AnchorNotFoundError("case", anchorId)
+  // A case by the number staff quote: its clients and every session
+  // regarding it (each with its participants), all as DBS anchor IDs. What
+  // a session-notes system opens a case with; the case's own bindings then
+  // resolve against the returned `id`.
+  async findCase(caseNumber: string): Promise<CaseContext | null> {
+    const found = await this.store.findCaseByNumber(caseNumber)
+    if (!found) return null
     return {
-      ...(await this.caseAnchor(record)),
-      clients: await Promise.all(
-        record.clients.map(async (c) => ({ ...(await this.clientAnchor(c)), primary: c.primary })),
-      ),
-      sessions: await Promise.all(record.sessions.map((s) => this.sessionAnchor(s))),
+      id: await this.identities.anchorFor("case", this.store.name, found.id),
+      caseNumber: found.caseNumber,
+      displayName: found.title ?? `Case ${found.caseNumber ?? ""}`.trim(),
+      clients: await Promise.all(found.clients.map((c) => this.clientAnchor(c))),
+      sessions: await Promise.all(found.sessions.map((s) => this.sessionAnchor(s))),
     }
   }
 
-  async sessionContext(anchorId: string): Promise<SessionContext> {
-    const record = await this.store.readSession(await this.recordIdFor("session", anchorId))
-    if (!record) throw new AnchorNotFoundError("session", anchorId)
+  private async sessionAnchor(session: SessionSummary): Promise<SessionAnchor> {
+    const store = this.store.name
     return {
-      ...(await this.sessionAnchor(record)),
-      case: record.case ? await this.caseAnchor(record.case) : null,
+      id: await this.identities.anchorFor("session", store, session.id),
+      subject: session.subject,
+      start: session.start,
+      end: session.end,
       participants: await Promise.all(
-        record.participants.map(async (p) => ({
-          id: await this.identities.anchorFor("sessionParticipant", this.store.name, p.id),
+        session.participants.map(async (p) => ({
+          id: await this.identities.anchorFor("participant", store, p.id),
           client: await this.clientAnchor(p.client),
+          attendance: p.attendanceLabel,
         })),
       ),
+    }
+  }
+
+  // Who a participant anchor is: the client behind that attendance record,
+  // and their attendance. What a saved note re-resolves its per-participant
+  // sections through, so each comes back labelled with the right person.
+  async getParticipant(participantId: string): Promise<SessionParticipant | null> {
+    const store = this.store.name
+    const attendanceId = await this.identities.storeIdForAnchor(participantId, store, "participant")
+    if (!attendanceId) return null
+    const contact: BindingSource = {
+      strategy: "lookup",
+      entity: "csg_attendance",
+      attribute: "csg_contactid",
+      target: "contact",
+    }
+    const status: BindingSource = {
+      strategy: "choice",
+      entity: "csg_attendance",
+      attribute: "wp_attendancestatus",
+      target: choiceTarget("csg_attendance", "wp_attendancestatus"),
+    }
+    const attendance = await this.store.read("csg_attendance", attendanceId, [contact, status])
+    const contactId = attendance?.values.csg_contactid
+    if (!attendance || !contactId) return null
+    const person = await this.store.read("contact", contactId, [
+      { strategy: "attribute", entity: "contact", attribute: "csg_clientid" },
+      { strategy: "attribute", entity: "contact", attribute: "firstname" },
+      { strategy: "attribute", entity: "contact", attribute: "lastname" },
+    ])
+    if (!person) return null
+    const statusValue = attendance.values.wp_attendancestatus ?? null
+    const label =
+      statusValue === null
+        ? null
+        : ((await this.store.lookupOptions(status.target!)).options.find(
+            (o) => o.value === statusValue,
+          )?.label ?? null)
+    return {
+      id: participantId,
+      client: await this.clientAnchor({
+        id: contactId,
+        clientNumber: person.values.csg_clientid ?? null,
+        firstName: person.values.firstname ?? null,
+        lastName: person.values.lastname ?? null,
+      }),
+      attendance: label,
     }
   }
 
@@ -161,39 +209,18 @@ export class BindingService {
     }
   }
 
-  private async caseAnchor(found: CaseSummary): Promise<CaseAnchor> {
-    return {
-      id: await this.identities.anchorFor("case", this.store.name, found.id),
-      caseNumber: found.caseNumber,
-      displayName: found.title ?? `Case ${found.caseNumber ?? ""}`.trim(),
-    }
-  }
-
-  private async sessionAnchor(found: SessionSummary): Promise<SessionAnchor> {
-    return {
-      id: await this.identities.anchorFor("session", this.store.name, found.id),
-      subject: found.subject ?? "(no subject)",
-      scheduledStart: found.scheduledStart,
-      status: found.status,
-    }
-  }
-
-  // --- Values. ---
-
-  // Current values for bindings on one or more anchors: one store read per
-  // anchor, whatever the number of bindings on it.
   async resolve(request: ResolveRequest): Promise<ResolveResponse> {
-    const groups = await this.readGroups(request.anchor, await this.entriesFor(request.bindings))
+    const entries = await this.entriesFor(request.bindings)
+    const { stored } = await this.readAnchor(request.anchor, entries)
+
     const options = this.optionCache()
     const values: BoundValues = {}
-    for (const group of groups) {
-      for (const entry of group.entries) {
-        values[entry.descriptor.key] = await this.fromStore(
-          entry.source,
-          group.stored.values[entry.source.attribute] ?? null,
-          options,
-        )
-      }
+    for (const entry of entries) {
+      values[entry.descriptor.key] = await this.fromStore(
+        entry.source,
+        stored.values[entry.source.attribute] ?? null,
+        options,
+      )
     }
     return { values, resolvedAt: new Date().toISOString() }
   }
@@ -203,40 +230,24 @@ export class BindingService {
   // conflict instead). Every value is checked against its binding's
   // validation here, at the API boundary, whatever the rendered form did
   // (requirements §3).
-  // Everything written to one anchor's record goes in one conditional
-  // update, so a record changing mid-commit fails that write rather than
-  // half-applying it. A commit spanning anchors (a session and its case)
-  // is one write per record, so one can succeed while another fails; the
-  // per-binding results say which.
+  // Everything written goes in one conditional update, so a record changing
+  // mid-commit fails the whole write rather than half-applying it.
   async commit(request: CommitRequest): Promise<CommitResponse> {
-    const groups = await this.readGroups(
-      request.anchor,
-      await this.entriesFor(Object.keys(request.values)),
-    )
-    const results: Record<string, BindingCommitResult> = {}
-    const options = this.optionCache()
-    for (const group of groups) {
-      Object.assign(results, await this.commitGroup(group, request, options))
-    }
-    return { results }
-  }
+    const entries = await this.entriesFor(Object.keys(request.values))
+    const { entity, recordId, stored } = await this.readAnchor(request.anchor, entries)
 
-  private async commitGroup(
-    group: AnchorGroup,
-    request: CommitRequest,
-    options: OptionLists,
-  ): Promise<Record<string, BindingCommitResult>> {
     const results: Record<string, BindingCommitResult> = {}
     const changes: Change[] = []
     const pending: string[] = []
+    const options = this.optionCache()
 
-    for (const entry of group.entries) {
+    for (const entry of entries) {
       const { descriptor, source } = entry
       const key = descriptor.key
       const next = normalise(request.values[key])
       const current = await this.fromStore(
         source,
-        group.stored.values[source.attribute] ?? null,
+        stored.values[source.attribute] ?? null,
         options,
       )
 
@@ -271,12 +282,7 @@ export class BindingService {
 
     if (changes.length > 0) {
       try {
-        await this.store.write(
-          ANCHOR_ENTITIES[group.anchor],
-          group.recordId,
-          changes,
-          group.stored.etag,
-        )
+        await this.store.write(entity, recordId, changes, stored.etag)
         for (const key of pending) results[key] = { status: "written" }
       } catch (error) {
         if (
@@ -290,59 +296,39 @@ export class BindingService {
         }
       }
     }
-    return results
+
+    return { results }
   }
 
-  // Splits bindings by the anchor they're about and reads each anchor's
-  // record once. Every anchor a binding needs must be in the request.
-  private async readGroups(
-    anchor: AnchorContext,
-    entries: DictionaryEntry[],
-  ): Promise<AnchorGroup[]> {
-    const byAnchor = new Map<BindingAnchor, DictionaryEntry[]>()
-    for (const entry of entries) {
-      const list = byAnchor.get(entry.descriptor.anchor) ?? []
-      list.push(entry)
-      byAnchor.set(entry.descriptor.anchor, list)
+  // The store record behind a DBS anchor ID, read for `entries` -- which
+  // must all be bindings on that kind of anchor.
+  private async readAnchor(context: AnchorContext, entries: DictionaryEntry[]) {
+    const [anchor, anchorId] = Object.entries(context)[0] as [BindingAnchor, string]
+    const wrong = entries.filter((e) => e.descriptor.anchor !== anchor)
+    if (wrong.length > 0) {
+      throw new AnchorMismatchError(
+        anchor,
+        wrong.map((e) => e.descriptor.key),
+      )
     }
-    return Promise.all(
-      [...byAnchor].map(async ([type, list]) => {
-        const anchorId = anchor[type]
-        if (!anchorId) {
-          throw new MissingAnchorError(
-            type,
-            list.map((e) => e.descriptor.key),
-          )
-        }
-        const recordId = await this.recordIdFor(type, anchorId)
-        const stored = await this.store.read(
-          ANCHOR_ENTITIES[type],
-          recordId,
-          list.map((e) => e.source),
-        )
-        if (!stored) throw new AnchorNotFoundError(type, anchorId)
-        return { anchor: type, recordId, entries: list, stored }
-      }),
-    )
-  }
-
-  // The store's record behind a DBS anchor ID of the given kind.
-  private async recordIdFor(anchor: BindingAnchor, anchorId: string): Promise<string> {
     const recordId = await this.identities.storeIdForAnchor(anchorId, this.store.name, anchor)
     if (!recordId) throw new AnchorNotFoundError(anchor, anchorId)
-    return recordId
+    const entity = ANCHOR_ENTITIES[anchor]
+    const stored = await this.store.read(
+      entity,
+      recordId,
+      entries.map((e) => e.source),
+    )
+    if (!stored) throw new AnchorNotFoundError(anchor, anchorId)
+    return { entity, recordId, stored }
   }
 
-  // A lookup's or choice's options with codes in place of the store's own
-  // values, assigning codes to options seen for the first time.
-  private async codedOptions(source: BindingSource): Promise<BindingOptions> {
-    const listKey = optionListOf(source)!
-    const list =
-      source.strategy === "choice"
-        ? await this.store.choiceOptions(source.entity, source.attribute)
-        : await this.store.lookupOptions(source.target!)
+  // A lookup's options with codes in place of the store's row IDs,
+  // assigning codes to rows seen for the first time.
+  private async codedOptions(target: string): Promise<BindingOptions> {
+    const list = await this.store.lookupOptions(target)
     const codes = await this.identities.codesFor(
-      listKey,
+      target,
       this.store.name,
       list.options.map((o) => ({ storeId: o.value, label: o.label })),
     )
@@ -353,47 +339,44 @@ export class BindingService {
   }
 
   // Coded option lists, fetched at most once per request.
-  private optionCache(): OptionLists {
+  private optionCache() {
     const lists = new Map<string, Promise<BindingOptions>>()
-    return (source) => {
-      const key = optionListOf(source)!
-      if (!lists.has(key)) lists.set(key, this.codedOptions(source))
-      return lists.get(key)!
+    return (target: string) => {
+      if (!lists.has(target)) lists.set(target, this.codedOptions(target))
+      return lists.get(target)!
     }
   }
 
-  // A store value as the DBS presents it: a lookup's row ID or a choice's
-  // option value becomes its code.
+  // A store value as the DBS presents it: a lookup's row ID (or a choice's
+  // integer) becomes its code.
   private async fromStore(
     source: BindingSource,
     value: string | null,
-    options: OptionLists,
+    options: (target: string) => Promise<BindingOptions>,
   ): Promise<string | null> {
-    const list = optionListOf(source)
-    if (value === null || !list) return value
+    if (value === null || source.strategy === "attribute" || !source.target) return value
     const store = this.store.name
-    const known = await this.identities.codeForStoreId(list, store, value)
+    const known = await this.identities.codeForStoreId(source.target, store, value)
     if (known) return known
-    // Not seen yet: listing the options assigns codes to every current one.
-    await options(source)
-    const listed = await this.identities.codeForStoreId(list, store, value)
+    // Not seen yet: listing the options assigns codes to every current row.
+    await options(source.target)
+    const listed = await this.identities.codeForStoreId(source.target, store, value)
     if (listed) return listed
     // A row the list doesn't offer (e.g. deactivated) still gets a stable code.
-    const [code] = await this.identities.codesFor(list, store, [
+    const [code] = await this.identities.codesFor(source.target, store, [
       { storeId: value, label: `ref-${value.slice(0, 8)}` },
     ])
     return code
   }
 
-  // A DBS value as the store needs it: a code becomes the store's own value.
+  // A DBS value as the store needs it: a code becomes the store's row ID.
   // undefined: the code means nothing in this store.
   private async toStore(
     source: BindingSource,
     value: string | null,
   ): Promise<string | null | undefined> {
-    const list = optionListOf(source)
-    if (value === null || !list) return value
-    const storeId = await this.identities.storeIdForCode(list, this.store.name, value)
+    if (value === null || source.strategy === "attribute" || !source.target) return value
+    const storeId = await this.identities.storeIdForCode(source.target, this.store.name, value)
     return storeId ?? undefined
   }
 
@@ -401,14 +384,15 @@ export class BindingService {
   private async validate(
     entry: DictionaryEntry,
     value: string | null,
-    options: OptionLists,
+    options: (target: string) => Promise<BindingOptions>,
   ) {
     const validation = entry.descriptor.validation
     if (value === null) {
       return validation?.required ? "A value is required here" : null
     }
+    const target = entry.source.target
     return firstFailure(value, validation?.rules ?? [], {
-      options: optionListOf(entry.source) ? () => options(entry.source) : undefined,
+      options: target ? () => options(target) : undefined,
     })
   }
 }

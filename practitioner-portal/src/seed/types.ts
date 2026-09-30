@@ -5,9 +5,9 @@ import type { BindingPresentation, BindingCommitResult, BoundValues } from "shar
 // - `case`: once, about the case
 // - `session`: once, about the booked session
 // - `client`: once per client in the session (couples get two)
-// - `sessionParticipant`: once per client, about their part in *this*
+// - `participant`: once per client, about their part in *this*
 //   session (their attendance)
-export type ModuleScope = "case" | "session" | "client" | "sessionParticipant"
+export type ModuleScope = "case" | "session" | "client" | "participant"
 
 // A field bound to a Data Binding Service binding. Everything about the
 // control -- type, length, options, whether it's editable -- comes from the

@@ -1,63 +1,90 @@
 ## Summary
 
-Follow-up to richard-orchard-rewa/formbuilder#81, which merged the data-bound fields prototype up to its handover (`6950adc`). This PR carries the work done after that:
-- making binding descriptors self-describing
-- validating lookup values at commit
-- presenting lookups as radio buttons
-- the Data Binding Service (DBS) owning the identities forms see
-- the DBS keeping all its data in its own database
+Follow-up to richard-orchard-rewa/formbuilder#82, which merged the data-bound fields work up to the user stories (`afa372e`). This PR adds:
+- the stories' contracts, API and schemas written out inline;
+- a design for data-bound content at the session, case and participant levels;
+- a prototype of the session and participant part: one session note for several people, with each person's part saved to, and read back from, their own records.
 
-Design: `docs/proposals/databound-fields.md`. Status and next steps: `docs/handover/databound-fields.md`.
+Design: `docs/proposals/databound-fields.md`, "Anchors beyond the client". Stories: epic US-14 in `docs/proposals/databound-fields-user-stories.md`. Status and next steps: `docs/handover/databound-fields.md`.
 
-### Self-describing descriptors, validation, radio buttons (`8a660bc`)
-- **Descriptors now say how to handle each value.** Each gives how it may be shown (`presentations`: text box, dropdown, radio buttons), where its options come from (`options.href`), its `validation` (a typed rule list plus the store's own required flag), and links to its resolve/commit `operations`. The DBS fills these in centrally for built-in and configured bindings. They're optional in the schema, so forms snapshotted earlier still load.
-- **The DBS runs every rule at commit**, through one checks table (`validators.ts`): `maxLength`, and `oneOfOptions`. `oneOfOptions` means a lookup value must be one of the store's current options; before, a caller could bypass that. A value the store requires can't be cleared. form-builder mirrors the same rules in the rendered form.
-- **Form admins choose Dropdown or Radio buttons** per form (**Show as** in the inspector), from what the binding allows. Stewards can narrow that in the binding creator. *Required* is forced on where ICIS requires a value.
+### Contracts inline (`3a2f393`)
+- The user stories' appendix now holds every contract in full:
+  - the data contracts;
+  - the DBS's API (OpenAPI 3.1) and form-builder's relay;
+  - the store adapter interface and the Dataverse calls behind it;
+  - both database schemas (SQL);
+  - the built-in bindings and allow-list;
+  - the mock ICIS subset;
+  - the user-facing messages.
+- Each story links the sections it needs.
 
-### DBS-owned identities (`aa2492b`)
-- **Clients are anchored by DBS-issued IDs**, mapped to each store's record (`{ refs: { icis: <contact guid> } }`). resolve and commit refuse a store's own record ID.
-- **Lookup values are logical codes** (`mr`, `not-stated`), derived from the label on first sight and kept thereafter, and mapped to each store's row IDs.
-- **Nothing in form-builder holds a Dataverse ID any more**, so moving client data off ICIS later won't strand stored submissions. Stores are named (`RecordStore.name`), which keys those references.
+### Design: sessions, cases and participants (`dae7e50`)
+- **Anchor types.** Beyond the client: sessions, cases, session participants (one person at one session) and case participants.
+- **Module scope.** A module is filled in once per case, once per session, or once per participant.
+- **Storage.** Values are stored per participant.
+- **A new strategy:** `choice`, for Dataverse option sets.
+- **Related-record paths** (design only).
+- **The open decisions:** eligibility, completeness, and the §16 disclosure boundary.
+- **Stories.** Epic US-14 has the slice (14.1–14.11) and the designed-only stories (14.12–14.16).
 
-### The DBS's own database (`991d359`, `3a83798`)
-- **Identities and configured bindings are in the DBS's own Postgres database** (`binding_service` / `binding_service_demo`), never form-builder's. The schema and migrations are in `binding-service/src/db/`. `npm run db:migrate -w binding-service` creates the database if needed, then migrates.
-- **Race-safe identity issuing:** a transaction-scoped advisory lock, backed by unique indexes, so concurrent requests (and DBS instances) agree on one ID or code.
-- **Published binding versions are immutable**, enforced by a database trigger (no update or delete, even from hand-run SQL). There's at most one draft per binding, a key's attribute is fixed, and an attribute has one binding.
-- **The DBS refuses to start against a real store without its database.** Only `ADAPTER=fake` runs in memory.
-- **Bindings from the old JSON file** are imported by `db:migrate` once, and the file is renamed `.imported`.
-- `npm run demo` migrates the demo database, and `npm run demo:reset` empties it; the reset refuses anything not `*_demo` or `*_test`.
+### Prototype: sessions and participants (`8512409`, `d0dab50`)
+- **New anchors.** `session` (ICIS `wp_session`) and `participant` (`csg_attendance`), with DBS-issued IDs checked against their type.
+- **New endpoints.**
+  - `GET /anchors/sessions?clientNumber=` lists a client's sessions, with everyone in them.
+  - `GET /anchors/participants/:id` says who a participant anchor is.
+- **A `choice` strategy** for option sets (attendance status), presented through codes like lookups.
+- **New built-in bindings.**
+  - `session.subject`, `session.start` and `session.end`, read-only.
+  - `participant.attendance`, writable.
+- **Bindings must match the request's anchor.** A mismatched resolve or commit is refused (400).
+- **Module scope.** A module is filled in once per session or once per participant. The palette offers only the bindings that scope can reach, and the server refuses others (422).
+- **Session templates keep modules as sections.** To fill one in, pick a client's session. Each once-per-participant module then renders one copy per person, pre-filled from that person's own attendance and client records.
+- **Each person's data stays theirs.**
+  - It's stored under `data.participants[<participant anchor id>]`.
+  - It's committed once per anchor: the session, each attendance record, and each participant's client. Every attempt is recorded in `session_template_submission_bindings` (server migration `0012`).
+  - The submission view reads each copy back and heads it with who that anchor is now.
+- **Mock ICIS additions.**
+  - Sessions and attendance records: a joint mediation session, a group, and individual sessions.
+  - A Sessions screen, and option-set metadata.
+  - OData support that works generically across record entities.
 
 ### Docs
-- The proposal gains "The descriptor as built", "Adding validation rules" (named library patterns rather than steward-authored regex, per §3; hard vs advisory rules), "Beyond Dataverse" and "Where the DBS keeps its data".
-- The handover, `CLAUDE.md`, `README.md` and the demo script are updated.
+- **User stories.** The appendix covers the new endpoints, adapter calls, table and mock subset. US-14 gains acceptance criteria for the participant lookup, the scope refusal and read-back.
+- **The proposal.** Its prototype slice is marked as built.
+- **The handover.**
+- **The demo script.** New step 7 is a joint session: one note, two people.
+- **`CLAUDE.md`.**
 
 ## Worth reviewing closely
 
-- **The two migrations for the DBS database**, especially `0002_published_binding_versions_are_immutable.sql` (the trigger).
-- **The `.github/workflows/ci.yml` change.** CI's e2e job, which has Postgres, now also migrates a DBS test database and runs the 13 Postgres tests. The unit-test job has no database, so they're skipped there.
-- **The boundary translation in `binding-service/src/service.ts`.** Anchor IDs and codes go in and out; store IDs never cross it.
+- **`binding-service/src/service.ts`.**
+  - It reads the anchor type from the request.
+  - It refuses bindings on another anchor type.
+  - It only maps an anchor ID issued for that type (`identity.ts`).
+- **`server/src/modules/session-templates/services/session-bound-fields.ts`.** This is the per-anchor commit. One participant's failure mustn't touch another's write.
+- **Server migration `0012`.**
+- **Simplification: bindings in once-per-participant modules.** They can use `participant` and `client` bindings only. The design also allows derived `session` bindings there.
 
 ## Setup after pulling
 
 ```bash
 npm install
-npm run db:migrate -w binding-service   # creates the DBS's own database
+npm run db:migrate -w server   # adds session_template_submission_bindings
 ```
-
-`npm run demo` does the demo database's migration itself.
 
 ## Test plan
 
 - [x] `npm run typecheck`: all six workspaces
-- [x] `npm test`: 136 tests, including 13 Postgres tests with `BINDING_TEST_DATABASE_URL` set (CI's e2e job runs these)
+- [x] Unit tests: 152 across the workspaces
+  - This includes 14 Postgres tests, run with `BINDING_TEST_DATABASE_URL` set. CI's e2e job runs these.
+  - New tests check that each participant's attendance is written to, and read back for, that person only. They run in the fake store, and through the real ICIS adapter against the mock.
+- [x] Playwright e2e suite: 7 tests, locally
 - [x] `npm audit --omit=dev`: 0 vulnerabilities
-- [x] Manual, against the mock:
-  - Title as radio buttons, pre-filled and saved back
-  - a Title that isn't in ICIS's list refused before anything is sent
-  - form-builder storing only DBS anchor IDs and option codes
-  - identities and bindings served from the DBS database
-  - the old JSON bindings imported
-  - a second binding on the same attribute refused
-- [ ] Playwright e2e suite and the DBS database tests: CI
+- [x] Manual, against the mock (demo step 7):
+  - Aisha and Tariq each get a copy.
+  - Tariq's attendance is saved as DNA while Aisha's stays Attended.
+  - The saved note reads back with each copy under the right person.
+  - A client binding in a once-per-session module is refused.
+- [ ] CI
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

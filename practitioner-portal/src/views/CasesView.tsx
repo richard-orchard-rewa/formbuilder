@@ -4,6 +4,7 @@ import { Icon } from "../components/Icon"
 import { loadCase, useAsync } from "../data"
 import { formatDateTime, initials } from "../format"
 import { CASELOAD } from "../seed/notes"
+import { hasStarted } from "../session-note"
 
 export function CasesView() {
   const { data: cases, error, loading, reload } = useAsync(() => Promise.all(CASELOAD.map(loadCase)), [])
@@ -26,16 +27,16 @@ export function CasesView() {
             <span className="muted">Each case's clients and sessions come from ICIS, as DBS anchors.</span>
           </div>
           <div className="case-list">
-            {cases.map(({ anchor, context, values }) => {
-              const next = context.sessions.find((s) => s.status === "scheduled")
+            {cases.map(({ context, values }) => {
+              const next = context.sessions.find((s) => !hasStarted(s))
               const names = context.clients.map((c) => c.displayName).join(" & ")
               return (
-                <a key={anchor.id} className="case-item" href={href({ page: "case", caseNumber: anchor.caseNumber ?? "" })}>
+                <a key={context.id} className="case-item" href={href({ page: "case", caseNumber: context.caseNumber ?? "" })}>
                   <span className="case-avatar">{initials(names)}</span>
                   <span className="case-primary">
                     <strong>{names}</strong>
                     <small>
-                      Case {anchor.caseNumber} ·{" "}
+                      Case {context.caseNumber} ·{" "}
                       <BoundText dictionary={dictionary} binding="case.program" value={values["case.program"]} />
                     </small>
                   </span>
@@ -44,7 +45,7 @@ export function CasesView() {
                   </span>
                   <span className="case-next">
                     <small>Next session</small>
-                    {next ? formatDateTime(next.scheduledStart) : "None booked"}
+                    {next ? formatDateTime(next.start) : "None booked"}
                   </span>
                   <Icon name="chevronRight" />
                 </a>

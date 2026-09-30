@@ -24,8 +24,8 @@ It complements the [data-bound fields demo](databound-fields-demo.md), which cov
   - Its session notes are assembled from **modules**, each scoped to a case, a session, a client or a client's attendance. The modules and templates are seeded in [`src/seed/modules.ts`](../../practitioner-portal/src/seed/modules.ts). They stand in for form-builder's modules and session templates until those support bound fields (US-L.4).
   - It holds **no ICIS IDs**: only DBS-issued anchor IDs and option codes.
   - Narrative answers are stored in the browser, like a session-notes system storing its own submissions. Bound values are never stored there; they live in ICIS.
-- **The Data Binding Service** now has four anchors — `client`, `case`, `session`, `sessionParticipant` — and a third write strategy, `choice`, for Dataverse option sets (attendance status, case stage).
-- **The mock ICIS** now holds cases (`incident`), their clients (`csg_caseclient`), sessions (`wp_session`, regarding the case) and attendance (`csg_attendance`), with the same URL shapes, `$expand`, etags and privilege errors as Dataverse.
+- **The Data Binding Service** uses the session and participant anchors from the proposal's "Anchors beyond the client" (PR #83), plus a prototype `case` anchor built for this demo. Each resolve and commit is about **exactly one** anchor. Option sets (attendance status, case stage) use the `choice` strategy.
+- **The mock ICIS** now holds cases (`incident`), their clients (`csg_caseclient`), sessions (`wp_session`, regarding the case) and attendance (`csg_attendance`), with the same URL shapes, filters, etags and privilege errors as Dataverse.
 
 ## Before the demo
 
@@ -89,17 +89,17 @@ About 30 minutes, for a developer.
    | Anchor | Is, in ICIS | Found via |
    |---|---|---|
    | `client` | `contact` | `GET /anchors/client?clientNumber=` |
-   | `case` | `incident` | `GET /anchors/case?caseNumber=`, then `GET /anchors/case/:id` for its clients and sessions |
-   | `session` | `wp_session` (regarding the case) | the case's sessions; `GET /anchors/session/:id` for its case and participants |
-   | `sessionParticipant` | `csg_attendance` (one per client per session) | the session's participants |
+   | `case` *(prototype)* | `incident` | `GET /anchors/case?caseNumber=`: the case, its clients, and every session regarding it with each one's participants |
+   | `session` | `wp_session` (regarding the case) | a case's sessions, or `GET /anchors/sessions?clientNumber=` |
+   | `participant` | `csg_attendance` (one person at one session) | each session's participants |
 
    | Strategy | Writes |
    |---|---|
    | `attribute` | One text column on the anchor's record |
    | `lookup` | One reference-table row, linked from the record (`@odata.bind`) |
-   | `choice` *(new)* | One value of an option set on the record itself |
+   | `choice` | One value of an option set on the record itself |
 
-2. Open http://localhost:3100/bindings. Beside the client bindings are the new built-in ones: `case.caseNumber`, `case.program`, `case.location`, `case.referralSource`, `case.stage`, `session.subject`, `session.sessionType`, `session.setting` and `sessionParticipant.attendance`.
+2. Open http://localhost:3100/bindings. Beside the client bindings are the new built-in ones: `case.caseNumber`, `case.program`, `case.location`, `case.referralSource`, `case.stage`, `session.sessionType` and `session.setting`. They sit beside main's `session.subject`, `session.start`, `session.end` and `participant.attendance`.
 3. Show:
    - [`binding-service/src/dictionary.ts`](../../binding-service/src/dictionary.ts): the new bindings. The only ICIS-specific part of each is its `source`.
    - [`binding-service/src/allow-list.ts`](../../binding-service/src/allow-list.ts): `ANCHOR_ENTITIES`, and why the case, session and attendance allow-lists are still **empty**. Stewards can't create bindings there until a data owner approves the attributes, which has to weigh DEX timing.
@@ -109,11 +109,10 @@ About 30 minutes, for a developer.
 **Point:** the portal never asks ICIS for anything. It walks the DBS's anchor graph, and gets DBS IDs back.
 
 1. Open the portal's **Home**. It shows today's sessions and the notes due, all from the DBS.
-2. Open **DBS traffic**. For each case in the caseload there are three calls:
-   - `GET /anchors/case?caseNumber=104872`, which returns the DBS's ID for the case.
-   - `GET /anchors/case/:id`, which returns its clients and sessions as anchors.
+2. Open **DBS traffic**. For each case in the caseload there are two calls:
+   - `GET /anchors/case?caseNumber=104872`, which returns the DBS's ID for the case, its clients, and every session regarding it with each session's participants.
    - `POST /resolve` with `{ anchor: { case } }`, for the program and stage shown on the page.
-3. Expand one: every `id` is a DBS UUID, and `case.program` comes back as `couples-counselling`, an option code. In the mock's **API log**, the same page load shows `incidents?$filter=ticketnumber eq '104872'`, `csg_caseclients?…$expand=csg_contactid(…)` and `wp_sessions?$filter=_regardingobjectid_value eq …`. Only the DBS sees Dataverse's IDs.
+3. Expand one: every `id` is a DBS UUID, and `case.program` comes back as `couples-counselling`, an option code. In the mock's **API log**, the same page load shows filtered reads: `incidents?$filter=ticketnumber eq '104872'`, `csg_caseclients?…`, `wp_sessions?$filter=_regardingobjectid_value eq …`, then the sessions' attendances and the attendees' contacts. Only the DBS sees Dataverse's IDs.
 
 ### 3. The case view
 
@@ -130,9 +129,9 @@ About 30 minutes, for a developer.
 3. Each module is badged with its scope:
    - **Session module** (Session details), once, anchored on the session.
    - **Case module** (Case details, Issues for next session), once, anchored on the case.
-   - **Client module** (Client details, Presenting needs, Safety), **once per client**, anchored on each client.
+   - **Client module** (Client details, Presenting needs, Safety), **once per participant**, anchored on that participant's client record.
    - **Participant module** (Attendance), once per client, anchored on that client's attendance in *this* session.
-4. The **Data binding** rail shows three records: *Case and session*, then *Taylor Hawkins* and *Adam Hawkins*, each person's client record together with their attendance. In **DBS traffic**, that's three resolves. Each multi-anchor request (`{ session, case }`, `{ sessionParticipant, client }`) is **one store read per anchor**. See `readGroups` in [`service.ts`](../../binding-service/src/service.ts).
+4. The **Data binding** rail shows six records: *Session*, *Case*, and for each of Taylor and Adam their *attendance* and their *client record*. In **DBS traffic**, that's six resolves, each on exactly one anchor (`{ session }`, `{ case }`, `{ participant }`, `{ client }`) and each one store read. A binding asked for on the wrong anchor is refused (`AnchorMismatchError` in [`service.ts`](../../binding-service/src/service.ts)).
 5. In the developer panel, tick **Show binding keys on fields**. Every bound field shows its key, version, strategy and access.
 6. Mixed on the same module: *Session details* has three bound fields and one ordinary field (Duration). Ordinary fields stay in the note; they're never sent to ICIS.
 7. **Previous session summary** comes from Session 2's note, which the portal holds, not ICIS.
@@ -150,7 +149,7 @@ About 30 minutes, for a developer.
 2. **Save as draft**. The notice says drafts never write to ICIS. Reload: the draft edits are still there, and ICIS is unchanged.
 3. Fill in the required fields (presenting needs, focus and content, safety, issues for next session), then **Submit session note**.
 4. **What happened in ICIS** lists each value: *Saved to ICIS*.
-5. In the mock's **API log**, look for the PATCHes: `wp_sessions(…)` (setting), `csg_attendances(…)` ×2 (attendance, sent as the option's integer `4`), and `contacts(…)` (preferred name). In **Cases → 104872 → Session 3**, both attendances say *Attended*, last modified by *Data Binding Service (demo)*.
+5. In the mock's **API log**, look for the PATCHes: `wp_sessions(…)` (setting), `csg_attendances(…)` ×2 (attendance, sent as the option's integer `4`), and `contacts(…)` (preferred name). In the mock's **Cases → 104872**, Session 3's setting is *Video Conference* and both attendances say *Attended*. The **Sessions** page shows who last modified each attendance: *Data Binding Service (demo)*.
 
 ### 6. The safety nets
 
@@ -158,9 +157,8 @@ About 30 minutes, for a developer.
    - Click **Edit session note**, and change **Referral source** to *GP*.
    - In the mock, open **Cases → 104872**, set Referral Source to *Former Client* and **Save in ICIS**. That's reception changing it.
    - Submit. Referral source says **Not saved — changed in ICIS since the note was opened (ICIS now has "Former Client")**. Anything else changed in the same submit is still saved, and so is the note.
-2. **Changed since submitted.** In the mock's Session 3, change the setting to *Telephone*. Reload the portal's note: it says *Changed in ICIS since this note was submitted (this note saved "Video Conference")*. It doesn't silently show the new value as if the note had said it (proposal, decision 1).
-3. **The service account is the ceiling.** In the mock's **Service account**, untick **Activity · Write** (`prvWriteActivity`), save, then edit and resubmit the setting. It says **Not saved — ICIS refused the update: the Data Binding Service's account is missing prvWriteActivity privilege**.
-   - Sessions are *activities*, so this one privilege is write on every activity type in the org. That's why an ICIS admin grants it with care, and a real talking point for the DBS's own account ([setup guide](../setup/icis-binding-service-account.md)).
+2. **Changed since submitted.** In the mock's **Cases → 104872**, change Session 3's setting to *Telephone*. Reload the portal's note: it says *Changed in ICIS since this note was submitted (this note saved "Video Conference")*. It doesn't silently show the new value as if the note had said it (proposal, decision 1).
+3. **The service account is the ceiling.** In the mock's **Service account**, untick **Session · Write** (`prvWritewp_session`), save, then edit and resubmit the setting. It says **Not saved — ICIS refused the update: the Data Binding Service's account is missing prvWritewp_session privilege**.
    - Reads are protected the same way: untick *Case · Read*, and the portal's error names `prvReadIncident`, with Dataverse's principal IDs stripped.
 4. **Anchors are typed.** A client's ID can't be used as a case's:
 
@@ -168,15 +166,15 @@ About 30 minutes, for a developer.
    curl -s -X POST localhost:3100/resolve -H "Content-Type: application/json" -d '{"anchor":{"case":"<a client anchor ID from DBS traffic>"},"bindings":["case.caseNumber"]}'
    ```
 
-   It answers `404 No case …`. Naming a case binding without a case anchor is a `422`.
+   It answers `404 No case …`. Asking for a case binding on a client anchor is a `400`.
 
 ### 7. Code tour
 
 | What | Where |
 |---|---|
-| The contract: anchors, multi-anchor `AnchorContext`, `choice`, the navigation schemas | [`shared/src/schemas/binding.ts`](../../shared/src/schemas/binding.ts) |
-| Grouping by anchor; one read and one conditional write per record | `readGroups` / `commitGroup` in [`binding-service/src/service.ts`](../../binding-service/src/service.ts) |
-| Case and session navigation, `$expand`, choice columns and option sets: the only ICIS-aware code | `readCase`, `readSession`, `choiceOptions` in [`binding-service/src/adapters/icis.ts`](../../binding-service/src/adapters/icis.ts) |
+| The contract: anchors, one-anchor `AnchorContext`, `choice`, `CaseContext` | [`shared/src/schemas/binding.ts`](../../shared/src/schemas/binding.ts) |
+| One anchor per call; one read and one conditional write per record; opening a case | `readAnchor`, `commit`, `findCase` in [`binding-service/src/service.ts`](../../binding-service/src/service.ts) |
+| Case and session navigation, choice columns and option sets: the only ICIS-aware code | `findCaseByNumber`, `withParticipants`, `choiceOptions` in [`binding-service/src/adapters/icis.ts`](../../binding-service/src/adapters/icis.ts) |
 | Anchor IDs that know their kind | `storeIdForAnchor` in [`binding-service/src/identity.ts`](../../binding-service/src/identity.ts) |
 | The mock's cases, sessions, attendance and seed | [`mock-icis/src/data.ts`](../../mock-icis/src/data.ts) |
 | The adapter proven against the mock, case to attendance | [`mock-icis/src/contract.test.ts`](../../mock-icis/src/contract.test.ts) |
@@ -188,12 +186,12 @@ About 30 minutes, for a developer.
 
 - **Modules are anchored, not forms.** The same *Client details* module appears twice on a couples note, once per client, each bound to a different ICIS record. The module never names a record; the session note supplies the anchors at fill time (requirements §7 and §9).
 - **The session-notes system never holds an ICIS ID.** Cases, sessions, clients and attendance are all DBS anchors, and lists are option codes.
-- **Adding an option-set type was one strategy,** not new code in forms. `choice` reads options from metadata and writes integers, and to the portal it's just another list.
-- **One read per record, one conditional write per record.** A note that touches four records costs four PATCHes at most. A partial failure is reported per value, never as a failed note.
+- **An option set is just another strategy,** not new code in forms. `choice` reads options from metadata and writes integers, and to the portal it's just another list.
+- **One read per record, one conditional write per record.** A couples note touches up to six records (session, case, and each person's attendance and client record), so at most six PATCHes. A partial failure is reported per value, never as a failed note.
 
 ## Not shown yet
 
-- **Modules from form-builder.** The portal's modules and templates are seeded in the portal. Wiring bound fields into form-builder's modules and session templates is US-L.4.
+- **Modules from form-builder.** form-builder's modules and session templates already take session- and participant-scoped bound fields (PR #83), but not case scope yet. The portal seeds its own modules and templates so it can show all four scopes; rendering form-builder's published templates is the natural next step.
 - **Presenting needs, referrals and safety concerns in ICIS.** Here they're note-only. They need the `set-membership` and `child-collection` strategies (US-L.8).
 - **Stewards creating case, session or attendance bindings.** Those allow-lists are empty until a data owner approves them. DEX-reported columns need the timing rules first.
 - **Real identity and an outbox** (US-L.2, US-L.1). The DBS writes as its service account, synchronously, on submit.

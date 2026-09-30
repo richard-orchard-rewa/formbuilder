@@ -3,11 +3,9 @@ import type {
   BindingDescriptor,
   BindingOptions,
   BoundValues,
-  CaseAnchor,
   CaseContext,
   CommitResponse,
   ResolveResponse,
-  SessionContext,
 } from "shared"
 
 // The portal's only way to reach client data: the Data Binding Service,
@@ -128,18 +126,14 @@ export function optionsFor(descriptor: BindingDescriptor): Promise<BindingOption
 }
 
 export const dbs = {
+  // A case, its clients, and every session regarding it with each one's
+  // participants -- the anchors a session note resolves against.
   findCase: (caseNumber: string) =>
-    call<CaseAnchor>(
+    call<CaseContext>(
       "GET",
       `/anchors/case?caseNumber=${encodeURIComponent(caseNumber)}`,
-      `Find case ${caseNumber}`,
+      `Open case ${caseNumber}`,
     ),
-
-  caseContext: (id: string) =>
-    call<CaseContext>("GET", `/anchors/case/${id}`, "A case's clients and sessions"),
-
-  sessionContext: (id: string) =>
-    call<SessionContext>("GET", `/anchors/session/${id}`, "A session's case and participants"),
 
   resolve: (anchor: AnchorContext, bindings: string[]) =>
     call<ResolveResponse>(

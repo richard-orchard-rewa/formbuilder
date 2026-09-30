@@ -11,6 +11,8 @@ import {
   ManagedBindingSchema,
   ResolveRequestSchema,
   ResolveResponseSchema,
+  SessionAnchorListSchema,
+  SessionParticipantSchema,
 } from "shared"
 import { z } from "zod"
 import { BindingServiceError, type BindingClient } from "./binding-client.js"
@@ -79,6 +81,36 @@ export function bindingsPlugin(client: BindingClient): FastifyPluginAsync {
       async (request) => client.findClient(request.query.clientNumber),
     )
 
+    typed.get(
+      "/api/anchors/sessions",
+      {
+        schema: {
+          querystring: z.object({ clientNumber: z.string().trim().min(1) }),
+          response: {
+            200: SessionAnchorListSchema,
+            404: ErrorSchema,
+            502: ErrorSchema,
+          },
+        },
+      },
+      async (request) => client.findSessions(request.query.clientNumber),
+    )
+
+    typed.get(
+      "/api/anchors/participants/:id",
+      {
+        schema: {
+          params: z.object({ id: z.string() }),
+          response: {
+            200: SessionParticipantSchema,
+            404: ErrorSchema,
+            502: ErrorSchema,
+          },
+        },
+      },
+      async (request) => client.getParticipant(request.params.id),
+    )
+
     typed.post(
       "/api/bindings/resolve",
       {
@@ -86,6 +118,7 @@ export function bindingsPlugin(client: BindingClient): FastifyPluginAsync {
           body: ResolveRequestSchema,
           response: {
             200: ResolveResponseSchema,
+            400: ErrorSchema,
             404: ErrorSchema,
             502: ErrorSchema,
           },
