@@ -2,24 +2,30 @@ import { useEffect, useState } from "react"
 import { DevPanel } from "./components/DevPanel"
 import { Icon } from "./components/Icon"
 import { resetNotes } from "./notes-store"
+import { resetTemplateNotes } from "./template-notes-store"
 import { PRACTITIONER } from "./seed/notes"
 import { CasesView } from "./views/CasesView"
 import { CaseView } from "./views/CaseView"
 import { HomeView } from "./views/HomeView"
 import { SessionView } from "./views/SessionView"
+import { TemplateNoteView } from "./views/TemplateNoteView"
 
 // Routes, by hash: #/, #/cases, #/case/<case number>[/<tab>],
-// #/case/<case number>/session/<session anchor ID>. Case numbers are what staff quote; a
+// #/case/<case number>/session/<session anchor ID>[/template/<form-builder template ID>]. Case numbers are what staff quote; a
 // session is identified by its DBS-issued anchor ID.
 export type Route =
   | { page: "home" }
   | { page: "cases" }
   | { page: "case"; caseNumber: string; tab?: string }
   | { page: "session"; caseNumber: string; sessionId: string }
+  | { page: "template-note"; caseNumber: string; sessionId: string; templateId: string }
 
 function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent)
   if (parts[0] === "cases") return { page: "cases" }
+  if (parts[0] === "case" && parts[1] && parts[2] === "session" && parts[3] && parts[4] === "template" && parts[5]) {
+    return { page: "template-note", caseNumber: parts[1], sessionId: parts[3], templateId: parts[5] }
+  }
   if (parts[0] === "case" && parts[1] && parts[2] === "session" && parts[3]) {
     return { page: "session", caseNumber: parts[1], sessionId: parts[3] }
   }
@@ -37,6 +43,8 @@ export const href = (route: Route) => {
       return `#/case/${encodeURIComponent(route.caseNumber)}${route.tab ? `/${route.tab}` : ""}`
     case "session":
       return `#/case/${encodeURIComponent(route.caseNumber)}/session/${route.sessionId}`
+    case "template-note":
+      return `#/case/${encodeURIComponent(route.caseNumber)}/session/${route.sessionId}/template/${encodeURIComponent(route.templateId)}`
   }
 }
 
@@ -85,6 +93,7 @@ export function App() {
           onClick={() => {
             if (window.confirm("Put the portal's session notes back to the seeded ones? (ICIS data isn't touched.)")) {
               resetNotes()
+              resetTemplateNotes()
               window.location.reload()
             }
           }}
@@ -119,6 +128,14 @@ export function App() {
           {route.page === "cases" && <CasesView />}
           {route.page === "case" && <CaseView key={route.caseNumber} caseNumber={route.caseNumber} tab={route.tab} />}
           {route.page === "session" && <SessionView key={route.sessionId} caseNumber={route.caseNumber} sessionId={route.sessionId} />}
+          {route.page === "template-note" && (
+            <TemplateNoteView
+              key={`${route.sessionId}/${route.templateId}`}
+              caseNumber={route.caseNumber}
+              sessionId={route.sessionId}
+              templateId={route.templateId}
+            />
+          )}
         </main>
       </div>
       <DevPanel />

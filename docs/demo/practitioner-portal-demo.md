@@ -191,7 +191,7 @@ About 30 minutes, for a developer.
 
 ## Not shown yet
 
-- **Modules from form-builder.** form-builder's modules and session templates already take session- and participant-scoped bound fields (PR #83), but not case scope yet. The portal seeds its own modules and templates so it can show all four scopes; rendering form-builder's published templates is the natural next step.
+- **Templates from form-builder — in progress.** A session's page now lists the session templates published in form-builder ("Write this note with a template"). Choosing one fills it in there and stores the note in form-builder as a session-template submission, which sends the bound values on to the DBS. The portal reaches form-builder's server through its `/fb` relay. Limits: form-builder has no case scope yet, so only session- and participant-scoped modules work; a submitted note can't be edited (session-template submissions have no update); drafts stay in the browser; and the portal remembers which submission belongs to which session in the browser too (`src/template-notes-store.ts`). The portal's own seeded modules and templates remain for the case-scoped modules.
 - **Presenting needs, referrals and safety concerns in ICIS.** Here they're note-only. They need the `set-membership` and `child-collection` strategies (US-L.8).
 - **Stewards creating case, session or attendance bindings.** Those allow-lists are empty until a data owner approves them. DEX-reported columns need the timing rules first.
 - **Real identity and an outbox** (US-L.2, US-L.1). The DBS writes as its service account, synchronously, on submit.

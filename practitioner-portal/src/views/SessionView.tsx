@@ -11,6 +11,7 @@ import { BoundControl, useDisplayValue } from "../components/BoundControl"
 import { ErrorNote, Loading, NoteBadge } from "../components/common"
 import { Icon } from "../components/Icon"
 import { NoteControl } from "../components/NoteControl"
+import { TemplatePicker } from "../components/TemplatePicker"
 import { bindingDictionary, dbs, DbsError } from "../dbs"
 import { formatDateTime } from "../format"
 import { loadNote, noteKey, saveNote } from "../notes-store"
@@ -325,6 +326,8 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
           {notice.text}
         </div>
       )}
+
+      <TemplatePicker caseNumber={caseNumber} sessionId={sessionId} noteKey={key} />
 
       <div className="note-layout">
         <aside className="note-nav">

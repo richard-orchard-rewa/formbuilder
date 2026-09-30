@@ -11,6 +11,12 @@ export default defineConfig({
     port: 5180,
     strictPort: true,
     proxy: {
+      // form-builder's server: published session templates come from it, and
+      // completed notes are stored in it.
+      "/fb": {
+        target: process.env.FORM_BUILDER_URL ?? "http://localhost:3000",
+        rewrite: (path) => path.replace(/^\/fb/, ""),
+      },
       "/dbs": {
         target: process.env.BINDING_SERVICE_URL ?? "http://localhost:3100",
         rewrite: (path) => path.replace(/^\/dbs/, ""),
