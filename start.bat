@@ -36,14 +36,13 @@ if errorlevel 1 (
 echo Postgres is ready.
 echo.
 
-if not exist "node_modules" (
-    echo Installing dependencies — first run only, this can take a few minutes...
-    call npm install
-    if errorlevel 1 (
-        echo npm install failed — see above.
-        pause
-        exit /b 1
-    )
+echo Installing dependencies — near-instant when already up to date...
+call npm install
+if errorlevel 1 (
+    echo npm install failed — see above. If it mentions EPERM, close the
+    echo "form-builder dev servers" window first ^(it locks files in node_modules^).
+    pause
+    exit /b 1
 )
 
 echo Applying database migrations...
