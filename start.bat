@@ -54,8 +54,8 @@ if errorlevel 1 (
 )
 echo.
 
-echo Launching server + client in a new window...
-start "form-builder dev servers" cmd /k npm run dev
+echo Launching server + client + practitioner portal in a new window...
+start "form-builder dev servers" cmd /k npm run demo:portal
 
 echo Waiting for the client to come up...
 :waitclient
@@ -67,6 +67,17 @@ if errorlevel 1 (
 
 echo Opening http://localhost:5173 in your browser...
 start "" "http://localhost:5173"
+
+echo Waiting for the practitioner portal to come up...
+:waitportal
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://localhost:5180' -UseBasicParsing -TimeoutSec 1 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto waitportal
+)
+
+echo Opening http://localhost:5180 in your browser...
+start "" "http://localhost:5180"
 
 echo.
 echo Done. The "form-builder dev servers" window keeps the app running —
