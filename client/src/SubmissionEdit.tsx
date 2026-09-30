@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { JsonForms } from "@jsonforms/react"
 import { vanillaRenderers } from "@jsonforms/vanilla-renderers"
 import type { SubmissionDetail, SubmissionHistory } from "shared"
@@ -40,6 +40,10 @@ export function SubmissionEdit({
   const [showValidation, setShowValidation] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  // The data as last loaded or edited, so onChange can tell a genuine edit
+  // from JSON Forms re-emitting the same data when it (re)initialises -- as
+  // it does after every save's reload, which would otherwise wipe "Saved.".
+  const dataRef = useRef<Record<string, unknown>>({})
 
   function load() {
     let cancelled = false
@@ -52,6 +56,7 @@ export function SubmissionEdit({
       .then(([submissionResult, historyResult]) => {
         if (cancelled) return
         setSubmission(submissionResult)
+        dataRef.current = submissionResult.data
         setData(submissionResult.data)
         setHistory(historyResult)
         setStatus("ready")
@@ -121,9 +126,12 @@ export function SubmissionEdit({
               showValidation ? "ValidateAndShow" : "ValidateAndHide"
             }
             onChange={({ data, errors }) => {
+              if (JSON.stringify(data) !== JSON.stringify(dataRef.current)) {
+                setSaveMessage(null)
+              }
+              dataRef.current = data
               setData(data)
               setErrors(errors ?? [])
-              setSaveMessage(null)
             }}
           />
           <button type="button" className="primary" onClick={handleSave}>
