@@ -195,6 +195,7 @@ export {
   SessionParticipantSchema,
   SessionAnchorSchema,
   SessionAnchorListSchema,
+  CaseContextSchema,
 } from "./schemas/binding.js"
 export type {
   BindingAnchor,
@@ -219,4 +220,5 @@ export type {
   CreateBindingRequest,
   SessionParticipant,
   SessionAnchor,
+  CaseContext,
 } from "./schemas/binding.js"

@@ -4,6 +4,8 @@ import type { BindingAnchor } from "shared"
 // attendance at one session -- ICIS's csg_attendance -- not the person.
 export const ANCHOR_ENTITIES: Record<BindingAnchor, string> = {
   client: "contact",
+  // A case is an `incident`; its sessions are the wp_sessions regarding it.
+  case: "incident",
   session: "wp_session",
   participant: "csg_attendance",
 }
@@ -43,6 +45,8 @@ export const ALLOW_LIST: Record<BindingAnchor, AllowedAttribute[]> = {
   ],
   // Session and participant bindings are built in (dictionary.ts) for now;
   // none are steward-creatable until a data owner approves attributes.
+  // Case bindings are built in too (dictionary.ts), for the same reason.
+  case: [],
   session: [],
   participant: [],
 }

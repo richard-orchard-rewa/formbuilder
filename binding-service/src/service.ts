@@ -5,6 +5,7 @@ import type {
   BindingDescriptor,
   BindingOptions,
   BoundValues,
+  CaseContext,
   ClientAnchor,
   CommitRequest,
   CommitResponse,
@@ -21,6 +22,7 @@ import {
   type Change,
   type ClientSummary,
   type RecordStore,
+  type SessionSummary,
 } from "./adapters/adapter.js"
 import { ANCHOR_ENTITIES } from "./allow-list.js"
 import { firstFailure } from "./validators.js"
@@ -115,23 +117,41 @@ export class BindingService {
   async findSessions(clientNumber: string): Promise<SessionAnchor[] | null> {
     const client = await this.store.findClientByNumber(clientNumber)
     if (!client) return null
-    const store = this.store.name
     const sessions = await this.store.sessionsForClient(client.id)
-    return Promise.all(
-      sessions.map(async (session) => ({
-        id: await this.identities.anchorFor("session", store, session.id),
-        subject: session.subject,
-        start: session.start,
-        end: session.end,
-        participants: await Promise.all(
-          session.participants.map(async (p) => ({
-            id: await this.identities.anchorFor("participant", store, p.id),
-            client: await this.clientAnchor(p.client),
-            attendance: p.attendanceLabel,
-          })),
-        ),
-      })),
-    )
+    return Promise.all(sessions.map((session) => this.sessionAnchor(session)))
+  }
+
+  // A case by the number staff quote: its clients and every session
+  // regarding it (each with its participants), all as DBS anchor IDs. What
+  // a session-notes system opens a case with; the case's own bindings then
+  // resolve against the returned `id`.
+  async findCase(caseNumber: string): Promise<CaseContext | null> {
+    const found = await this.store.findCaseByNumber(caseNumber)
+    if (!found) return null
+    return {
+      id: await this.identities.anchorFor("case", this.store.name, found.id),
+      caseNumber: found.caseNumber,
+      displayName: found.title ?? `Case ${found.caseNumber ?? ""}`.trim(),
+      clients: await Promise.all(found.clients.map((c) => this.clientAnchor(c))),
+      sessions: await Promise.all(found.sessions.map((s) => this.sessionAnchor(s))),
+    }
+  }
+
+  private async sessionAnchor(session: SessionSummary): Promise<SessionAnchor> {
+    const store = this.store.name
+    return {
+      id: await this.identities.anchorFor("session", store, session.id),
+      subject: session.subject,
+      start: session.start,
+      end: session.end,
+      participants: await Promise.all(
+        session.participants.map(async (p) => ({
+          id: await this.identities.anchorFor("participant", store, p.id),
+          client: await this.clientAnchor(p.client),
+          attendance: p.attendanceLabel,
+        })),
+      ),
+    }
   }
 
   // Who a participant anchor is: the client behind that attendance record,

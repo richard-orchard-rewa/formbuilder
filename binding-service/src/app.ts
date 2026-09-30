@@ -11,6 +11,7 @@ import {
   BindingDescriptorSchema,
   BindingOptionsSchema,
   AttributeCandidateListSchema,
+  CaseContextSchema,
   ClientAnchorSchema,
   CommitRequestSchema,
   CreateBindingRequestSchema,
@@ -23,6 +24,7 @@ import {
   SessionParticipantSchema,
 } from "shared"
 import { z } from "zod"
+import { StoreReadError } from "./adapters/adapter.js"
 import {
   BindingNotFoundError,
   BindingRuleError,
@@ -60,6 +62,9 @@ export function buildApp(
     if (error instanceof AnchorMismatchError) {
       return reply.code(400).send({ message: error.message })
     }
+    if (error instanceof StoreReadError) {
+      return reply.code(403).send({ message: error.message })
+    }
     if (error instanceof BindingRuleError) {
       return reply.code(422).send({ message: error.message })
     }
@@ -76,7 +81,7 @@ export function buildApp(
     service: "Data Binding Service",
     description:
       "Owns the dictionary of data-bound fields and all access to the backing store. Consumers never talk to the store directly.",
-    anchors: ["client", "session", "participant"],
+    anchors: ["client", "case", "session", "participant"],
     strategies: ["attribute", "lookup", "choice"],
     endpoints: {
       "GET /bindings?anchor=client": "Published bindings, as descriptors a form can render",
@@ -84,6 +89,7 @@ export function buildApp(
       "GET /bindings/:key/options": "A lookup binding's options, served live",
       "GET /anchors/client?clientNumber=": "Find the record to anchor on",
       "GET /anchors/sessions?clientNumber=": "A client's sessions, each with its participants (one anchor per person per session)",
+      "GET /anchors/case?caseNumber=": "A case, with its clients and every session regarding it (each with its participants)",
       "GET /anchors/participants/:id": "Who a participant anchor is: their client and attendance",
       "POST /resolve": "Current values for bindings on an anchor",
       "POST /commit": "Write changed values, refusing to overwrite changes made since resolve",
@@ -158,6 +164,21 @@ export function buildApp(
         return reply.code(404).send({ message: "No matching client" })
       }
       return sessions
+    },
+  )
+
+  typed.get(
+    "/anchors/case",
+    {
+      schema: {
+        querystring: z.object({ caseNumber: z.string().trim().min(1) }),
+        response: { 200: CaseContextSchema, 404: ErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const found = await service.findCase(request.query.caseNumber)
+      if (!found) return reply.code(404).send({ message: "No matching case" })
+      return found
     },
   )
 

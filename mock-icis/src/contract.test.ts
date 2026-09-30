@@ -11,7 +11,7 @@ import {
 } from "../../binding-service/src/registry.js"
 import { BindingService } from "../../binding-service/src/service.js"
 import { buildMockIcis } from "./app.js"
-import { LOOKUP_ROWS, SERVICE_ACCOUNT } from "./data.js"
+import { LOOKUP_ROWS, PORTAL_DEMO_PRIVILEGES, SERVICE_ACCOUNT } from "./data.js"
 
 // Contacts' Dataverse IDs, as the mock holds them. Consumers never see these.
 const BOB = "2c616f0e-d741-f011-8779-000d3ad0ea14"
@@ -258,5 +258,79 @@ describe("sessions and participants against the mock ICIS", () => {
       )!.id,
     )
     expect(rows.map((r) => r.values.wp_attendancestatus).sort()).toEqual([2, 4])
+  })
+})
+
+describe("cases against the mock ICIS", () => {
+  async function hawkins() {
+    const built = build()
+    for (const p of PORTAL_DEMO_PRIVILEGES) built.state.privileges.add(p)
+    const found = (await built.service.findCase("104872"))!
+    return { ...built, found }
+  }
+
+  it("opens a case by number: clients, sessions and participants, as DBS IDs only", async () => {
+    const { found } = await hawkins()
+    expect(found).toMatchObject({ caseNumber: "104872", displayName: "Hawkins — Couples counselling" })
+    expect(found.clients.map((c) => c.displayName)).toEqual(["Taylor Hawkins", "Adam Hawkins"])
+    expect(found.sessions.map((s) => s.subject)).toEqual([
+      "Intake · Taylor Hawkins",
+      "Intake · Adam Hawkins",
+      "Session 2 · Taylor & Adam Hawkins",
+      "Session 3 · Taylor & Adam Hawkins",
+      "Session 4 · Taylor & Adam Hawkins",
+    ])
+    const session3 = found.sessions[3]
+    expect(session3.participants.map((p) => [p.client.displayName, p.attendance])).toEqual([
+      ["Taylor Hawkins", "Invited"],
+      ["Adam Hawkins", "Invited"],
+    ])
+    // None of the incident's, sessions' or attendances' Dataverse IDs.
+    expect(JSON.stringify(found)).not.toMatch(/de30[4-7]000-/)
+  })
+
+  it("resolves the case's own bindings, as codes, and writes its stage back", async () => {
+    const { state, service, found } = await hawkins()
+    const anchor = { case: found.id }
+    const opened = await service.resolve({
+      anchor,
+      bindings: ["case.caseNumber", "case.program", "case.stage", "case.referralSource"],
+    })
+    expect(opened.values).toEqual({
+      "case.caseNumber": "104872",
+      "case.program": "couples-counselling",
+      "case.stage": "service-delivery",
+      "case.referralSource": "self",
+    })
+    const { results } = await service.commit({
+      anchor,
+      values: { "case.stage": "case-review" },
+      baseline: opened.values,
+    })
+    expect(results["case.stage"]).toEqual({ status: "written" })
+    // ICIS holds the option's integer, not the DBS's code.
+    const incident = [...state.table("incident").values()].find((r) => r.values.ticketnumber === "104872")!
+    expect(incident.values.csg_casestage).toBe(100000002)
+  })
+
+  it("writes a session's setting on the session anchor", async () => {
+    const { state, service, found } = await hawkins()
+    const session3 = found.sessions[3]
+    const { results } = await service.commit({
+      anchor: { session: session3.id },
+      values: { "session.setting": "video-conference" },
+    })
+    expect(results["session.setting"]).toEqual({ status: "written" })
+    const row = [...state.sessions.values()].find((s) => s.values.subject === session3.subject)!
+    expect(state.lookupName("csg_sessionsetting", row.values.csg_sessionsettingid as string)).toBe(
+      "Video Conference",
+    )
+  })
+
+  it("names the missing privilege, and only that, when it can't read cases", async () => {
+    const { service } = build()
+    await expect(service.findCase("104872")).rejects.toThrow(
+      "ICIS refused the read: the Data Binding Service's account is missing prvReadIncident privilege",
+    )
   })
 })

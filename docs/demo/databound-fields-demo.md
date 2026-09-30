@@ -141,6 +141,8 @@ About 20 minutes. Each part is one role.
 6. In the mock's **Sessions**, the joint session shows Tariq as DNA and Aisha still as Attended.
 7. **Read it back.** Open the template's **Submissions** and the new one. Each copy is headed with the right person and shows what was written for them.
 
+The [practitioner portal demo](practitioner-portal-demo.md) shows the same service from a session-notes system's side: case, session and per-participant modules, via `npm run demo:portal`.
+
 ## Talking points
 
 - **Nobody talks to ICIS but the service.** form-builder only knows logical keys like `client.preferredName`. The API log proves it: form-builder never appears there.

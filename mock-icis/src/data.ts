@@ -152,6 +152,11 @@ export const WP_SESSION: EntityDef = {
       requiredLevel: "None",
       validForUpdate: true,
     },
+    // The case a session is about (regarding an incident), how it was
+    // booked, and how it was delivered.
+    { ...lookup("regardingobjectid", "Regarding", "incident"), validForUpdate: false },
+    lookup("csg_sessiontypeid", "Session Type", "csg_sessiontype"),
+    lookup("csg_sessionsettingid", "Session Setting", "csg_sessionsetting"),
   ],
 }
 
@@ -198,10 +203,70 @@ export const CSG_ATTENDANCE: EntityDef = {
   ],
 }
 
+// A case. ICIS keeps cases in Dynamics' standard `incident` table; the
+// ticket number is the case number staff quote.
+export const INCIDENT: EntityDef = {
+  logicalName: "incident",
+  displayName: "Case",
+  entitySet: "incidents",
+  primaryId: "incidentid",
+  primaryName: "title",
+  privileges: {
+    Read: "prvReadIncident",
+    Write: "prvWriteIncident",
+    Append: "prvAppendIncident",
+    AppendTo: "prvAppendToIncident",
+  },
+  attributes: [
+    { ...text("ticketnumber", "Case Number", 100), validForUpdate: false },
+    { ...text("title", "Case Title", 200), requiredLevel: "ApplicationRequired" },
+    lookup("csg_programid", "Program", "csg_program"),
+    lookup("csg_locationid", "Location", "csg_location"),
+    lookup("csg_referralsourceid", "Referral Source", "csg_referralsource"),
+    {
+      logicalName: "csg_casestage",
+      displayName: "Case Stage",
+      type: "Picklist",
+      options: [
+        { value: 100000000, label: "Intake" },
+        { value: 100000001, label: "Service delivery" },
+        { value: 100000002, label: "Case review" },
+        { value: 100000003, label: "Closure" },
+      ],
+      requiredLevel: "None",
+      validForUpdate: true,
+    },
+  ],
+}
+
+// The clients on a case: one csg_caseclient row per person.
+export const CSG_CASECLIENT: EntityDef = {
+  logicalName: "csg_caseclient",
+  displayName: "Case Client",
+  entitySet: "csg_caseclients",
+  primaryId: "csg_caseclientid",
+  primaryName: "csg_name",
+  privileges: {
+    Read: "prvReadcsg_caseclient",
+    Write: "prvWritecsg_caseclient",
+    Append: "prvAppendcsg_caseclient",
+    AppendTo: "prvAppendTocsg_caseclient",
+  },
+  attributes: [
+    { ...lookup("csg_caseid", "Case", "incident"), validForUpdate: false },
+    { ...lookup("csg_contactid", "Contact", "contact"), validForUpdate: false },
+  ],
+}
+
 export const LOOKUP_TABLES: EntityDef[] = [
   lookupTable("csg_salutation", "Salutation", "Csg_salutation"),
   lookupTable("csg_gender", "Gender", "Csg_gender"),
   lookupTable("csg_language", "Language", "Csg_language"),
+  lookupTable("csg_program", "Program", "Csg_program"),
+  lookupTable("csg_location", "Location", "Csg_location"),
+  lookupTable("csg_referralsource", "Referral Source", "Csg_referralsource"),
+  lookupTable("csg_sessiontype", "Session Type", "Csg_sessiontype"),
+  lookupTable("csg_sessionsetting", "Session Setting", "Csg_sessionsetting"),
 ]
 
 export const SYSTEMUSER: EntityDef = {
@@ -218,12 +283,14 @@ export const ENTITIES: EntityDef[] = [
   CONTACT,
   WP_SESSION,
   CSG_ATTENDANCE,
+  INCIDENT,
+  CSG_CASECLIENT,
   ...LOOKUP_TABLES,
   SYSTEMUSER,
 ]
 
 // Entities whose rows the mock holds as records (as opposed to lookup lists).
-export const RECORD_ENTITIES = [CONTACT, WP_SESSION, CSG_ATTENDANCE]
+export const RECORD_ENTITIES = [CONTACT, WP_SESSION, CSG_ATTENDANCE, INCIDENT, CSG_CASECLIENT]
 
 export interface LookupRow {
   id: string
@@ -256,6 +323,24 @@ export const LOOKUP_ROWS: Record<string, LookupRow[]> = {
     "English", "Arabic", "Auslan", "Cantonese", "Dari", "Greek", "Hindi",
     "Italian", "Mandarin", "Punjabi", "Swahili", "Tagalog", "Vietnamese",
   ].map((name, i) => ({ id: id("de303000", i + 1), name })),
+  csg_program: [
+    "Couples Counselling", "Individual Counselling", "Family Dispute Resolution",
+    "Men's Behaviour Change", "Children's Counselling",
+  ].map((name, i) => ({ id: id("de308000", i + 1), name })),
+  csg_location: [
+    "West Leederville", "Joondalup", "Fremantle", "Midland", "Bunbury", "Kalgoorlie",
+  ].map((name, i) => ({ id: id("de30b000", i + 1), name })),
+  csg_referralsource: [
+    "Self", "GP", "Family Court", "Community Agency", "Former Client", "School", "Website",
+  ].map((name, i) => ({ id: id("de30c000", i + 1), name })),
+  csg_sessiontype: ["Intake", "Counselling Session", "Case Review"].map((name, i) => ({
+    id: id("de30d000", i + 1),
+    name,
+  })),
+  csg_sessionsetting: [
+    "Centre Based", "Community Venue", "Inhome", "Partner Organisation", "Telephone",
+    "Video Conference",
+  ].map((name, i) => ({ id: id("de30e000", i + 1), name })),
 }
 
 const ref = (table: string, name: string | null) =>
@@ -307,6 +392,13 @@ const SEEDS: Seed[] = [
   { number: "00152093", title: "Not Stated", first: "Sam", last: "Taylor", gender: "Different term", preferredGender: "Genderfluid", language: "English", birthdate: "1998-09-21", city: "Broome", postcode: "6725" },
   { number: "00152094", title: "Mr", first: "Rhys", last: "Williams", gender: "Male", language: "Auslan", birthdate: "1990-01-31", city: "Busselton", postcode: "6280", email: true },
   { number: "00152095", title: "Ms", first: "Fatima", last: "Yusuf", gender: "Prefer not to say", language: "Arabic", birthdate: "1979-06-11", city: "Morley", postcode: "6062" },
+  // The practitioner portal demo's caseload (practitioner-portal/).
+  { number: "00152096", title: "Ms", first: "Taylor", last: "Hawkins", preferred: "Tay", gender: "Female", language: "English", birthdate: "1987-03-14", city: "Subiaco", postcode: "6008", email: true },
+  { number: "00152097", title: "Mr", first: "Adam", last: "Hawkins", gender: "Male", language: "English", birthdate: "1985-07-22", city: "Subiaco", postcode: "6008", email: true, home: true },
+  { number: "00152098", title: "Ms", first: "Nadia", last: "Williams", gender: "Female", language: "Arabic", birthdate: "1993-05-09", city: "Wanneroo", postcode: "6065" },
+  { number: "00152099", title: "Ms", first: "Daisy", last: "Chen", gender: "Female", language: "Cantonese", birthdate: "1990-10-02", city: "Victoria Park", postcode: "6100", email: true },
+  { number: "00152100", title: "Mx", first: "Morgan", last: "Chen", gender: "Non-binary", language: "English", birthdate: "1989-12-19", city: "Victoria Park", postcode: "6100" },
+  { number: "00152101", title: "Mrs", first: "Samira", last: "Patel", gender: "Female", language: "Hindi", birthdate: "1976-01-26", city: "Fremantle", postcode: "6160", email: true, home: true },
 ]
 
 // A row of a record entity (contact, session, attendance).
@@ -444,3 +536,181 @@ export function seedAttendances(): RecordRow[] {
     ),
   )
 }
+
+// --- Cases: the practitioner portal demo's caseload. Session dates are
+// relative to the day the mock starts (or is reset), in Perth time, so
+// "today's sessions" are always today's. IDs are clear of the sessions
+// above: portal sessions are de304000-…-0000000000nn from 11 up. ---
+
+interface CaseSeed {
+  number: string
+  title: string
+  program: string
+  location: string
+  referral: string
+  stage: string
+  clients: string[]
+  sessions: Array<{
+    subject: string
+    type: string
+    // Days from today, and the Perth time it starts; sessions run an hour.
+    day: number
+    time: string
+    setting: string
+    // Attendance status (ATTENDANCE_STATUSES value) per client number.
+    attendance: Record<string, number>
+  }>
+}
+
+const ATTENDED = 4
+const INVITED = 1
+const DNA = 2
+
+const CASE_SEEDS: CaseSeed[] = [
+  {
+    number: "104872",
+    title: "Hawkins — Couples counselling",
+    program: "Couples Counselling",
+    location: "West Leederville",
+    referral: "Self",
+    stage: "Service delivery",
+    clients: ["00152096", "00152097"],
+    sessions: [
+      { subject: "Intake · Taylor Hawkins", type: "Intake", day: -14, time: "09:00", setting: "Centre Based", attendance: { "00152096": ATTENDED } },
+      { subject: "Intake · Adam Hawkins", type: "Intake", day: -14, time: "11:00", setting: "Centre Based", attendance: { "00152097": ATTENDED } },
+      { subject: "Session 2 · Taylor & Adam Hawkins", type: "Counselling Session", day: -7, time: "10:30", setting: "Centre Based", attendance: { "00152096": ATTENDED, "00152097": ATTENDED } },
+      { subject: "Session 3 · Taylor & Adam Hawkins", type: "Counselling Session", day: 0, time: "10:30", setting: "Centre Based", attendance: { "00152096": INVITED, "00152097": INVITED } },
+      { subject: "Session 4 · Taylor & Adam Hawkins", type: "Counselling Session", day: 7, time: "10:30", setting: "Video Conference", attendance: { "00152096": INVITED, "00152097": INVITED } },
+    ],
+  },
+  {
+    number: "104915",
+    title: "Williams — Individual counselling",
+    program: "Individual Counselling",
+    location: "Joondalup",
+    referral: "GP",
+    stage: "Intake",
+    clients: ["00152098"],
+    sessions: [
+      { subject: "Intake · Nadia Williams", type: "Intake", day: 0, time: "09:00", setting: "Centre Based", attendance: { "00152098": INVITED } },
+    ],
+  },
+  {
+    number: "104931",
+    title: "Chen — Couples counselling",
+    program: "Couples Counselling",
+    location: "West Leederville",
+    referral: "Community Agency",
+    stage: "Service delivery",
+    clients: ["00152099", "00152100"],
+    sessions: [
+      { subject: "Session 5 · Daisy & Morgan Chen", type: "Counselling Session", day: -7, time: "13:00", setting: "Telephone", attendance: { "00152099": ATTENDED, "00152100": DNA } },
+      { subject: "Session 6 · Daisy & Morgan Chen", type: "Counselling Session", day: 0, time: "13:00", setting: "Centre Based", attendance: { "00152099": INVITED, "00152100": INVITED } },
+    ],
+  },
+  {
+    number: "104744",
+    title: "Patel — Individual counselling",
+    program: "Individual Counselling",
+    location: "Fremantle",
+    referral: "Family Court",
+    stage: "Case review",
+    clients: ["00152101"],
+    sessions: [
+      { subject: "Session 7 · Samira Patel", type: "Counselling Session", day: -14, time: "15:30", setting: "Video Conference", attendance: { "00152101": ATTENDED } },
+      { subject: "Case review · Samira Patel", type: "Case Review", day: 0, time: "15:30", setting: "Centre Based", attendance: { "00152101": INVITED } },
+    ],
+  },
+]
+
+// Perth is UTC+8 all year.
+function perth(today: Date, days: number, time: string, plusHours = 0): string {
+  const local = new Date(today.getTime() + 8 * 3600_000)
+  const [h, m] = time.split(":").map(Number)
+  return new Date(
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + days, h - 8 + plusHours, m),
+  ).toISOString()
+}
+
+const caseStage = (label: string) =>
+  INCIDENT.attributes.find((a) => a.logicalName === "csg_casestage")!.options!.find((o) => o.label === label)!.value
+
+export function seedCases(today = new Date()) {
+  const incidents: RecordRow[] = []
+  const caseClients: RecordRow[] = []
+  const sessions: RecordRow[] = []
+  const attendances: RecordRow[] = []
+  let sessionN = 10
+  CASE_SEEDS.forEach((c, caseIndex) => {
+    const caseId = id("de306000", caseIndex + 1)
+    incidents.push(
+      seeded(caseId, {
+        ticketnumber: c.number,
+        title: c.title,
+        csg_programid: ref("csg_program", c.program),
+        csg_locationid: ref("csg_location", c.location),
+        csg_referralsourceid: ref("csg_referralsource", c.referral),
+        csg_casestage: caseStage(c.stage),
+      }),
+    )
+    c.clients.forEach((number, i) =>
+      caseClients.push(
+        seeded(id("de307000", caseIndex * 10 + i + 1), {
+          csg_name: `${c.number} · ${number}`,
+          csg_caseid: caseId,
+          csg_contactid: contactIdFor(number),
+        }),
+      ),
+    )
+    for (const s of c.sessions) {
+      const n = ++sessionN
+      sessions.push(
+        seeded(id("de304000", n), {
+          subject: s.subject,
+          scheduledstart: perth(today, s.day, s.time),
+          scheduledend: perth(today, s.day, s.time, 1),
+          regardingobjectid: caseId,
+          csg_sessiontypeid: ref("csg_sessiontype", s.type),
+          csg_sessionsettingid: ref("csg_sessionsetting", s.setting),
+        }),
+      )
+      Object.entries(s.attendance).forEach(([number, status], i) =>
+        attendances.push(
+          seeded(id("de305000", n * 10 + i), {
+            csg_sessionid: id("de304000", n),
+            csg_contactid: contactIdFor(number),
+            wp_attendancestatus: status,
+          }),
+        ),
+      )
+    }
+  })
+  return { incidents, caseClients, sessions, attendances }
+}
+
+// Everything the practitioner portal demo needs: read cases, their clients,
+// sessions, attendance and lists; write clients, cases, sessions and
+// attendance; link records to the lists their editable lookups use. Home
+// language stays unreadable, as in the data-bound fields demo.
+export const PORTAL_DEMO_PRIVILEGES = [
+  ...INITIAL_PRIVILEGES,
+  "prvWriteContact",
+  "prvAppendContact",
+  "prvAppendToCsg_salutation",
+  "prvReadCsg_gender",
+  "prvAppendToCsg_gender",
+  "prvReadIncident",
+  "prvWriteIncident",
+  "prvAppendIncident",
+  "prvReadcsg_caseclient",
+  "prvWritewp_session",
+  "prvAppendwp_session",
+  "prvWritecsg_attendance",
+  "prvReadCsg_program",
+  "prvReadCsg_location",
+  "prvReadCsg_referralsource",
+  "prvAppendToCsg_referralsource",
+  "prvReadCsg_sessiontype",
+  "prvReadCsg_sessionsetting",
+  "prvAppendToCsg_sessionsetting",
+]

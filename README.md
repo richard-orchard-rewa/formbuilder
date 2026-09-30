@@ -31,6 +31,10 @@ fields — see [docs/proposals/databound-fields.md](docs/proposals/databound-fie
 To demonstrate it end to end on made-up data, `npm run demo` runs it against
 `mock-icis/` instead of ICIS — walkthrough in
 [docs/demo/databound-fields-demo.md](docs/demo/databound-fields-demo.md).
+`npm run demo:portal` adds `practitioner-portal/`, a mocked-up practitioner
+portal whose session notes are built from case-, session- and client-anchored
+modules with data-bound fields, seeded with a demo caseload — walkthrough in
+[docs/demo/practitioner-portal-demo.md](docs/demo/practitioner-portal-demo.md).
 
 ## Testing
 

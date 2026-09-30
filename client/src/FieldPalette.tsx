@@ -23,9 +23,12 @@ interface FieldPaletteProps {
 // Below them, the fields the Data Binding Service says can be bound to a
 // record (docs/proposals/databound-fields.md) -- the palette lists whatever
 // the DBS's dictionary describes rather than a fixed set.
+// Case bindings aren't offered: form-builder has no case-scoped modules yet
+// (only the practitioner portal demo uses them).
 const ANCHOR_ORDER: BindingAnchor[] = ["session", "participant", "client"]
 
 const ANCHOR_LABELS: Record<BindingAnchor, string> = {
+  case: "Case",
   session: "Session",
   participant: "Participant",
   client: "Client",

@@ -3,8 +3,11 @@ import {
   ATTENDANCE_STATUSES,
   CONTACT,
   CSG_ATTENDANCE,
+  CSG_CASECLIENT,
+  INCIDENT,
   LOOKUP_ROWS,
   LOOKUP_TABLES,
+  PORTAL_DEMO_PRIVILEGES,
   SERVICE_ACCOUNT,
   SYSTEMUSER,
   WP_SESSION,
@@ -64,7 +67,7 @@ function layout(title: string, active: string, body: string, refreshSeconds?: nu
 ${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ""}
 <title>${esc(title)} · Mock ICIS</title><style>${STYLE}</style></head><body>
 <header><strong>ICIS</strong><span class="tag">MOCK — demo data only</span>
-<nav>${link("/clients", "Clients")}${link("/sessions", "Sessions")}${link("/service-account", "Service account")}${link("/api-log", "API log")}</nav>
+<nav>${link("/clients", "Clients")}${link("/cases", "Cases")}${link("/sessions", "Sessions")}${link("/service-account", "Service account")}${link("/api-log", "API log")}</nav>
 <form method="post" action="/reset" onsubmit="return confirm('Reset all clients, privileges and the API log to the demo seed?')"><button class="secondary" type="submit">Reset demo</button></form>
 </header><main>${body}</main></body></html>`
 }
@@ -83,7 +86,21 @@ const PRIVILEGE_GROUPS = [
     table: WP_SESSION,
     rows: [
       { type: "Read", note: "Resolve session details (subject, times) and list a client's sessions." },
+      { type: "Write", note: "Save a session's setting back." },
+      { type: "Append", note: "Set a session's lookups (setting) when saving." },
     ],
+  },
+  {
+    table: INCIDENT,
+    rows: [
+      { type: "Read", note: "Find cases by number and resolve case bindings (program, stage, …)." },
+      { type: "Write", note: "Save a case's referral source and stage back." },
+      { type: "Append", note: "Set a case's lookups (referral source) when saving." },
+    ],
+  },
+  {
+    table: CSG_CASECLIENT,
+    rows: [{ type: "Read", note: "List the clients on a case." }],
   },
   {
     table: CSG_ATTENDANCE,
@@ -104,7 +121,7 @@ const PRIVILEGE_GROUPS = [
     table,
     rows: [
       { type: "Read", note: `Show the ${table.displayName.toLowerCase()} list as options. Without it, a lookup binding can't be published.` },
-      { type: "AppendTo", note: `Let a client be linked to a ${table.displayName.toLowerCase()} when saving.` },
+      { type: "AppendTo", note: `Let a record be linked to a ${table.displayName.toLowerCase()} when saving.` },
     ],
   })),
   {
@@ -199,6 +216,102 @@ ${saved ? `<div class="notice">Saved in ICIS.</div>` : ""}
     return reply.redirect(`/clients/${id}?saved=1`)
   })
 
+  const perthTime = (iso: unknown) =>
+    iso ? new Date(String(iso)).toLocaleString("en-AU", { timeZone: "Australia/Perth" }) : ""
+  const stageOptions = INCIDENT.attributes.find((a) => a.logicalName === "csg_casestage")!.options!
+  const listSelect = (name: string, table: string, value: unknown) =>
+    `<select name="${name}" aria-label="${esc(name)}"><option value="">—</option>${LOOKUP_ROWS[table]
+      .map((r) => `<option value="${r.id}" ${r.id === value ? "selected" : ""}>${esc(r.name)}</option>`)
+      .join("")}</select>`
+  const caseSessions = (caseId: string) =>
+    [...state.sessions.values()]
+      .filter((s) => s.values.regardingobjectid === caseId)
+      .sort((a, b) => String(a.values.scheduledstart).localeCompare(String(b.values.scheduledstart)))
+
+  // Cases (incident), each with its clients (csg_caseclient) and the
+  // sessions regarding it -- the practitioner portal demo's caseload.
+  app.get("/cases", async (_request, reply) => {
+    const rows = [...state.table("incident").values()].sort((a, b) =>
+      String(a.values.ticketnumber).localeCompare(String(b.values.ticketnumber)),
+    )
+    const body = `
+<div class="card"><h1>Cases</h1>
+<p class="lead">Made-up cases shaped like ICIS's <code>incident</code> table, with their clients (<code>csg_caseclient</code>) and the sessions regarding them (<code>wp_session</code>). The practitioner portal demo's caseload.</p></div>
+<div class="card"><table><thead><tr><th>Case number</th><th>Title</th><th>Program</th><th>Stage</th><th>Clients</th><th>Sessions</th><th>Last modified</th></tr></thead><tbody>
+${rows
+  .map((r) => {
+    const clients = [...state.table("csg_caseclient").values()]
+      .filter((cc) => cc.values.csg_caseid === r.id)
+      .map((cc) => state.contacts.get(String(cc.values.csg_contactid)))
+    return `<tr><td><a href="/cases/${r.id}">${esc(r.values.ticketnumber)}</a></td><td>${esc(r.values.title)}</td>
+<td>${esc(lookupLabel(state, "csg_program", r.values.csg_programid as string | null))}</td>
+<td>${esc(stageOptions.find((o) => o.value === r.values.csg_casestage)?.label)}</td>
+<td>${clients.map((c) => (c ? esc(clientName(c)) : "")).join("<br>")}</td>
+<td>${caseSessions(r.id).length}</td>
+<td>${esc(perthTime(r.modifiedOn))}<br><code>${esc(r.modifiedBy)}</code></td></tr>`
+  })
+  .join("")}
+</tbody></table></div>`
+    return reply.type("text/html").send(layout("Cases", "/cases", body))
+  })
+
+  app.get("/cases/:id", async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const saved = (request.query as { saved?: string }).saved
+    const r = state.table("incident").get(id)
+    if (!r) return reply.code(404).type("text/html").send(layout("Not found", "/cases", `<div class="card">No such case.</div>`))
+    const body = `
+<p><a href="/cases">← Cases</a></p>
+<div class="card"><h1>${esc(r.values.title)} <code>${esc(r.values.ticketnumber)}</code></h1>
+<p class="lead">Row version <code>${r.version}</code> · last modified ${esc(perthTime(r.modifiedOn))} by <strong>${esc(r.modifiedBy)}</strong>. Saving here is an edit by ICIS staff, so a session note opened before it gets a conflict rather than overwriting it.</p>
+${saved ? `<div class="notice">Saved in ICIS.</div>` : ""}
+<form method="post"><div class="grid">
+<label>Program<br><code>csg_programid</code></label><div>${esc(lookupLabel(state, "csg_program", r.values.csg_programid as string | null))}</div>
+<label>Location<br><code>csg_locationid</code></label><div>${esc(lookupLabel(state, "csg_location", r.values.csg_locationid as string | null))}</div>
+<label for="referral">Referral Source<br><code>csg_referralsourceid</code></label><div>${listSelect("csg_referralsourceid", "csg_referralsource", r.values.csg_referralsourceid).replace("<select", `<select id="referral"`)}</div>
+<label for="stage">Case Stage<br><code>csg_casestage</code></label><div><select id="stage" name="csg_casestage">${stageOptions
+      .map((o) => `<option value="${o.value}" ${o.value === r.values.csg_casestage ? "selected" : ""}>${esc(o.label)}</option>`)
+      .join("")}</select></div>
+</div><p><button type="submit">Save in ICIS</button></p></form></div>
+<div class="card"><h2>Sessions regarding this case</h2>
+<table><thead><tr><th>When (Perth)</th><th>Subject</th><th>Type</th><th>Setting</th><th>Attendance</th></tr></thead><tbody>
+${caseSessions(id)
+  .map((s) => {
+    const attendees = [...state.attendances.values()].filter((a) => a.values.csg_sessionid === s.id)
+    return `<tr><td>${esc(perthTime(s.values.scheduledstart))}</td><td>${esc(s.values.subject)}</td>
+<td>${esc(lookupLabel(state, "csg_sessiontype", s.values.csg_sessiontypeid as string | null))}</td>
+<td><form method="post" action="/sessions/${s.id}/setting?back=${encodeURIComponent(`/cases/${id}`)}" style="display:flex;gap:8px">${listSelect("csg_sessionsettingid", "csg_sessionsetting", s.values.csg_sessionsettingid)}<button type="submit" class="secondary">Save in ICIS</button></form></td>
+<td>${attendees
+      .map((a) => `${esc(clientName(state.contacts.get(String(a.values.csg_contactid))!))}: ${esc(ATTENDANCE_STATUSES.find((o) => o.value === a.values.wp_attendancestatus)?.label)}`)
+      .join("<br>")}</td></tr>`
+  })
+  .join("")}
+</tbody></table><p class="lead">Edit attendance on the <a href="/sessions">Sessions</a> page.</p></div>`
+    return reply.type("text/html").send(layout(String(r.values.title), "/cases", body))
+  })
+
+  app.post("/cases/:id", async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const form = (request.body ?? {}) as { csg_referralsourceid?: string; csg_casestage?: string }
+    const referral = String(form.csg_referralsourceid ?? "")
+    const stage = Number(form.csg_casestage)
+    state.updateAsStaff("incident", id, {
+      csg_referralsourceid: LOOKUP_ROWS.csg_referralsource.some((r) => r.id === referral) ? referral : null,
+      ...(stageOptions.some((o) => o.value === stage) ? { csg_casestage: stage } : {}),
+    })
+    return reply.redirect(`/cases/${id}?saved=1`)
+  })
+
+  app.post("/sessions/:id/setting", async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const back = String((request.query as { back?: string }).back ?? "/cases")
+    const value = String(((request.body ?? {}) as { csg_sessionsettingid?: string }).csg_sessionsettingid ?? "")
+    state.updateAsStaff("wp_session", id, {
+      csg_sessionsettingid: LOOKUP_ROWS.csg_sessionsetting.some((r) => r.id === value) ? value : null,
+    })
+    return reply.redirect(`${back.startsWith("/") ? back : "/cases"}?saved=1`)
+  })
+
   app.get("/sessions", async (request, reply) => {
     const saved = (request.query as { saved?: string }).saved
     const perth = (iso: unknown) =>
@@ -262,8 +375,15 @@ ${group.rows
 <div class="card"><h1>Service account: ${esc(SERVICE_ACCOUNT.name)}</h1>
 <p class="lead">The Dataverse application user the Data Binding Service signs in as, and its security role's privileges. The service checks these live — whatever this account can't do, no binding can offer. Changes take effect on the service's next request.</p>
 ${saved ? `<div class="notice">Privileges updated.</div>` : ""}
+<form method="post" action="/service-account/grant-portal-demo"><p><button class="secondary" type="submit">Grant what the practitioner portal demo needs</button></p></form>
 <form method="post" class="priv">${groups}<input type="hidden" name="privilege" value=""><p><button type="submit">Save role</button></p></form></div>`
     return reply.type("text/html").send(layout("Service account", "/service-account", body))
+  })
+
+  // Also what the portal demo's seed script calls (practitioner-portal/scripts).
+  app.post("/service-account/grant-portal-demo", async (_request, reply) => {
+    for (const name of PORTAL_DEMO_PRIVILEGES) state.privileges.add(name)
+    return reply.redirect("/service-account?saved=1")
   })
 
   app.post("/service-account", async (request, reply) => {

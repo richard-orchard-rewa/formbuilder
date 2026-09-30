@@ -371,7 +371,7 @@ An **anchor** is the record a piece of content is about. Each anchor type maps t
 | Anchor | Means | ICIS entity | Notes |
 |---|---|---|---|
 | `client` | A person | `contact` | Built |
-| `case` | A client's (or participants') engagement with a programme | `incident` | Design only |
+| `case` | A client's (or participants') engagement with a programme | `incident` | Prototype (practitioner portal demo, below) |
 | `session` | A scheduled or occurring interaction | `wp_session` (an activity) | Prototype slice |
 | `participant` | One person's attendance **at a session** | `csg_attendance` (session × contact) | Prototype slice |
 | `caseParticipant` | One person's participation **in a case** | `csg_caseclients` (case × contact) | Design only |
@@ -449,6 +449,16 @@ Session and participant data in Dataverse is often an **option set** (a picklist
 - reads the attribute's options from its option-set metadata (`PicklistAttributeMetadata`);
 - stores the chosen integer;
 - presents it through option codes (`attended`, `dna`), exactly like a lookup, so forms never hold Dataverse's integers.
+
+### The case anchor, as prototyped (2026-09-30)
+
+Built for the [practitioner portal demo](../demo/practitioner-portal-demo.md), which needed case-level modules. It follows the rules above: one anchor per resolve and commit, and one-to-many steps returned rather than followed.
+
+- `case` maps to `incident`. A case's clients are its `csg_caseclient` rows; its sessions are the `wp_session`s regarding it (`regardingobjectid`).
+- `GET /anchors/case?caseNumber=` (the ticket number) returns the case's DBS anchor ID, its clients, and every session regarding it, each with its participants, in the `SessionAnchor` shape. The ICIS adapter does it in filtered reads (incident, case clients, sessions, attendances, contacts), without `$expand`.
+- Built-in bindings, code-only (the case allow-list is empty until decision 5 below is made): `case.caseNumber`, `case.program`, `case.location` (display only), and `case.referralSource` and `case.stage` (a `choice`). Two session bindings join them: `session.sessionType` (display only) and `session.setting`.
+- Read refusals now name only the missing privilege, as write refusals already did. Before, the ICIS adapter passed on Dataverse's message with its principal IDs.
+- `caseParticipant` isn't built: the portal's per-person case content is note-only.
 
 ### Bindings that reach a related record (design only)
 

@@ -17,7 +17,7 @@ It is **entirely separate** from the sibling `feedback` app — never edit, depe
 
 ## Monorepo structure
 
-npm workspaces, six packages:
+npm workspaces, seven packages:
 
 ```
 shared/           # Zod schemas and types — single source of truth for API contracts
@@ -25,6 +25,7 @@ server/           # Fastify backend
 client/           # Vite + React frontend
 binding-service/  # Data Binding Service prototype — owns data-bound fields' dictionary and ICIS access
 mock-icis/        # Mock ICIS (Dataverse Web API subset + admin screens, made-up data) for demos and contract tests
+practitioner-portal/ # Mock practitioner portal: session notes from case/session/client modules, via the DBS (demo only)
 e2e/              # Playwright feature tests, run against client + server together
 ```
 
@@ -34,6 +35,8 @@ e2e/              # Playwright feature tests, run against client + server togeth
 npm install                          # (or npm ci in CI)
 npm run dev                          # binding-service on :3100, server on :3000, client on :5173
 npm run demo                         # the same, with the DBS pointed at mock-icis on :3200 — see docs/demo/
+npm run demo:portal                  # the demo plus the practitioner portal on :5180, then seeds it (docs/demo/practitioner-portal-demo.md)
+npm run demo:seed                    # re-run the portal demo's seed (grants mock privileges, publishes client bindings)
 npm run build                        # build all workspaces
 npm run typecheck                    # tsc --noEmit across all workspaces
 npm test                             # Vitest — shared + client
@@ -97,7 +100,7 @@ Zod schemas in `shared/src/schemas/` are the single source of truth for a form's
 
 ### Data-bound fields — the Data Binding Service (prototype)
 
-See [docs/proposals/databound-fields.md](docs/proposals/databound-fields.md). A `bound` field reads/writes a value in another datastore (ICIS today) **only via the Data Binding Service** (`binding-service/`), never directly — form-builder's server reaches it over HTTP (`BINDING_SERVICE_URL`, default `http://localhost:3100`) through `server/src/modules/bindings/`. All ICIS knowledge (column names, OData, Dataverse errors) lives in `binding-service/src/adapters/icis.ts`; the dictionary of bindable fields is code in `binding-service/src/dictionary.ts`. `binding-service/.env` sets `ADAPTER=fake` (in-memory, no ICIS) or `ADAPTER=icis`. Data stewards create further bindings in the app's **Data bindings** page (the DBS's `/admin/...` API): only on attributes in `binding-service/src/allow-list.ts`, never beyond what the store's metadata and the DBS's own account's privileges allow, and stored in the DBS's own database (published versions are immutable, enforced by a trigger). The DBS also owns the identities forms see — DBS-issued client anchor IDs and logical option codes, mapped to each store's IDs in `binding-service/src/identity.ts` and kept in the DBS's **own** Postgres database (`binding_service`, never form-builder's; `npm run db:migrate -w binding-service`) — so nothing in form-builder ever holds a Dataverse ID — adding an attribute to the allow-list is a data-owner decision, not a convenience. Anchors are `client`, `session` (`wp_session`) and `participant` (`csg_attendance`: one person at one session); a module's `scope` (once per session / once per participant) decides which it can bind, and a session note keeps each participant's values under `data.participants[<participant anchor id>]`, committed per anchor — so one person's data is never written to, or read back as, another's (US-14). The ICIS adapter currently borrows `feedback`'s *test* app registration credentials by explicit agreement — a stopgap until the DBS has its own; don't extend that borrowing to any other code, data or database.
+See [docs/proposals/databound-fields.md](docs/proposals/databound-fields.md). A `bound` field reads/writes a value in another datastore (ICIS today) **only via the Data Binding Service** (`binding-service/`), never directly — form-builder's server reaches it over HTTP (`BINDING_SERVICE_URL`, default `http://localhost:3100`) through `server/src/modules/bindings/`. All ICIS knowledge (column names, OData, Dataverse errors) lives in `binding-service/src/adapters/icis.ts`; the dictionary of bindable fields is code in `binding-service/src/dictionary.ts`. `binding-service/.env` sets `ADAPTER=fake` (in-memory, no ICIS) or `ADAPTER=icis`. Data stewards create further bindings in the app's **Data bindings** page (the DBS's `/admin/...` API): only on attributes in `binding-service/src/allow-list.ts`, never beyond what the store's metadata and the DBS's own account's privileges allow, and stored in the DBS's own database (published versions are immutable, enforced by a trigger). The DBS also owns the identities forms see — DBS-issued client anchor IDs and logical option codes, mapped to each store's IDs in `binding-service/src/identity.ts` and kept in the DBS's **own** Postgres database (`binding_service`, never form-builder's; `npm run db:migrate -w binding-service`) — so nothing in form-builder ever holds a Dataverse ID — adding an attribute to the allow-list is a data-owner decision, not a convenience. Anchors are `client`, `session` (`wp_session`) and `participant` (`csg_attendance`: one person at one session); a module's `scope` (once per session / once per participant) decides which it can bind, and a session note keeps each participant's values under `data.participants[<participant anchor id>]`, committed per anchor — so one person's data is never written to, or read back as, another's (US-14). A `case` anchor (`incident`) is prototyped too: `GET /anchors/case?caseNumber=` returns the case's clients and every session regarding it, and case bindings are code-only in `dictionary.ts` (its allow-list is deliberately empty). `practitioner-portal/` is a demo client of all this: its modules and templates are seeded in the portal, and it reaches the DBS only through its `/dbs` Vite relay. The ICIS adapter currently borrows `feedback`'s *test* app registration credentials by explicit agreement — a stopgap until the DBS has its own; don't extend that borrowing to any other code, data or database.
 
 ### Submission storage (ADR-0004)
 

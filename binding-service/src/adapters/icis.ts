@@ -3,7 +3,9 @@ import {
   choiceTarget,
   ConcurrentUpdateError,
   isChoiceTarget,
+  StoreReadError,
   StoreWriteError,
+  type CaseSummary,
   type AttributeMetadata,
   type BindingSource,
   type Change,
@@ -74,6 +76,14 @@ export class IcisRecordStore implements RecordStore {
   private async getJson<T>(path: string): Promise<T | null> {
     const res = await this.request(path)
     if (res.status === 404) return null
+    if (res.status === 403) {
+      // As for writes: name the missing privilege, never the principal and
+      // business-unit IDs Dataverse's message carries.
+      const privilege = /missing (\w+) privilege/.exec(await errorMessage(res))?.[1]
+      throw new StoreReadError(
+        `ICIS refused the read: the Data Binding Service's account is missing ${privilege ?? "a required"} privilege`,
+      )
+    }
     if (!res.ok) throw new Error(`ICIS ${res.status}: ${await errorMessage(res)}`)
     return (await res.json()) as T
   }
@@ -283,17 +293,62 @@ export class IcisRecordStore implements RecordStore {
     ]
     if (sessionIds.length === 0) return []
 
-    const [sessions, attendances, statusOptions] = await Promise.all([
-      this.getJson<{
-        value: Array<{
-          activityid: string
-          subject: string | null
-          scheduledstart: string | null
-          scheduledend: string | null
-        }>
-      }>(
-        `/wp_sessions?$select=activityid,subject,scheduledstart,scheduledend&$filter=${sessionIds.map((id) => `activityid eq ${id}`).join(" or ")}`,
+    const sessions = await this.getJson<{ value: SessionRow[] }>(
+      `/wp_sessions?$select=${SESSION_COLUMNS}&$filter=${sessionIds.map((id) => `activityid eq ${id}`).join(" or ")}`,
+    )
+    return (await this.withParticipants(sessions?.value ?? [])).sort((a, b) =>
+      String(b.start).localeCompare(String(a.start)),
+    )
+  }
+
+  // A case is an `incident`; its number is the ticket number staff quote.
+  // Its clients are csg_caseclient rows, and its sessions are the
+  // wp_sessions regarding it.
+  async findCaseByNumber(caseNumber: string): Promise<CaseSummary | null> {
+    // As with client numbers: refuse anything that isn't a plain case number
+    // rather than escape it into the filter.
+    if (!/^[A-Za-z0-9-]{1,40}$/.test(caseNumber)) return null
+    const found = await this.getJson<{
+      value: Array<{ incidentid: string; ticketnumber: string | null; title: string | null }>
+    }>(
+      `/incidents?$select=incidentid,ticketnumber,title&$filter=ticketnumber eq '${caseNumber}'&$top=2`,
+    )
+    const [match, second] = found?.value ?? []
+    if (!match || second) return null
+    const caseId = match.incidentid
+
+    const [caseClients, sessions] = await Promise.all([
+      this.getJson<{ value: Array<{ _csg_contactid_value: string | null }> }>(
+        `/csg_caseclients?$select=csg_caseclientid,_csg_contactid_value&$filter=_csg_caseid_value eq ${caseId}`,
       ),
+      this.getJson<{ value: SessionRow[] }>(
+        `/wp_sessions?$select=${SESSION_COLUMNS}&$filter=_regardingobjectid_value eq ${caseId}`,
+      ),
+    ])
+    const clientIds = [
+      ...new Set((caseClients?.value ?? []).map((c) => c._csg_contactid_value).filter(isGuid)),
+    ]
+    const [contacts, withParticipants] = await Promise.all([
+      this.contactsById(clientIds),
+      this.withParticipants(sessions?.value ?? []),
+    ])
+    return {
+      id: caseId,
+      caseNumber: match.ticketnumber,
+      title: match.title,
+      clients: clientIds.flatMap((id) => {
+        const contact = contacts.get(id)
+        return contact ? [toClient(contact)] : []
+      }),
+      sessions: withParticipants.sort((a, b) => String(a.start).localeCompare(String(b.start))),
+    }
+  }
+
+  // Sessions with everyone who took part in each: their attendance rows,
+  // the attendance status labels and the attendees' names.
+  private async withParticipants(sessions: SessionRow[]): Promise<SessionSummary[]> {
+    if (sessions.length === 0) return []
+    const [attendances, statusOptions] = await Promise.all([
       this.getJson<{
         value: Array<{
           csg_attendanceid: string
@@ -302,58 +357,46 @@ export class IcisRecordStore implements RecordStore {
           wp_attendancestatus: number | null
         }>
       }>(
-        `/csg_attendances?$select=csg_attendanceid,_csg_sessionid_value,_csg_contactid_value,wp_attendancestatus&$filter=${sessionIds.map((id) => `_csg_sessionid_value eq ${id}`).join(" or ")}`,
+        `/csg_attendances?$select=csg_attendanceid,_csg_sessionid_value,_csg_contactid_value,wp_attendancestatus&$filter=${sessions.map((s) => `_csg_sessionid_value eq ${s.activityid}`).join(" or ")}`,
       ),
       this.choiceOptions(choiceTarget("csg_attendance", "wp_attendancestatus")),
     ])
 
-    const contactIds = [
+    const byContact = await this.contactsById([
       ...new Set((attendances?.value ?? []).map((a) => a._csg_contactid_value).filter(isGuid)),
-    ]
-    const contacts = contactIds.length
-      ? await this.getJson<{
-          value: Array<{
-            contactid: string
-            csg_clientid: string | null
-            firstname: string | null
-            lastname: string | null
-          }>
-        }>(
-          `/contacts?$select=contactid,csg_clientid,firstname,lastname&$filter=${contactIds.map((id) => `contactid eq ${id}`).join(" or ")}`,
-        )
-      : null
-    const byContact = new Map((contacts?.value ?? []).map((c) => [c.contactid, c]))
+    ])
     const statusLabel = new Map(statusOptions.options.map((o) => [o.value, o.label]))
 
-    return (sessions?.value ?? [])
-      .map((session) => ({
-        id: session.activityid,
-        subject: session.subject,
-        start: session.scheduledstart,
-        end: session.scheduledend,
-        participants: (attendances?.value ?? [])
-          .filter((a) => a._csg_sessionid_value === session.activityid)
-          .flatMap((a) => {
-            const contact = a._csg_contactid_value ? byContact.get(a._csg_contactid_value) : undefined
-            if (!contact) return []
-            return [
-              {
-                id: a.csg_attendanceid,
-                attendanceLabel:
-                  a.wp_attendancestatus === null
-                    ? null
-                    : (statusLabel.get(String(a.wp_attendancestatus)) ?? null),
-                client: {
-                  id: contact.contactid,
-                  clientNumber: contact.csg_clientid,
-                  firstName: contact.firstname,
-                  lastName: contact.lastname,
-                },
-              },
-            ]
-          }),
-      }))
-      .sort((a, b) => String(b.start).localeCompare(String(a.start)))
+    return sessions.map((session) => ({
+      id: session.activityid,
+      subject: session.subject,
+      start: session.scheduledstart,
+      end: session.scheduledend,
+      participants: (attendances?.value ?? [])
+        .filter((a) => a._csg_sessionid_value === session.activityid)
+        .flatMap((a) => {
+          const contact = a._csg_contactid_value ? byContact.get(a._csg_contactid_value) : undefined
+          if (!contact) return []
+          return [
+            {
+              id: a.csg_attendanceid,
+              attendanceLabel:
+                a.wp_attendancestatus === null
+                  ? null
+                  : (statusLabel.get(String(a.wp_attendancestatus)) ?? null),
+              client: toClient(contact),
+            },
+          ]
+        }),
+    }))
+  }
+
+  private async contactsById(ids: string[]): Promise<Map<string, ContactRow>> {
+    if (ids.length === 0) return new Map()
+    const contacts = await this.getJson<{ value: ContactRow[] }>(
+      `/contacts?$select=contactid,csg_clientid,firstname,lastname&$filter=${ids.map((id) => `contactid eq ${id}`).join(" or ")}`,
+    )
+    return new Map((contacts?.value ?? []).map((c) => [c.contactid, c]))
   }
 
   async describe(entity: string, attributes: string[]): Promise<AttributeMetadata[]> {
@@ -496,4 +539,29 @@ async function throwIfWriteFailed(res: Response) {
     )
   }
   throw new StoreWriteError(`ICIS refused the update (${res.status})`)
+}
+
+interface ContactRow {
+  contactid: string
+  csg_clientid: string | null
+  firstname: string | null
+  lastname: string | null
+}
+
+interface SessionRow {
+  activityid: string
+  subject: string | null
+  scheduledstart: string | null
+  scheduledend: string | null
+}
+
+const SESSION_COLUMNS = "activityid,subject,scheduledstart,scheduledend"
+
+function toClient(row: ContactRow): ClientSummary {
+  return {
+    id: row.contactid,
+    clientNumber: row.csg_clientid,
+    firstName: row.firstname,
+    lastName: row.lastname,
+  }
 }

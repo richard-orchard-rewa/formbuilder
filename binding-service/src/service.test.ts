@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { StoreWriteError } from "./adapters/adapter.js"
 import {
   FAKE_ATTENDANCE_IDS,
+  FAKE_CASE_ID,
   FAKE_CLIENT_ID,
   FakeRecordStore,
   KNOWN_TITLES,
@@ -319,5 +320,35 @@ describe("BindingService sessions and participants", () => {
         bindings: ["participant.attendance"],
       }),
     ).rejects.toBeInstanceOf(AnchorNotFoundError)
+  })
+})
+
+describe("BindingService case anchors", () => {
+  it("opens a case by number: its clients and sessions, as DBS anchors only", async () => {
+    const { service } = await build()
+    const found = (await service.findCase("100001"))!
+    expect(found).toMatchObject({ caseNumber: "100001", displayName: "McGee & Rivera — Mediation" })
+    expect(found.clients.map((c) => c.displayName)).toEqual(["Bob McGee", "Alex Rivera"])
+    expect(found.sessions.map((s) => s.subject)).toEqual(["Joint session"])
+    expect(found.sessions[0].participants.map((p) => p.client.displayName)).toEqual([
+      "Bob McGee",
+      "Alex Rivera",
+    ])
+    expect(found.id).not.toBe(FAKE_CASE_ID)
+    expect(await service.findCase("999999")).toBeNull()
+  })
+
+  it("resolves case bindings on the case anchor, and only there", async () => {
+    const { service, anchor } = await build()
+    const found = (await service.findCase("100001"))!
+    const { values } = await service.resolve({ anchor: { case: found.id }, bindings: ["case.caseNumber"] })
+    expect(values).toEqual({ "case.caseNumber": "100001" })
+    await expect(service.resolve({ anchor, bindings: ["case.caseNumber"] })).rejects.toThrow(
+      AnchorMismatchError,
+    )
+    // A client's anchor ID isn't a case's.
+    await expect(
+      service.resolve({ anchor: { case: anchor.client }, bindings: ["case.caseNumber"] }),
+    ).rejects.toThrow(AnchorNotFoundError)
   })
 })

@@ -2,6 +2,7 @@ import {
   INITIAL_PRIVILEGES,
   LOOKUP_ROWS,
   seedAttendances,
+  seedCases,
   seedContacts,
   seedSessions,
   type RecordRow,
@@ -51,10 +52,13 @@ export class MockIcisState {
 
   reset() {
     const byId = (rows: RecordRow[]) => new Map(rows.map((r) => [r.id, r]))
+    const cases = seedCases()
     this.tables = new Map([
       ["contact", byId(seedContacts())],
-      ["wp_session", byId(seedSessions())],
-      ["csg_attendance", byId(seedAttendances())],
+      ["wp_session", byId([...seedSessions(), ...cases.sessions])],
+      ["csg_attendance", byId([...seedAttendances(), ...cases.attendances])],
+      ["incident", byId(cases.incidents)],
+      ["csg_caseclient", byId(cases.caseClients)],
     ])
     this.privileges = new Set(INITIAL_PRIVILEGES)
     this.log = []

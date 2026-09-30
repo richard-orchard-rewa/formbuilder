@@ -81,6 +81,24 @@ export interface SessionSummary {
   }>
 }
 
+// A case, the clients on it, and every session regarding it, by store IDs.
+export interface CaseSummary {
+  id: string
+  caseNumber: string | null
+  title: string | null
+  clients: ClientSummary[]
+  sessions: SessionSummary[]
+}
+
+// The store refused a read -- in practice, the DBS's account lacks a
+// privilege. `message` is safe to show a user.
+export class StoreReadError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "StoreReadError"
+  }
+}
+
 // The store refused a write because the row changed after it was read (an
 // If-Match mismatch).
 export class ConcurrentUpdateError extends Error {
@@ -108,6 +126,9 @@ export interface RecordStore {
   // The sessions a client has an attendance record for, with every
   // participant of each. Newest first.
   sessionsForClient(clientId: string): Promise<SessionSummary[]>
+  // Human-facing case number -> the case, its clients and its sessions
+  // (oldest first, each with every participant). null if no unambiguous match.
+  findCaseByNumber(caseNumber: string): Promise<CaseSummary | null>
   read(
     entity: string,
     id: string,

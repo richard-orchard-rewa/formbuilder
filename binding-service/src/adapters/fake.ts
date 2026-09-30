@@ -6,6 +6,7 @@ import {
   type AttributeMetadata,
   type BindingSource,
   type Change,
+  type CaseSummary,
   type ClientSummary,
   type RecordStore,
   type ServicePermissions,
@@ -27,6 +28,9 @@ export const KNOWN_TITLES: BindingOptions["options"] = [
 export const FAKE_CLIENT_ID = "00000000-0000-0000-0000-000000152076"
 export const FAKE_CLIENT_2_ID = "00000000-0000-0000-0000-000000152099"
 export const FAKE_SESSION_ID = "00000000-0000-0000-0000-00000000a001"
+// A case both clients are on, which the joint session regards.
+export const FAKE_CASE_ID = "00000000-0000-0000-0000-00000000c001"
+export const FAKE_CASE_NUMBER = "100001"
 export const FAKE_ATTENDANCE_IDS = [
   "00000000-0000-0000-0000-00000000b001",
   "00000000-0000-0000-0000-00000000b002",
@@ -120,9 +124,13 @@ export class FakeRecordStore implements RecordStore {
     })
     add("wp_session", FAKE_SESSION_ID, {
       subject: "Joint session",
+      regardingobjectid: FAKE_CASE_ID,
       scheduledstart: "2026-10-06T02:00:00Z",
       scheduledend: "2026-10-06T04:00:00Z",
     })
+    add("incident", FAKE_CASE_ID, { ticketnumber: FAKE_CASE_NUMBER, title: "McGee & Rivera — Mediation" })
+    add("csg_caseclient", "00000000-0000-4000-8000-0000000cc001", { csg_caseid: FAKE_CASE_ID, csg_contactid: FAKE_CLIENT_ID })
+    add("csg_caseclient", "00000000-0000-4000-8000-0000000cc002", { csg_caseid: FAKE_CASE_ID, csg_contactid: FAKE_CLIENT_2_ID })
     add("csg_attendance", FAKE_ATTENDANCE_IDS[0], {
       csg_sessionid: FAKE_SESSION_ID,
       csg_contactid: FAKE_CLIENT_ID,
@@ -158,14 +166,38 @@ export class FakeRecordStore implements RecordStore {
 
   async sessionsForClient(clientId: string): Promise<SessionSummary[]> {
     const attendances = this.rows("csg_attendance")
-    const labels = new Map(FAKE_OPTIONS[ATTENDANCE_TARGET].map((o) => [o.value, o.label]))
     const sessionIds = new Set(
       attendances
         .filter(([, a]) => a.values.csg_contactid === clientId)
         .map(([, a]) => a.values.csg_sessionid),
     )
+    return this.sessionSummaries(([id]) => sessionIds.has(id)).sort((a, b) =>
+      String(b.start).localeCompare(String(a.start)),
+    )
+  }
+
+  async findCaseByNumber(caseNumber: string): Promise<CaseSummary | null> {
+    const found = this.rows("incident").find(([, r]) => r.values.ticketnumber === caseNumber)
+    if (!found) return null
+    const [caseId, record] = found
+    return {
+      id: caseId,
+      caseNumber: record.values.ticketnumber ?? null,
+      title: record.values.title ?? null,
+      clients: this.rows("csg_caseclient")
+        .filter(([, cc]) => cc.values.csg_caseid === caseId)
+        .map(([, cc]) => this.summary(String(cc.values.csg_contactid))),
+      sessions: this.sessionSummaries(([, s]) => s.values.regardingobjectid === caseId),
+    }
+  }
+
+  private sessionSummaries(
+    which: (row: [string, { values: Record<string, StoreValue> }]) => boolean,
+  ): SessionSummary[] {
+    const attendances = this.rows("csg_attendance")
+    const labels = new Map(FAKE_OPTIONS[ATTENDANCE_TARGET].map((o) => [o.value, o.label]))
     return this.rows("wp_session")
-      .filter(([id]) => sessionIds.has(id))
+      .filter(which)
       .map(([id, session]) => ({
         id,
         subject: session.values.subject ?? null,
@@ -179,7 +211,6 @@ export class FakeRecordStore implements RecordStore {
             attendanceLabel: labels.get(String(a.values.wp_attendancestatus)) ?? null,
           })),
       }))
-      .sort((a, b) => String(b.start).localeCompare(String(a.start)))
   }
 
   async findClientByNumber(clientNumber: string): Promise<ClientSummary | null> {

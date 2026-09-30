@@ -29,8 +29,29 @@ const sessionRead = (
   },
 })
 
-export const CODE_BINDINGS: DictionaryEntry[] = [
-  {
+// A built-in binding on any anchor, for the case and session details a
+// session note shows and keeps current.
+const entry = (
+  key: string,
+  label: string,
+  description: string,
+  access: "read" | "readWrite",
+  source: BindingSource,
+): DictionaryEntry => ({
+  source,
+  descriptor: {
+    key,
+    version: 1,
+    label,
+    description,
+    anchor: key.split(".")[0] as BindingDescriptor["anchor"],
+    access,
+    control: source.strategy === "attribute" ? { kind: "text" } : { kind: "lookup" },
+    overridable: access === "read" ? ["label"] : ["label", "required"],
+  },
+})
+
+export const CODE_BINDINGS: DictionaryEntry[] = [  {
     source: {
       strategy: "lookup",
       entity: "contact",
@@ -112,4 +133,23 @@ export const CODE_BINDINGS: DictionaryEntry[] = [
       overridable: ["label", "required"],
     },
   },
+  // How the session was booked and delivered: its type from the booking
+  // (display only), its setting confirmed in the note.
+  entry("session.sessionType", "Session type", "Intake, counselling session or case review, as booked.", "read",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessiontypeid", target: "csg_sessiontype" }),
+  entry("session.setting", "Session setting", "How and where the session was delivered.", "readWrite",
+    { strategy: "lookup", entity: "wp_session", attribute: "csg_sessionsettingid", target: "csg_sessionsetting" }),
+  // The case (an incident). Its identity and programme are set when it's
+  // opened in ICIS, so display only; the practitioner keeps its referral
+  // source and stage current from their notes.
+  entry("case.caseNumber", "Case number", "The case's ICIS case number. Display only.", "read",
+    { strategy: "attribute", entity: "incident", attribute: "ticketnumber" }),
+  entry("case.program", "Program", "The service program the case is delivered under.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_programid", target: "csg_program" }),
+  entry("case.location", "Location", "The RAWA location delivering the case.", "read",
+    { strategy: "lookup", entity: "incident", attribute: "csg_locationid", target: "csg_location" }),
+  entry("case.referralSource", "Referral source", "Who referred the client(s) to the service.", "readWrite",
+    { strategy: "lookup", entity: "incident", attribute: "csg_referralsourceid", target: "csg_referralsource" }),
+  entry("case.stage", "Case stage", "Where the case is: intake, service delivery, case review or closure.", "readWrite",
+    { strategy: "choice", entity: "incident", attribute: "csg_casestage", target: choiceTarget("incident", "csg_casestage") }),
 ]
