@@ -66,6 +66,29 @@
         "practitioner-portal"
       ],
       "port": 5180
+    },
+    {
+      "name": "practitioner-portal-alt-port",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "practitioner-portal",
+        "--",
+        "--port",
+        "5181"
+      ],
+      "port": 5181
+    },
+    {
+      "name": "practitioner-portal-no-dbs",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set BINDING_SERVICE_URL=http://localhost:3999&& npm run dev -w practitioner-portal -- --port 5182"
+      ],
+      "port": 5182
     }
   ]
 }

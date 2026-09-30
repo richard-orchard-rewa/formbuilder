@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { DevPanel } from "./components/DevPanel"
 import { Icon } from "./components/Icon"
-import { resetNotes } from "./notes-store"
+import { notesUnavailable, resetNotes } from "./notes-store"
 import { PRACTITIONER } from "./seed/notes"
 import { CasesView } from "./views/CasesView"
 import { CaseView } from "./views/CaseView"
@@ -84,8 +84,10 @@ export function App() {
           className="reset-notes"
           onClick={() => {
             if (window.confirm("Put the portal's session notes back to the seeded ones? (ICIS data isn't touched.)")) {
-              resetNotes()
-              window.location.reload()
+              resetNotes().then(
+                () => window.location.reload(),
+                (e: Error) => window.alert(`Couldn't reset the notes: ${e.message}`),
+              )
             }
           }}
         >
@@ -115,6 +117,12 @@ export function App() {
           </div>
         </header>
         <main>
+          {notesUnavailable() && (
+            <div className="notice bad" role="alert">
+              {notesUnavailable()} — showing the seeded notes only, and saving won't work. Is Postgres running
+              (<code>docker compose up -d db</code>)?
+            </div>
+          )}
           {route.page === "home" && <HomeView />}
           {route.page === "cases" && <CasesView />}
           {route.page === "case" && <CaseView key={route.caseNumber} caseNumber={route.caseNumber} tab={route.tab} />}
