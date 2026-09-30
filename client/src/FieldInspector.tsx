@@ -1,12 +1,29 @@
 import { useEffect, useState } from "react"
 import type { BindingPresentation, BoundField, Field } from "shared"
+import {
+  AlertIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CloseIcon,
+  LinkIcon,
+  LockIcon,
+  PlusIcon,
+  TrashIcon,
+} from "./icons.js"
+import { EmptyState } from "./ui.js"
 
 interface FieldInspectorProps {
   field: Field | null
   onChange: (field: Field) => void
   onDelete: (fieldId: string) => void
   isPublished: (fieldId: string) => boolean
+  onClose?: () => void
 }
+
+// Asked before deleting a field that's in a published version -- from the
+// inspector or the canvas card.
+export const DELETE_PUBLISHED_FIELD_MESSAGE =
+  "This field is part of a previously published version of this form. Deleting it won't affect submissions already collected, but it will be gone from every future version. Delete anyway?"
 
 // Configuration panel for the field selected on the canvas. Label and
 // required apply to every field type (US-3.5); type-specific options
@@ -18,6 +35,7 @@ export function FieldInspector({
   onChange,
   onDelete,
   isPublished,
+  onClose,
 }: FieldInspectorProps) {
   // Tracks the label input's own text so an admin can pass through an
   // empty string while typing (e.g. selecting-all to retype) without that
@@ -32,10 +50,10 @@ export function FieldInspector({
   if (!field) {
     return (
       <aside className="field-inspector">
-        <h2>Field settings</h2>
-        <p className="field-inspector__empty">
-          Select a field on the canvas to configure it.
-        </p>
+        <EmptyState
+          title="Field properties"
+          body="Select a field on the canvas to configure it."
+        />
       </aside>
     )
   }
@@ -50,9 +68,7 @@ export function FieldInspector({
   function handleDelete() {
     if (
       isPublished(fieldId) &&
-      !window.confirm(
-        "This field is part of a previously published version of this form. Deleting it won't affect submissions already collected, but it will be gone from every future version. Delete anyway?",
-      )
+      !window.confirm(DELETE_PUBLISHED_FIELD_MESSAGE)
     ) {
       return
     }
@@ -61,7 +77,31 @@ export function FieldInspector({
 
   return (
     <aside className="field-inspector">
-      <h2>Field settings</h2>
+      <div className="inspector-heading">
+        <div>
+          <p className="eyebrow">FIELD PROPERTIES</p>
+          <h2>{field.label}</h2>
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label="Close field properties"
+          >
+            <CloseIcon />
+          </button>
+        )}
+      </div>
+      {field.type === "bound" && (
+        <div className="bound-summary">
+          <LockIcon />
+          <span>
+            <strong>Data-bound field</strong>
+            <small>{field.binding.key}</small>
+          </span>
+        </div>
+      )}
       <label className="field-inspector__field">
         Label
         <input
@@ -284,6 +324,7 @@ export function FieldInspector({
         className="field-inspector__delete"
         onClick={handleDelete}
       >
+        <TrashIcon />
         Delete field
       </button>
     </aside>
@@ -352,6 +393,26 @@ function BoundFieldDetails({
       </dd>
       <dd className="field-inspector__binding-note">{binding.description}</dd>
       </dl>
+      {binding.access === "readWrite" ? (
+        <div className="integrity-note warning">
+          <AlertIcon />
+          <span>
+            <strong>Writes to the record</strong>
+            <small>
+              A submitted value is saved back to the source system through the
+              Data Binding Service.
+            </small>
+          </span>
+        </div>
+      ) : (
+        <div className="integrity-note">
+          <LinkIcon />
+          <span>
+            <strong>Read-only value</strong>
+            <small>Shows the record's current value; it can't be changed here.</small>
+          </span>
+        </div>
+      )}
     </>
   )
 }
@@ -388,8 +449,12 @@ function OptionsEditor({
 
   return (
     <>
-      <div className="field-inspector__field">
-        Options
+      <div className="option-builder">
+        <div>
+          <p className="eyebrow">MENU OPTIONS</p>
+          <h3>Choices</h3>
+          <small>Add, rename, reorder or remove the choices shown to users.</small>
+        </div>
         <ul className="field-inspector__options">
           {field.options.map((option, index) => (
             <li key={index} className="field-inspector__option">
@@ -411,26 +476,36 @@ function OptionsEditor({
               />
               <button
                 type="button"
+                className="icon-button"
+                aria-label={`Move option ${index + 1} up`}
                 disabled={index === 0}
                 onClick={() => moveOption(index, index - 1)}
               >
-                ↑
+                <ArrowUpIcon />
               </button>
               <button
                 type="button"
+                className="icon-button"
+                aria-label={`Move option ${index + 1} down`}
                 disabled={index === field.options.length - 1}
                 onClick={() => moveOption(index, index + 1)}
               >
-                ↓
+                <ArrowDownIcon />
               </button>
-              <button type="button" onClick={() => removeOption(index)}>
-                Remove
+              <button
+                type="button"
+                className="icon-button icon-button--danger"
+                aria-label={`Remove option ${index + 1}`}
+                onClick={() => removeOption(index)}
+              >
+                <TrashIcon />
               </button>
             </li>
           ))}
         </ul>
         <button
           type="button"
+          className="option-builder__add"
           onClick={() =>
             onChange({
               ...field,
@@ -438,6 +513,7 @@ function OptionsEditor({
             })
           }
         >
+          <PlusIcon />
           Add option
         </button>
       </div>

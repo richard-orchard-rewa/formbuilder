@@ -26,7 +26,7 @@ describe("SessionTemplatesList", () => {
     vi.spyOn(api, "listSessionTemplates").mockResolvedValue(sessionTemplates)
     render(
       <SessionTemplatesList
-        onBack={() => {}}
+        onNew={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
         onSubmissions={() => {}}
@@ -41,14 +41,14 @@ describe("SessionTemplatesList", () => {
     vi.spyOn(api, "listSessionTemplates").mockResolvedValue([])
     render(
       <SessionTemplatesList
-        onBack={() => {}}
+        onNew={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
         onSubmissions={() => {}}
       />,
     )
 
-    expect(await screen.findByText("No matches.")).toBeInTheDocument()
+    expect(await screen.findByText("No templates found")).toBeInTheDocument()
   })
 
   it("re-queries with the search term as it changes", async () => {
@@ -57,7 +57,7 @@ describe("SessionTemplatesList", () => {
       .mockResolvedValue(sessionTemplates)
     render(
       <SessionTemplatesList
-        onBack={() => {}}
+        onNew={() => {}}
         onBuild={() => {}}
         onFill={() => {}}
         onSubmissions={() => {}}
@@ -68,5 +68,30 @@ describe("SessionTemplatesList", () => {
     await userEvent.type(screen.getByLabelText("Search"), "Intake")
 
     await waitFor(() => expect(spy).toHaveBeenLastCalledWith("Intake"))
+  })
+
+  it("asks for confirmation before archiving a session template (US-8.6)", async () => {
+    vi.spyOn(api, "listSessionTemplates").mockResolvedValue(sessionTemplates)
+    const archive = vi.spyOn(api, "archiveSessionTemplate").mockResolvedValue({
+      ...sessionTemplates[0],
+      archivedAt: "2026-02-01T00:00:00.000Z",
+    })
+    render(
+      <SessionTemplatesList
+        onNew={() => {}}
+        onBuild={() => {}}
+        onFill={() => {}}
+        onSubmissions={() => {}}
+      />,
+    )
+    await screen.findByText("Intake session")
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Archive" })[0])
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive template" }),
+    )
+
+    expect(archive).toHaveBeenCalledWith("1")
+    await waitFor(() => expect(screen.queryByText("Intake session")).toBeNull())
   })
 })

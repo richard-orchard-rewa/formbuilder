@@ -235,6 +235,28 @@ export async function publishModule(moduleId: string): Promise<ModuleVersion> {
   return json<ModuleVersion>(res)
 }
 
+// A new module named "<name> Copy" starting from the source's current
+// fields (its draft, else its active version) as an unpublished draft.
+// Composed from existing endpoints; each copied field gets a fresh id so
+// the copy's submissions never share field identity with the original's.
+export async function cloneModule(source: ModuleSummary): Promise<ModuleSummary> {
+  const schema =
+    (await getModuleDraft(source.id))?.schema ??
+    (await getModuleActiveVersion(source.id))?.schema
+  const copy = await createModule(
+    `${source.name} Copy`,
+    source.description ?? undefined,
+  )
+  if (schema) {
+    await saveModuleDraft(
+      copy.id,
+      schema.fields.map((field) => ({ ...field, id: crypto.randomUUID() })),
+      schema.scope,
+    )
+  }
+  return copy
+}
+
 export function getPublishedFieldIds(formId: string): Promise<string[]> {
   return fetch(`/api/forms/${formId}/published-field-ids`).then((res) =>
     json<string[]>(res),
@@ -401,6 +423,25 @@ export function archiveSessionTemplate(
   return fetch(`/api/session-templates/${sessionTemplateId}/archive`, {
     method: "POST",
   }).then((res) => json<SessionTemplateSummary>(res))
+}
+
+// A new session template named "<name> Copy" composed of the same modules,
+// in the same order, as an unpublished draft.
+export async function cloneSessionTemplate(
+  source: SessionTemplateSummary,
+): Promise<SessionTemplateSummary> {
+  const composition = await getSessionTemplateModules(source.id)
+  const copy = await createSessionTemplate(
+    `${source.name} Copy`,
+    source.description ?? undefined,
+  )
+  if (composition.length > 0) {
+    await setSessionTemplateModules(
+      copy.id,
+      composition.map((item) => item.moduleId),
+    )
+  }
+  return copy
 }
 
 // The template's current composition, in order (US-8.2).

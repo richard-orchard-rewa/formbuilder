@@ -87,12 +87,14 @@ Vitest + Testing Library cover client components (`client/src/*.test.tsx`, `clie
 
 ### Visual design — RAWA brand
 
-The UI follows the org-wide RAWA Design System: navy canvas, white cards, Plus Jakarta Sans, pill buttons, soft shadows — see `C:\Users\richard.orchard\OneDrive - Relationships Australia WA\RAWA-Design\RAWA-design-reference.md` for the full spec (colours, type scale, spacing, component recipes, voice/copy rules).
+The UI follows the org-wide RAWA Design System (Plus Jakarta Sans, pill buttons, soft shadows), laid out after the Form Administration System design prototype (`C:\workspace\prototype-form-builder`) — see `C:\Users\richard.orchard\OneDrive - Relationships Australia WA\RAWA-Design\RAWA-design-reference.md` for the full spec (colours, type scale, spacing, component recipes, voice/copy rules).
 
 - `client/src/styles/rawa-tokens.css` — the design tokens (colours/type/spacing/radii/shadows as CSS variables), copied in from that kit's `colors_and_type.css`. Update it from the source kit rather than hand-editing values.
 - `client/public/fonts/` and `client/public/brand/` — the self-hosted Plus Jakarta Sans files and RAWA wordmark/mark SVGs the tokens and header reference.
+- `client/src/AdminShell.tsx` — the prototype's frame: a collapsible navy sidebar (Home, Modules, Session templates, Forms, Data bindings) and a sticky top bar around a light canvas. `client/src/ui.tsx` holds the shared page pieces (page heading, back link, empty state, search box, modal, toast, wizard steps) and `client/src/icons.tsx` a small inline Lucide-style icon set — no icon dependency.
+- The module, form and session template builders use the prototype's three columns: field library (Data bound / Custom tabs; click or drag to add) · canvas (field cards with move/delete) · field properties. New modules and templates start from a setup step (name, description, and for a module its type = scope). Preview opens in a modal.
 - `client/src/App.css` — applies the tokens to this app's own component classes *and* to JSON Forms' vanilla-renderer output (`.control`, `.input`, `.select`, `.radio-*`, `.validation_error`, …), so admin-authored and respondent-facing screens look consistent.
-- This is an internal admin tool, not the client-facing feedback survey the design kit's "canonical full-screen client layout" targets — the navy canvas + white card + wordmark shell is used, but there's no step-progress bar or persistent Safety Exit pill here.
+- This is an internal admin tool, not the client-facing feedback survey the design kit's "canonical full-screen client layout" targets — no step-progress bar or persistent Safety Exit pill here. Screens not yet redesigned (fill-out, submissions, data bindings) still render as a white card on the canvas (`main:not(.admin-page)`).
 
 ### Shared contracts (ADR-0005)
 

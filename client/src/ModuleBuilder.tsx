@@ -2,11 +2,13 @@ import { useEffect, useState } from "react"
 import {
   FIELD_TYPE_LABELS,
   SCOPE_ANCHORS,
+  isBoundField,
   unreachableBoundFields,
   type BindingDescriptor,
   type Field,
   type FieldType,
   type ModuleScope,
+  type ModuleSummary,
 } from "shared"
 import {
   getModuleActiveVersion,
@@ -20,10 +22,12 @@ import { FieldInspector } from "./FieldInspector.js"
 import { FieldPalette, type PaletteBindings } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
 import { FormPreview } from "./FormPreview.js"
+import { EyeIcon, SendIcon } from "./icons.js"
+import { MODULE_STEPS, ModuleSetupCard } from "./ModuleSetup.js"
+import { BackLink, Modal, PageHeading, useToast, WizardSteps } from "./ui.js"
 
 interface ModuleBuilderProps {
-  moduleId: string
-  moduleName: string
+  mod: ModuleSummary
   onBack: () => void
 }
 
@@ -74,17 +78,20 @@ function createBoundField(binding: BindingDescriptor): Field {
   }
 }
 
-// Loads the module's current draft, then lets an admin drag field types
-// from the palette onto the canvas to build it visually (US-7.2), reorder
-// them, configure the selected field, delete it, preview it (US-7.5, via
-// the same FormPreview component forms use -- it only depends on
-// `fields`), and publish it (US-7.3). Mirrors FormBuilder.tsx exactly,
-// retargeted at module endpoints.
-export function ModuleBuilder({
-  moduleId,
-  moduleName,
-  onBack,
-}: ModuleBuilderProps) {
+const SCOPE_LABELS: Record<ModuleScope, string> = {
+  session: "Completed once per session",
+  participant: "Completed once per participant",
+}
+
+// Loads the module's current draft and lays out the design prototype's
+// two-step module builder: "Module setup" (its type -- how often it's
+// filled in) and "Fields", where an admin adds fields from the library by
+// clicking or dragging (US-7.2), reorders them, configures the selected
+// field, deletes it, previews the module (US-7.5, via the same FormPreview
+// component forms use) and publishes it (US-7.3). Every change saves to
+// the draft as it's made.
+export function ModuleBuilder({ mod, onBack }: ModuleBuilderProps) {
+  const moduleId = mod.id
   const [fields, setFields] = useState<Field[]>([])
   // How often the module is filled in within a session note; decides which
   // bindings it can hold (a client's details only once per participant).
@@ -96,12 +103,14 @@ export function ModuleBuilder({
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   )
+  const [step, setStep] = useState(1)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [mode, setMode] = useState<"edit" | "preview">("edit")
+  const [previewing, setPreviewing] = useState(false)
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "error"
   >("idle")
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [toast, showToast] = useToast()
 
   // The Data Binding Service's dictionary, best-effort as in FormBuilder.
   useEffect(() => {
@@ -180,7 +189,7 @@ export function ModuleBuilder({
     persist(fields, next)
   }
 
-  function handleDropBinding(key: string, index: number) {
+  function insertBinding(key: string, index: number) {
     if (bindings.status !== "ready") return
     const binding = bindings.bindings.find((b) => b.key === key)
     if (!binding) return
@@ -189,7 +198,7 @@ export function ModuleBuilder({
     setSelectedId(field.id)
   }
 
-  function handleDrop(type: FieldType, index: number) {
+  function insertField(type: FieldType, index: number) {
     const field = createField(type)
     persist([...fields.slice(0, index), field, ...fields.slice(index)])
     setSelectedId(field.id)
@@ -214,7 +223,10 @@ export function ModuleBuilder({
     setPublishState("publishing")
     setPublishError(null)
     publishModule(moduleId)
-      .then(() => setPublishState("idle"))
+      .then((version) => {
+        setPublishState("idle")
+        showToast(`${mod.name} published as version ${version.version}`)
+      })
       .catch((error) => {
         setPublishState("error")
         setPublishError(
@@ -226,84 +238,124 @@ export function ModuleBuilder({
   }
 
   const selectedField = fields.find((field) => field.id === selectedId) ?? null
+  const usedBindingKeys = new Set(
+    fields.filter(isBoundField).map((field) => field.binding.key),
+  )
 
   return (
-    <main className="form-builder">
-      <header className="form-builder__header">
-        <button type="button" onClick={onBack}>
-          ← Back
-        </button>
-        <h1>{moduleName}</h1>
-        {status === "ready" && (
-          <button
-            type="button"
-            onClick={() => setMode(mode === "edit" ? "preview" : "edit")}
-          >
-            {mode === "edit" ? "Preview" : "Back to editing"}
-          </button>
-        )}
-        {status === "ready" && (
-          <button
-            type="button"
-            className="primary"
-            onClick={handlePublish}
-            disabled={publishState === "publishing"}
-          >
-            {publishState === "publishing" ? "Publishing…" : "Publish"}
-          </button>
-        )}
-      </header>
+    <main className="admin-page">
+      {toast}
+      <BackLink onClick={onBack}>Back to modules</BackLink>
+      <PageHeading
+        eyebrow="MODULE BUILDER"
+        title={mod.name}
+        intro={
+          mod.description ??
+          "Build a reusable module for practitioner and service-delivery workflows."
+        }
+        actions={
+          status === "ready" && (
+            <>
+              <button type="button" onClick={() => setPreviewing(true)}>
+                <EyeIcon />
+                Preview
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handlePublish}
+                disabled={publishState === "publishing"}
+              >
+                <SendIcon />
+                {publishState === "publishing" ? "Publishing…" : "Publish"}
+              </button>
+              <span className="draft-badge">Changes save as a draft</span>
+            </>
+          )
+        }
+      />
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load this module.</p>}
-      {status === "ready" && (
-        <fieldset className="module-scope">
-          <legend>Filled in</legend>
-          <label>
-            <input
-              type="radio"
-              name="module-scope"
-              checked={scope === "session"}
-              onChange={() => handleScopeChange("session")}
-            />
-            Once per session
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="module-scope"
-              checked={scope === "participant"}
-              onChange={() => handleScopeChange("participant")}
-            />
-            Once per participant
-          </label>
-        </fieldset>
-      )}
       {saveError && <p role="alert">{saveError}</p>}
       {publishError && <p role="alert">{publishError}</p>}
 
-      {status === "ready" && mode === "preview" && (
-        <FormPreview fields={fields} />
+      {status === "ready" && (
+        <WizardSteps
+          steps={[
+            { label: MODULE_STEPS[0], complete: true },
+            { label: MODULE_STEPS[1] },
+          ]}
+          current={step}
+          onSelect={setStep}
+        />
       )}
 
-      {status === "ready" && mode === "edit" && (
-        <div className="form-builder__workspace">
-          <FieldPalette bindings={bindings} />
+      {status === "ready" && step === 0 && (
+        <ModuleSetupCard
+          name={mod.name}
+          description={mod.description ?? ""}
+          scope={scope}
+          onScopeChange={handleScopeChange}
+          actions={
+            <button type="button" className="primary" onClick={() => setStep(1)}>
+              Continue to fields
+            </button>
+          }
+        />
+      )}
+
+      {status === "ready" && step === 1 && (
+        <div className="builder-grid">
+          <FieldPalette
+            bindings={bindings}
+            onAddType={(type) => insertField(type, fields.length)}
+            onAddBinding={(key) => insertBinding(key, fields.length)}
+            usedBindingKeys={usedBindingKeys}
+          />
           <FormCanvas
+            eyebrow="MODULE CANVAS"
+            title="Fields in this module"
+            subtitle={SCOPE_LABELS[scope]}
             fields={fields}
             selectedId={selectedId}
-            onDrop={handleDrop}
-            onDropBinding={handleDropBinding}
+            onDrop={insertField}
+            onDropBinding={insertBinding}
             onReorder={handleReorder}
             onSelect={setSelectedId}
+            onDelete={handleDelete}
           />
           <FieldInspector
             field={selectedField}
             onChange={handleFieldChange}
             onDelete={handleDelete}
             isPublished={() => false}
+            onClose={() => setSelectedId(null)}
           />
         </div>
+      )}
+
+      {previewing && (
+        <Modal
+          wide
+          title={`${mod.name} preview`}
+          onClose={() => setPreviewing(false)}
+          footer={
+            <button
+              type="button"
+              className="primary"
+              onClick={() => setPreviewing(false)}
+            >
+              Close preview
+            </button>
+          }
+        >
+          <div className="preview-meta">
+            <span>Module</span>
+            <span>{SCOPE_LABELS[scope]}</span>
+          </div>
+          <FormPreview fields={fields} />
+        </Modal>
       )}
     </main>
   )
