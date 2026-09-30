@@ -1,20 +1,41 @@
 import { useEffect, useState } from "react"
 import type { ModuleSummary } from "shared"
-import { archiveModule, createModule, listModules } from "./api.js"
+import { archiveModule, cloneModule, listModules } from "./api.js"
+import {
+  ArchiveIcon,
+  CopyIcon,
+  FilterIcon,
+  LayersIcon,
+  PlusIcon,
+} from "./icons.js"
+import {
+  EmptyState,
+  formatDate,
+  Modal,
+  PageHeading,
+  SearchInput,
+  useToast,
+} from "./ui.js"
 
 interface ModulesListProps {
-  onBack: () => void
+  onNew: () => void
   onBuild: (mod: ModuleSummary) => void
 }
 
 type Status = "loading" | "ready" | "error"
+type PublishFilter = "all" | "published" | "unpublished"
 
-// Browse, search, create, and archive modules (US-7.4) -- the library an
-// admin picks a module to build from, mirroring the forms list's shape.
-export function ModulesList({ onBack, onBuild }: ModulesListProps) {
+// Browse, search, create, clone and archive modules (US-7.4) -- the
+// library an admin picks a module to build from, laid out as the design
+// prototype's record cards.
+export function ModulesList({ onNew, onBuild }: ModulesListProps) {
   const [modules, setModules] = useState<ModuleSummary[]>([])
   const [status, setStatus] = useState<Status>("loading")
   const [search, setSearch] = useState("")
+  const [filter, setFilter] = useState<PublishFilter>("all")
+  const [archiving, setArchiving] = useState<ModuleSummary | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [toast, showToast] = useToast()
 
   useEffect(() => {
     let cancelled = false
@@ -33,64 +54,143 @@ export function ModulesList({ onBack, onBuild }: ModulesListProps) {
     }
   }, [search])
 
-  function handleArchive(moduleId: string) {
-    archiveModule(moduleId).then(() => {
-      setModules((current) => current.filter((mod) => mod.id !== moduleId))
-    })
+  function handleArchive(mod: ModuleSummary) {
+    setArchiving(null)
+    archiveModule(mod.id)
+      .then(() => {
+        setModules((current) => current.filter((m) => m.id !== mod.id))
+        showToast("Module archived. Existing records are kept.")
+      })
+      .catch(() => setActionError(`Couldn't archive ${mod.name}.`))
   }
 
-  function handleCreate() {
-    const name = window.prompt("Module name?")
-    if (!name) return
-    const description = window.prompt("Description (optional)?") || undefined
-    createModule(name, description).then((mod) =>
-      setModules((current) => [mod, ...current]),
-    )
+  function handleClone(mod: ModuleSummary) {
+    setActionError(null)
+    cloneModule(mod)
+      .then((copy) => {
+        setModules((current) => [copy, ...current])
+        showToast(`${copy.name} created`)
+      })
+      .catch(() => setActionError(`Couldn't clone ${mod.name}.`))
   }
+
+  const visible = modules.filter((mod) =>
+    filter === "all"
+      ? true
+      : filter === "published"
+        ? mod.hasPublishedVersion
+        : !mod.hasPublishedVersion,
+  )
 
   return (
-    <main>
-      <header className="form-builder__header">
-        <button type="button" onClick={onBack}>
-          ← Back
-        </button>
-        <h1>Modules</h1>
-      </header>
+    <main className="admin-page">
+      {toast}
+      <PageHeading
+        eyebrow="SESSION FORM ADMINISTRATION"
+        title="Modules"
+        intro="Reusable modules practitioners complete during service delivery. Publish a module to use it in session templates."
+        actions={
+          <button type="button" className="primary" onClick={onNew}>
+            <PlusIcon />
+            Create module
+          </button>
+        }
+      />
 
-      <label>
-        Search{" "}
-        <input
-          type="search"
+      <div className="list-toolbar">
+        <SearchInput
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search modules…"
+          onChange={setSearch}
+          placeholder="Search modules by name"
         />
-      </label>
+        <label className="usage-filter">
+          <FilterIcon />
+          <select
+            aria-label="Filter by status"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as PublishFilter)}
+          >
+            <option value="all">All modules</option>
+            <option value="published">Published</option>
+            <option value="unpublished">Not yet published</option>
+          </select>
+        </label>
+      </div>
 
+      {actionError && <p role="alert">{actionError}</p>}
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load modules.</p>}
-      {status === "ready" && modules.length === 0 && (
-        <p>No matches.</p>
+      {status === "ready" && visible.length === 0 && (
+        <EmptyState
+          title="No modules found"
+          body="Try another search or filter, or create a new module."
+        />
       )}
-      {status === "ready" && modules.length > 0 && (
-        <ul>
-          {modules.map((mod) => (
-            <li key={mod.id} className="form-list__item">
-              <span>{mod.name}</span>
-              <button type="button" onClick={() => onBuild(mod)}>
-                Build
-              </button>
-              <button type="button" onClick={() => handleArchive(mod.id)}>
-                Archive
-              </button>
-            </li>
+      {status === "ready" && visible.length > 0 && (
+        <div className="record-list">
+          {visible.map((mod) => (
+            <article key={mod.id} className="record-card form-list__item">
+              <div className="record-icon">
+                <LayersIcon />
+              </div>
+              <div className="record-main">
+                <div>
+                  <h2>{mod.name}</h2>
+                  {!mod.hasPublishedVersion && (
+                    <span className="draft-tag">Not yet published</span>
+                  )}
+                </div>
+                {mod.description && <p>{mod.description}</p>}
+                <div className="record-meta">
+                  <span>{mod.hasPublishedVersion ? "Published" : "Draft"}</span>
+                  <span>Created {formatDate(mod.createdAt)}</span>
+                </div>
+              </div>
+              <div className="record-actions">
+                <button type="button" onClick={() => onBuild(mod)}>
+                  Edit
+                </button>
+                <button type="button" onClick={() => handleClone(mod)}>
+                  <CopyIcon />
+                  Clone
+                </button>
+                <button type="button" onClick={() => setArchiving(mod)}>
+                  <ArchiveIcon />
+                  Archive
+                </button>
+              </div>
+            </article>
           ))}
-        </ul>
+        </div>
       )}
 
-      <button type="button" className="primary" onClick={handleCreate}>
-        New module
-      </button>
+      {archiving && (
+        <Modal
+          title="Archive module"
+          onClose={() => setArchiving(null)}
+          footer={
+            <>
+              <button type="button" onClick={() => setArchiving(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => handleArchive(archiving)}
+              >
+                <ArchiveIcon />
+                Archive module
+              </button>
+            </>
+          }
+        >
+          <p className="dialog-copy">
+            <strong>{archiving.name}</strong> will no longer be available for
+            new session templates. Templates already using it, and every
+            record captured with it, are kept.
+          </p>
+        </Modal>
+      )}
     </main>
   )
 }

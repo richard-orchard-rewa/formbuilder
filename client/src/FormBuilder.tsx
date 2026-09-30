@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import {
   FIELD_TYPE_LABELS,
+  isBoundField,
   type BindingDescriptor,
   type Field,
   type FieldType,
@@ -14,10 +15,15 @@ import {
   publishForm,
   saveDraft,
 } from "./api.js"
-import { FieldInspector } from "./FieldInspector.js"
+import {
+  DELETE_PUBLISHED_FIELD_MESSAGE,
+  FieldInspector,
+} from "./FieldInspector.js"
 import { FieldPalette, type PaletteBindings } from "./FieldPalette.js"
 import { FormCanvas } from "./FormCanvas.js"
 import { FormPreview } from "./FormPreview.js"
+import { EyeIcon, SendIcon } from "./icons.js"
+import { BackLink, Modal, PageHeading, useToast } from "./ui.js"
 
 interface FormBuilderProps {
   formId: string
@@ -75,7 +81,8 @@ function createBoundField(binding: BindingDescriptor): Field {
 // the palette onto the canvas to build it visually (US-2.1), reorder them
 // (US-2.2), configure the selected field — including marking it required
 // (US-3.1, US-3.5), edit its label (US-2.3), delete it (US-2.4), and
-// preview the form (US-2.5).
+// preview the form (US-2.5) -- in the same library / canvas / properties
+// layout as the module builder.
 export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [fields, setFields] = useState<Field[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -86,7 +93,8 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   const [publishedFieldIds, setPublishedFieldIds] = useState<Set<string>>(
     new Set(),
   )
-  const [mode, setMode] = useState<"edit" | "preview">("edit")
+  const [previewing, setPreviewing] = useState(false)
+  const [toast, showToast] = useToast()
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "error"
   >("idle")
@@ -195,12 +203,24 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
     setSelectedId((current) => (current === fieldId ? null : current))
   }
 
+  // The canvas card's delete: confirm first if the field has been published.
+  function handleCanvasDelete(fieldId: string) {
+    if (
+      publishedFieldIds.has(fieldId) &&
+      !window.confirm(DELETE_PUBLISHED_FIELD_MESSAGE)
+    ) {
+      return
+    }
+    handleDelete(fieldId)
+  }
+
   function handlePublish() {
     setPublishState("publishing")
     setPublishError(null)
     publishForm(formId)
-      .then(() => {
+      .then((version) => {
         setPublishState("idle")
+        showToast(`${formName} published as version ${version.version}`)
         return getPublishedFieldIds(formId).then((ids) =>
           setPublishedFieldIds(new Set(ids)),
         )
@@ -216,61 +236,90 @@ export function FormBuilder({ formId, formName, onBack }: FormBuilderProps) {
   }
 
   const selectedField = fields.find((field) => field.id === selectedId) ?? null
+  const usedBindingKeys = new Set(
+    fields.filter(isBoundField).map((field) => field.binding.key),
+  )
 
   return (
-    <main className="form-builder">
-      <header className="form-builder__header">
-        <button type="button" onClick={onBack}>
-          ← Back
-        </button>
-        <h1>{formName}</h1>
-        {status === "ready" && (
-          <button
-            type="button"
-            onClick={() => setMode(mode === "edit" ? "preview" : "edit")}
-          >
-            {mode === "edit" ? "Preview" : "Back to editing"}
-          </button>
-        )}
-        {status === "ready" && (
-          <button
-            type="button"
-            className="primary"
-            onClick={handlePublish}
-            disabled={publishState === "publishing"}
-          >
-            {publishState === "publishing" ? "Publishing…" : "Publish"}
-          </button>
-        )}
-      </header>
+    <main className="admin-page">
+      {toast}
+      <BackLink onClick={onBack}>Back to forms</BackLink>
+      <PageHeading
+        eyebrow="FORM BUILDER"
+        title={formName}
+        intro="Build a standalone form from custom and data-bound fields."
+        actions={
+          status === "ready" && (
+            <>
+              <button type="button" onClick={() => setPreviewing(true)}>
+                <EyeIcon />
+                Preview
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handlePublish}
+                disabled={publishState === "publishing"}
+              >
+                <SendIcon />
+                {publishState === "publishing" ? "Publishing…" : "Publish"}
+              </button>
+              <span className="draft-badge">Changes save as a draft</span>
+            </>
+          )
+        }
+      />
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p role="alert">Couldn't load this form.</p>}
       {saveError && <p role="alert">{saveError}</p>}
       {publishError && <p role="alert">{publishError}</p>}
 
-      {status === "ready" && mode === "preview" && (
-        <FormPreview fields={fields} />
-      )}
-
-      {status === "ready" && mode === "edit" && (
-        <div className="form-builder__workspace">
-          <FieldPalette bindings={bindings} />
+      {status === "ready" && (
+        <div className="builder-grid">
+          <FieldPalette
+            bindings={bindings}
+            onAddType={(type) => handleDrop(type, fields.length)}
+            onAddBinding={(key) => handleDropBinding(key, fields.length)}
+            usedBindingKeys={usedBindingKeys}
+          />
           <FormCanvas
+            title="Fields in this form"
             fields={fields}
             selectedId={selectedId}
             onDrop={handleDrop}
             onDropBinding={handleDropBinding}
             onReorder={handleReorder}
             onSelect={setSelectedId}
+            onDelete={handleCanvasDelete}
           />
           <FieldInspector
             field={selectedField}
             onChange={handleFieldChange}
             onDelete={handleDelete}
             isPublished={(fieldId) => publishedFieldIds.has(fieldId)}
+            onClose={() => setSelectedId(null)}
           />
         </div>
+      )}
+
+      {previewing && (
+        <Modal
+          wide
+          title={`${formName} preview`}
+          onClose={() => setPreviewing(false)}
+          footer={
+            <button
+              type="button"
+              className="primary"
+              onClick={() => setPreviewing(false)}
+            >
+              Close preview
+            </button>
+          }
+        >
+          <FormPreview fields={fields} />
+        </Modal>
       )}
     </main>
   )

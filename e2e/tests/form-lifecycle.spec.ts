@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { openNav } from "../helpers/admin.js"
 import { dragFieldTypeOntoCanvas } from "../helpers/dnd.js"
 
 // Walks a form through its full lifecycle end-to-end: build a draft, publish
@@ -11,6 +12,7 @@ test("create, build, publish, submit, and edit a form", async ({
   const formName = `E2E form ${Date.now()}`
 
   await page.goto("/")
+  await openNav(page, "Forms")
 
   page.once("dialog", (dialog) => dialog.accept(formName))
   const [createResponse] = await Promise.all([
@@ -25,7 +27,7 @@ test("create, build, publish, submit, and edit a form", async ({
   await expect(formRow).toBeVisible()
 
   // Build: add a required text field and a plain text area.
-  await formRow.getByRole("button", { name: "Build" }).click()
+  await formRow.getByRole("button", { name: "Edit" }).click()
   await expect(page.getByRole("heading", { name: formName })).toBeVisible()
 
   await dragFieldTypeOntoCanvas(page, "Text")
@@ -48,7 +50,7 @@ test("create, build, publish, submit, and edit a form", async ({
   const publishResponse = await request.post(`/api/forms/${form.id}/publish`)
   expect(publishResponse.ok()).toBe(true)
 
-  await page.getByRole("button", { name: "← Back" }).click()
+  await page.getByRole("button", { name: "Back to forms" }).click()
 
   // Submit: fill out the published form as a respondent.
   await formRow.getByRole("button", { name: "Fill out" }).click()

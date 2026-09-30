@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { createModule, createSessionTemplate } from "../helpers/admin.js"
 import { dragFieldTypeOntoCanvas } from "../helpers/dnd.js"
 
 // Walks a session template through its Epic US-8 lifecycle: build and
@@ -15,24 +16,7 @@ test("compose, publish, fill out, and review a session template", async ({
 
   // Build and publish a module to compose the template from.
   await page.goto("/")
-  await page.getByRole("button", { name: "Modules" }).click()
-
-  let moduleDialogCount = 0
-  page.on("dialog", (dialog) => {
-    moduleDialogCount += 1
-    if (moduleDialogCount === 1) dialog.accept(moduleName)
-    else dialog.dismiss()
-  })
-  const [moduleCreateResponse] = await Promise.all([
-    page.waitForResponse(
-      (res) => res.url().endsWith("/api/modules") && res.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "New module" }).click(),
-  ])
-  const mod = (await moduleCreateResponse.json()) as { id: string; name: string }
-
-  const moduleRow = page.locator(".form-list__item", { hasText: moduleName })
-  await moduleRow.getByRole("button", { name: "Build" }).click()
+  const mod = await createModule(page, moduleName)
   await dragFieldTypeOntoCanvas(page, "Text")
   await page.getByLabel("Label").fill("Full name")
   await page.getByLabel("Required").check()
@@ -45,40 +29,9 @@ test("compose, publish, fill out, and review a session template", async ({
     ),
     page.getByRole("button", { name: "Publish" }).click(),
   ])
-  await page.getByRole("button", { name: "← Back" }).click()
 
   // Create the session template and compose it from that module.
-  await page.getByRole("button", { name: "← Back" }).click()
-  await page.getByRole("button", { name: "Session templates" }).click()
-  await expect(
-    page.getByRole("heading", { name: "Session templates" }),
-  ).toBeVisible()
-
-  let templateDialogCount = 0
-  page.removeAllListeners("dialog")
-  page.on("dialog", (dialog) => {
-    templateDialogCount += 1
-    if (templateDialogCount === 1) dialog.accept(templateName)
-    else dialog.dismiss()
-  })
-  const [templateCreateResponse] = await Promise.all([
-    page.waitForResponse(
-      (res) =>
-        res.url().endsWith("/api/session-templates") &&
-        res.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "New session template" }).click(),
-  ])
-  const template = (await templateCreateResponse.json()) as {
-    id: string
-    name: string
-  }
-
-  const templateRow = page.locator(".form-list__item", {
-    hasText: templateName,
-  })
-  await templateRow.getByRole("button", { name: "Build" }).click()
-  await expect(page.getByRole("heading", { name: templateName })).toBeVisible()
+  const template = await createSessionTemplate(page, templateName)
 
   await page.getByLabel("Search").fill(moduleName)
   await Promise.all([
@@ -87,19 +40,16 @@ test("compose, publish, fill out, and review a session template", async ({
         res.url().endsWith(`/api/session-templates/${template.id}/modules`) &&
         res.request().method() === "PUT",
     ),
-    page
-      .locator(".field-palette__item", { hasText: moduleName })
-      .getByRole("button", { name: "Add" })
-      .click(),
+    page.getByRole("button", { name: `Add ${moduleName}` }).click(),
   ])
   await expect(
-    page.locator(".form-canvas__field", { hasText: moduleName }),
+    page.locator(".template-module-card", { hasText: moduleName }),
   ).toBeVisible()
 
   // Preview proves the composition resolves the module's fields (US-8.3).
   await page.getByRole("button", { name: "Preview" }).click()
-  await expect(page.getByLabel(/Full name/)).toBeVisible()
-  await page.getByRole("button", { name: "Back to editing" }).click()
+  await expect(page.getByRole("dialog").getByLabel(/Full name/)).toBeVisible()
+  await page.getByRole("button", { name: "Close preview" }).click()
 
   // Publish (US-8.4).
   const [publishResponse] = await Promise.all([
@@ -113,7 +63,10 @@ test("compose, publish, fill out, and review a session template", async ({
   expect(publishResponse.ok()).toBe(true)
 
   // Fill it out (US-8.5).
-  await page.getByRole("button", { name: "← Back" }).click()
+  await page.getByRole("button", { name: "Back to session templates" }).click()
+  const templateRow = page.locator(".form-list__item", {
+    hasText: templateName,
+  })
   await templateRow.getByRole("button", { name: "Fill out" }).click()
   await page.getByLabel(/Full name/).fill("Ada Lovelace")
   await page.getByRole("button", { name: "Submit" }).click()
@@ -138,7 +91,7 @@ test("compose, publish, fill out, and review a session template", async ({
   // Version history shows the published version (US-8.7, US-8.8).
   await page.getByRole("button", { name: "← Back" }).click() // submission list
   await page.getByRole("button", { name: "← Back" }).click() // session templates list
-  await templateRow.getByRole("button", { name: "Build" }).click()
+  await templateRow.getByRole("button", { name: "Edit" }).click()
   await page.getByRole("button", { name: "Version history" }).click()
   await expect(page.getByText(/v1 — active/)).toBeVisible()
   await page.getByRole("button", { name: "View" }).click()

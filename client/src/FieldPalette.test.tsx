@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { FIELD_TYPE_LABELS, FIELD_TYPES, type BindingDescriptor } from "shared"
 import { FieldPalette } from "./FieldPalette.js"
 
@@ -61,5 +62,45 @@ describe("FieldPalette", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "The Data Binding Service isn't available.",
     )
+  })
+
+  it("adds a field type when its item is clicked", async () => {
+    const onAddType = vi.fn()
+    render(<FieldPalette onAddType={onAddType} />)
+
+    await userEvent.click(screen.getByRole("button", { name: "Add Date field" }))
+
+    expect(onAddType).toHaveBeenCalledWith("date")
+  })
+
+  it("splits data-bound and custom fields into tabs, and won't add a binding twice", async () => {
+    const onAddBinding = vi.fn()
+    const binding: BindingDescriptor = {
+      key: "client.firstName",
+      label: "First name",
+      access: "readWrite",
+      version: 1,
+      description: "",
+      anchor: "client",
+      control: { kind: "text" },
+      overridable: ["label"],
+    }
+    render(
+      <FieldPalette
+        bindings={{ status: "ready", bindings: [binding] }}
+        onAddBinding={onAddBinding}
+        usedBindingKeys={new Set(["client.firstName"])}
+      />,
+    )
+
+    expect(
+      screen.getByRole("button", { name: "First name (already added)" }),
+    ).toBeDisabled()
+    expect(screen.queryByText("Text")).toBeNull()
+
+    await userEvent.click(screen.getByRole("tab", { name: "Custom" }))
+
+    expect(screen.getByText("Text")).toBeInTheDocument()
+    expect(screen.queryByText("First name")).toBeNull()
   })
 })

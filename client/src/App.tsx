@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react"
+import { useState, type ReactNode } from "react"
 import type { FormSummary, ModuleSummary, SessionTemplateSummary } from "shared"
-import { createForm, listForms } from "./api.js"
+import { AdminShell, type NavKey } from "./AdminShell.js"
 import { DataBindings } from "./DataBindings.js"
 import { FormBuilder } from "./FormBuilder.js"
 import { FormFill } from "./FormFill.js"
+import { FormsList } from "./FormsList.js"
+import { Home } from "./Home.js"
 import { MigrationPlanner } from "./MigrationPlanner.js"
 import { ModuleBuilder } from "./ModuleBuilder.js"
+import { ModuleSetup } from "./ModuleSetup.js"
 import { ModulesList } from "./ModulesList.js"
 import { RendererSpike } from "./renderer-spike/RendererSpike.js"
 import { SessionTemplateBuilder } from "./SessionTemplateBuilder.js"
+import { SessionTemplateSetup } from "./SessionTemplateSetup.js"
 import { SessionTemplateFill } from "./SessionTemplateFill.js"
 import { SessionTemplateSubmissionList } from "./SessionTemplateSubmissionList.js"
 import { SessionTemplateSubmissionView } from "./SessionTemplateSubmissionView.js"
@@ -22,11 +26,15 @@ import { SubmissionVersionView } from "./SubmissionVersionView.js"
 import { SubmissionView } from "./SubmissionView.js"
 
 type View =
-  | { mode: "list" }
+  | { mode: "home" }
+  | { mode: "forms" }
+  | { mode: "renderer-spike" }
   | { mode: "modules" }
   | { mode: "data-bindings" }
+  | { mode: "new-module" }
   | { mode: "build-module"; mod: ModuleSummary }
   | { mode: "session-templates" }
+  | { mode: "new-session-template" }
   | { mode: "build-session-template"; sessionTemplate: SessionTemplateSummary }
   | { mode: "fill-session-template"; sessionTemplate: SessionTemplateSummary }
   | {
@@ -67,21 +75,89 @@ type View =
       submissionId?: string
     }
 
+// Which sidebar entry a view belongs to.
+function navKeyFor(view: View): NavKey | null {
+  switch (view.mode) {
+    case "home":
+      return "home"
+    case "modules":
+    case "new-module":
+    case "build-module":
+      return "modules"
+    case "data-bindings":
+      return "data-bindings"
+    case "session-templates":
+    case "new-session-template":
+    case "build-session-template":
+    case "fill-session-template":
+    case "session-template-history":
+    case "session-template-version":
+    case "session-template-submissions":
+    case "session-template-submission-view":
+      return "session-templates"
+    default:
+      return "forms"
+  }
+}
+
+const NAV_VIEWS: Record<NavKey, View> = {
+  home: { mode: "home" },
+  modules: { mode: "modules" },
+  "session-templates": { mode: "session-templates" },
+  forms: { mode: "forms" },
+  "data-bindings": { mode: "data-bindings" },
+}
+
 export function App() {
-  const [forms, setForms] = useState<FormSummary[]>([])
-  const [view, setView] = useState<View>({ mode: "list" })
-  const [showRendererSpike, setShowRendererSpike] = useState(false)
+  const [view, setView] = useState<View>({ mode: "home" })
 
-  useEffect(() => {
-    listForms()
-      .then(setForms)
-      .catch(() => setForms([]))
-  }, [])
+  return (
+    <AdminShell
+      active={navKeyFor(view)}
+      onNavigate={(key) => setView(NAV_VIEWS[key])}
+    >
+      <CurrentView view={view} setView={setView} />
+    </AdminShell>
+  )
+}
 
-  if (showRendererSpike) {
+function CurrentView({
+  view,
+  setView,
+}: {
+  view: View
+  setView: (view: View) => void
+}): ReactNode {
+  if (view.mode === "home") {
+    return (
+      <Home
+        onNavigate={(key) => setView(NAV_VIEWS[key])}
+        onNewModule={() => setView({ mode: "new-module" })}
+        onNewTemplate={() => setView({ mode: "new-session-template" })}
+        onOpenModule={(mod) => setView({ mode: "build-module", mod })}
+        onOpenTemplate={(sessionTemplate) =>
+          setView({ mode: "build-session-template", sessionTemplate })
+        }
+        onOpenForm={(form) => setView({ mode: "build", form })}
+      />
+    )
+  }
+
+  if (view.mode === "forms") {
+    return (
+      <FormsList
+        onBuild={(form) => setView({ mode: "build", form })}
+        onFill={(form) => setView({ mode: "fill", form })}
+        onSubmissions={(form) => setView({ mode: "submissions", form })}
+        onRendererSpike={() => setView({ mode: "renderer-spike" })}
+      />
+    )
+  }
+
+  if (view.mode === "renderer-spike") {
     return (
       <main>
-        <button type="button" onClick={() => setShowRendererSpike(false)}>
+        <button type="button" onClick={() => setView({ mode: "forms" })}>
           ← Back
         </button>
         <RendererSpike />
@@ -90,14 +166,23 @@ export function App() {
   }
 
   if (view.mode === "data-bindings") {
-    return <DataBindings onBack={() => setView({ mode: "list" })} />
+    return <DataBindings onBack={() => setView({ mode: "home" })} />
   }
 
   if (view.mode === "modules") {
     return (
       <ModulesList
-        onBack={() => setView({ mode: "list" })}
+        onNew={() => setView({ mode: "new-module" })}
         onBuild={(mod) => setView({ mode: "build-module", mod })}
+      />
+    )
+  }
+
+  if (view.mode === "new-module") {
+    return (
+      <ModuleSetup
+        onCancel={() => setView({ mode: "modules" })}
+        onCreated={(mod) => setView({ mode: "build-module", mod })}
       />
     )
   }
@@ -105,8 +190,8 @@ export function App() {
   if (view.mode === "build-module") {
     return (
       <ModuleBuilder
-        moduleId={view.mod.id}
-        moduleName={view.mod.name}
+        key={view.mod.id}
+        mod={view.mod}
         onBack={() => setView({ mode: "modules" })}
       />
     )
@@ -115,7 +200,7 @@ export function App() {
   if (view.mode === "session-templates") {
     return (
       <SessionTemplatesList
-        onBack={() => setView({ mode: "list" })}
+        onNew={() => setView({ mode: "new-session-template" })}
         onBuild={(sessionTemplate) =>
           setView({ mode: "build-session-template", sessionTemplate })
         }
@@ -129,12 +214,23 @@ export function App() {
     )
   }
 
+  if (view.mode === "new-session-template") {
+    return (
+      <SessionTemplateSetup
+        onCancel={() => setView({ mode: "session-templates" })}
+        onCreated={(sessionTemplate) =>
+          setView({ mode: "build-session-template", sessionTemplate })
+        }
+      />
+    )
+  }
+
   if (view.mode === "build-session-template") {
     const { sessionTemplate } = view
     return (
       <SessionTemplateBuilder
-        sessionTemplateId={sessionTemplate.id}
-        sessionTemplateName={sessionTemplate.name}
+        key={sessionTemplate.id}
+        sessionTemplate={sessionTemplate}
         onBack={() => setView({ mode: "session-templates" })}
         onViewHistory={() =>
           setView({ mode: "session-template-history", sessionTemplate })
@@ -142,7 +238,6 @@ export function App() {
       />
     )
   }
-
   if (view.mode === "fill-session-template") {
     const { sessionTemplate } = view
     return (
@@ -221,7 +316,7 @@ export function App() {
       <FormBuilder
         formId={view.form.id}
         formName={view.form.name}
-        onBack={() => setView({ mode: "list" })}
+        onBack={() => setView({ mode: "forms" })}
       />
     )
   }
@@ -231,7 +326,7 @@ export function App() {
       <FormFill
         formId={view.form.id}
         formName={view.form.name}
-        onBack={() => setView({ mode: "list" })}
+        onBack={() => setView({ mode: "forms" })}
       />
     )
   }
@@ -242,7 +337,7 @@ export function App() {
       <SubmissionList
         formId={form.id}
         formName={form.name}
-        onBack={() => setView({ mode: "list" })}
+        onBack={() => setView({ mode: "forms" })}
         onView={(submissionId) =>
           setView({ mode: "view-submission", form, submissionId })
         }
@@ -331,67 +426,6 @@ export function App() {
     )
   }
 
-  return (
-    <main>
-      <h1>form-builder</h1>
-      <nav>
-        <button type="button" disabled>
-          Forms
-        </button>
-        <button type="button" onClick={() => setView({ mode: "modules" })}>
-          Modules
-        </button>
-        <button
-          type="button"
-          onClick={() => setView({ mode: "session-templates" })}
-        >
-          Session templates
-        </button>
-        <button type="button" onClick={() => setView({ mode: "data-bindings" })}>
-          Data bindings
-        </button>
-      </nav>
-      <ul>
-        {forms.map((form) => (
-          <li key={form.id} className="form-list__item">
-            <span>{form.name}</span>
-            <button type="button" onClick={() => setView({ mode: "build", form })}>
-              Build
-            </button>
-            <button type="button" onClick={() => setView({ mode: "fill", form })}>
-              Fill out
-            </button>
-            <button
-              type="button"
-              onClick={() => setView({ mode: "submissions", form })}
-            >
-              Submissions
-            </button>
-          </li>
-        ))}
-      </ul>
-      <NewFormButton onCreated={(form) => setForms([form, ...forms])} />
-      <p>
-        <button type="button" onClick={() => setShowRendererSpike(true)}>
-          View renderer spike (US-0.2)
-        </button>
-      </p>
-    </main>
-  )
-}
-
-function NewFormButton({ onCreated }: { onCreated: (form: FormSummary) => void }) {
-  return (
-    <button
-      type="button"
-      className="primary"
-      onClick={() => {
-        const name = window.prompt("Form name?")
-        if (!name) return
-        createForm(name).then(onCreated)
-      }}
-    >
-      New form
-    </button>
-  )
+  // Unreachable: every view mode is handled above.
+  return null
 }

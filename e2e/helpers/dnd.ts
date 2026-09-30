@@ -6,8 +6,17 @@ import type { Page } from "@playwright/test"
 // drag events directly against a real, shared DataTransfer reproduces what
 // the browser does natively without depending on synthetic mouse movement.
 export async function dragFieldTypeOntoCanvas(page: Page, fieldLabel: string) {
+  // Builders that offer data-bound fields open the library on that tab;
+  // custom field types sit under "Custom". Wait for the builder to load
+  // first, or the tab isn't there yet.
+  await page.locator(".form-canvas").waitFor()
+  const customTab = page.getByRole("tab", { name: "Custom" })
+  if ((await customTab.count()) > 0) await customTab.click()
+
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
-  const source = page.locator(`.field-palette__item:text-is("${fieldLabel}")`)
+  const source = page
+    .locator(".field-palette__item")
+    .filter({ has: page.getByText(fieldLabel, { exact: true }) })
   const canvas = page.locator(".form-canvas")
 
   await source.dispatchEvent("dragstart", { dataTransfer })

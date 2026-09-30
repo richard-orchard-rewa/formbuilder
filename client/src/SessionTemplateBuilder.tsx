@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react"
-import type { Field, ModuleSummary, SessionTemplateModule } from "shared"
+import type {
+  Field,
+  ModuleSummary,
+  SessionTemplateModule,
+  SessionTemplateSummary,
+} from "shared"
 import {
   CannotPublishSessionTemplateError,
   getSessionTemplateModules,
@@ -10,25 +15,44 @@ import {
   setSessionTemplateModules,
 } from "./api.js"
 import { FormPreview } from "./FormPreview.js"
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  ClipboardIcon,
+  EyeIcon,
+  HistoryIcon,
+  LayersIcon,
+  PlusIcon,
+  SendIcon,
+  TrashIcon,
+} from "./icons.js"
+import {
+  BackLink,
+  EmptyState,
+  Modal,
+  PageHeading,
+  SearchInput,
+  useToast,
+} from "./ui.js"
 
 interface SessionTemplateBuilderProps {
-  sessionTemplateId: string
-  sessionTemplateName: string
+  sessionTemplate: SessionTemplateSummary
   onBack: () => void
   onViewHistory: () => void
 }
 
 // Lets an admin compose a session template from published modules (US-8.2),
 // preview the combined result (US-8.3, via the same FormPreview component
-// forms/modules use), and publish it (US-8.4). Unlike FormBuilder/
-// ModuleBuilder there's no field-by-field canvas here -- what's edited is
-// which modules, in what order.
+// forms/modules use), and publish it (US-8.4), in the design prototype's
+// three-column template builder: details, the ordered template canvas, and
+// the module library. What's edited is which modules, in what order.
 export function SessionTemplateBuilder({
-  sessionTemplateId,
-  sessionTemplateName,
+  sessionTemplate,
   onBack,
   onViewHistory,
 }: SessionTemplateBuilderProps) {
+  const sessionTemplateId = sessionTemplate.id
   const [composition, setComposition] = useState<SessionTemplateModule[]>([])
   const [availableModules, setAvailableModules] = useState<ModuleSummary[]>([])
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -36,12 +60,13 @@ export function SessionTemplateBuilder({
   )
   const [saveError, setSaveError] = useState<string | null>(null)
   const [addSearch, setAddSearch] = useState("")
-  const [mode, setMode] = useState<"edit" | "preview">("edit")
-  const [previewFields, setPreviewFields] = useState<Field[]>([])
+  const [previewing, setPreviewing] = useState(false)
+  const [previewFields, setPreviewFields] = useState<Field[] | null>(null)
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "error"
   >("idle")
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [toast, showToast] = useToast()
 
   useEffect(() => {
     let cancelled = false
@@ -97,7 +122,8 @@ export function SessionTemplateBuilder({
   }
 
   function handlePreview() {
-    setMode("preview")
+    setPreviewing(true)
+    setPreviewFields(null)
     previewSessionTemplate(sessionTemplateId)
       .then(({ fields }) => setPreviewFields(fields))
       .catch(() => setPreviewFields([]))
@@ -107,7 +133,12 @@ export function SessionTemplateBuilder({
     setPublishState("publishing")
     setPublishError(null)
     publishSessionTemplate(sessionTemplateId)
-      .then(() => setPublishState("idle"))
+      .then((version) => {
+        setPublishState("idle")
+        showToast(
+          `${sessionTemplate.name} published as version ${version.version}`,
+        )
+      })
       .catch((error) => {
         setPublishState("error")
         setPublishError(
@@ -119,44 +150,46 @@ export function SessionTemplateBuilder({
   }
 
   const usedModuleIds = new Set(composition.map((item) => item.moduleId))
-  const pickableModules = availableModules.filter(
+  const moduleById = new Map(availableModules.map((mod) => [mod.id, mod]))
+  const matchingModules = availableModules.filter(
     (mod) =>
       mod.hasPublishedVersion &&
-      !usedModuleIds.has(mod.id) &&
       mod.name.toLowerCase().includes(addSearch.trim().toLowerCase()),
   )
 
   return (
-    <main className="form-builder">
-      <header className="form-builder__header">
-        <button type="button" onClick={onBack}>
-          ← Back
-        </button>
-        <h1>{sessionTemplateName}</h1>
-        {status === "ready" && (
-          <button
-            type="button"
-            onClick={mode === "edit" ? handlePreview : () => setMode("edit")}
-          >
-            {mode === "edit" ? "Preview" : "Back to editing"}
-          </button>
-        )}
-        {status === "ready" && (
-          <button type="button" onClick={onViewHistory}>
-            Version history
-          </button>
-        )}
-        {status === "ready" && (
-          <button
-            type="button"
-            className="primary"
-            onClick={handlePublish}
-            disabled={publishState === "publishing"}
-          >
-            {publishState === "publishing" ? "Publishing…" : "Publish"}
-          </button>
-        )}
-      </header>
+    <main className="admin-page">
+      {toast}
+      <BackLink onClick={onBack}>Back to session templates</BackLink>
+      <PageHeading
+        eyebrow="SESSION TEMPLATE BUILDER"
+        title={sessionTemplate.name}
+        intro="Build the template from published modules and arrange the order practitioners complete them in."
+        actions={
+          status === "ready" && (
+            <>
+              <button type="button" onClick={handlePreview}>
+                <EyeIcon />
+                Preview
+              </button>
+              <button type="button" onClick={onViewHistory}>
+                <HistoryIcon />
+                Version history
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handlePublish}
+                disabled={publishState === "publishing"}
+              >
+                <SendIcon />
+                {publishState === "publishing" ? "Publishing…" : "Publish"}
+              </button>
+              <span className="draft-badge">Changes save as a draft</span>
+            </>
+          )
+        }
+      />
 
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && (
@@ -165,72 +198,163 @@ export function SessionTemplateBuilder({
       {saveError && <p role="alert">{saveError}</p>}
       {publishError && <p role="alert">{publishError}</p>}
 
-      {status === "ready" && mode === "preview" && (
-        <FormPreview fields={previewFields} />
-      )}
-
-      {status === "ready" && mode === "edit" && (
-        <div className="form-builder__workspace">
-          <section>
-            <h2>Modules in this template</h2>
-            {composition.length === 0 && <p>No modules yet — add one below.</p>}
-            <ol>
-              {composition.map((item, index) => (
-                <li key={item.moduleId} className="form-canvas__field">
-                  <span>{item.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Move ${item.name} up`}
-                    onClick={() => handleMove(item.moduleId, -1)}
-                    disabled={index === 0}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move ${item.name} down`}
-                    onClick={() => handleMove(item.moduleId, 1)}
-                    disabled={index === composition.length - 1}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(item.moduleId)}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </section>
-
-          <section>
-            <h2>Add a module</h2>
+      {status === "ready" && (
+        <div className="builder-grid template-builder-grid">
+          <aside className="template-details">
+            <p className="eyebrow">TEMPLATE DETAILS</p>
             <label>
-              Search{" "}
-              <input
-                type="search"
-                value={addSearch}
-                onChange={(event) => setAddSearch(event.target.value)}
-                placeholder="Search published modules…"
+              Template name
+              <input type="text" value={sessionTemplate.name} readOnly />
+            </label>
+            <label>
+              Description
+              <textarea
+                value={sessionTemplate.description ?? ""}
+                placeholder="No description"
+                readOnly
               />
             </label>
-            {pickableModules.length === 0 && (
-              <p>No matching published modules.</p>
+            <p className="library-help">
+              A template's name and description are set when it's created.
+              Publishing freezes the modules' current published versions into a
+              new template version.
+            </p>
+          </aside>
+
+          <section className="template-canvas">
+            <div className="canvas-heading">
+              <div>
+                <p className="eyebrow">TEMPLATE CANVAS</p>
+                <h2>Modules in this template</h2>
+                <p>Completed in this order in a session note.</p>
+              </div>
+              <span>
+                {composition.length}{" "}
+                {composition.length === 1 ? "module" : "modules"}
+              </span>
+            </div>
+            {composition.length === 0 && (
+              <EmptyState
+                title="No modules added"
+                body="Choose published modules from the module library."
+              />
             )}
-            <ul>
-              {pickableModules.map((mod) => (
-                <li key={mod.id} className="field-palette__item">
-                  <span>{mod.name}</span>
-                  <button type="button" onClick={() => handleAdd(mod)}>
-                    Add
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {composition.map((item, index) => {
+              const mod = moduleById.get(item.moduleId)
+              return (
+                <article className="template-module-card" key={item.moduleId}>
+                  <span className="order-number">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <strong>{item.name}</strong>
+                    {mod?.description && <small>{mod.description}</small>}
+                  </div>
+                  <div className="field-actions">
+                    <button
+                      type="button"
+                      aria-label={`Move ${item.name} up`}
+                      onClick={() => handleMove(item.moduleId, -1)}
+                      disabled={index === 0}
+                    >
+                      <ArrowUpIcon />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move ${item.name} down`}
+                      onClick={() => handleMove(item.moduleId, 1)}
+                      disabled={index === composition.length - 1}
+                    >
+                      <ArrowDownIcon />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${item.name}`}
+                      onClick={() => handleRemove(item.moduleId)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </section>
+
+          <aside className="module-picker">
+            <div>
+              <p className="eyebrow">ADD MODULE</p>
+              <h2>Module library</h2>
+              <p>Only published modules can be added to a template.</p>
+            </div>
+            <SearchInput
+              className="compact-search"
+              label="Search published modules"
+              value={addSearch}
+              onChange={setAddSearch}
+              placeholder="Search by name"
+            />
+            {matchingModules.length === 0 && (
+              <p className="library-help">No matching published modules.</p>
+            )}
+            <ul className="picker-list">
+              {matchingModules.map((mod) => {
+                const used = usedModuleIds.has(mod.id)
+                return (
+                  <li key={mod.id} className="module-picker__item">
+                    <button
+                      type="button"
+                      disabled={used}
+                      aria-label={
+                        used ? `${mod.name} (already added)` : `Add ${mod.name}`
+                      }
+                      onClick={() => handleAdd(mod)}
+                    >
+                      <LayersIcon />
+                      <span>
+                        <strong>{mod.name}</strong>
+                        {mod.description && <small>{mod.description}</small>}
+                      </span>
+                      {used ? <CheckIcon /> : <PlusIcon />}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </aside>
         </div>
+      )}
+
+      {previewing && (
+        <Modal
+          wide
+          title={`${sessionTemplate.name} preview`}
+          onClose={() => setPreviewing(false)}
+          footer={
+            <button
+              type="button"
+              className="primary"
+              onClick={() => setPreviewing(false)}
+            >
+              Close preview
+            </button>
+          }
+        >
+          <div className="preview-meta">
+            <span>
+              <ClipboardIcon />
+              Session template
+            </span>
+            <span>
+              {composition.length}{" "}
+              {composition.length === 1 ? "module" : "modules"}
+            </span>
+          </div>
+          {previewFields === null ? (
+            <p>Loading…</p>
+          ) : (
+            <FormPreview fields={previewFields} />
+          )}
+        </Modal>
       )}
     </main>
   )
