@@ -1,4 +1,4 @@
-import type { BindingPresentation, BindingCommitResult, BoundValues } from "shared"
+import type { AnchorContext, BindingPresentation, BindingCommitResult, BoundValues } from "shared"
 
 // What a module is about -- and so which record its bound fields read and
 // write, and how often it appears on a session note:
@@ -67,4 +67,16 @@ export interface SessionNote {
   pendingBound?: Record<string, BoundValues>
   // What was sent to the DBS at submit, and what happened to each value.
   committed?: Record<string, { values: BoundValues; results: Record<string, BindingCommitResult> }>
+  // A submitted note's ICIS changes: still being sent by the notes server
+  // (with why the last try didn't land, if it didn't), or all answered.
+  icis?: "sending" | "sent"
+  icisError?: string
+}
+
+// One ICIS record's changes, as a submit hands them to the notes server.
+export interface NoteIcisChange {
+  group: string
+  anchor: AnchorContext
+  values: BoundValues
+  baseline?: BoundValues
 }

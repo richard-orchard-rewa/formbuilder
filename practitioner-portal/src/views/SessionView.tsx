@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   BindingCommitResult,
   BindingDescriptor,
@@ -11,12 +11,12 @@ import { BoundControl, useDisplayValue } from "../components/BoundControl"
 import { ErrorNote, Loading, NoteBadge } from "../components/common"
 import { Icon } from "../components/Icon"
 import { NoteControl } from "../components/NoteControl"
-import { bindingDictionary, dbs, DbsError } from "../dbs"
+import { bindingDictionary, dbs } from "../dbs"
 import { formatDateTime } from "../format"
-import { loadNote, noteKey, saveNote } from "../notes-store"
+import { loadNote, noteKey, refreshNote, saveNote, submitNote } from "../notes-store"
 import { MODULES, templateFor } from "../seed/modules"
 import { PRACTITIONER } from "../seed/notes"
-import type { ModuleAnswers, NoteFieldDef, SessionNote, SessionTemplate } from "../seed/types"
+import type { ModuleAnswers, NoteFieldDef, NoteIcisChange, SessionNote, SessionTemplate } from "../seed/types"
 import {
   bindingGroups,
   boundFields,
@@ -104,6 +104,31 @@ function ResultLine({
   )
 }
 
+type Notice = { tone: "info" | "good" | "bad"; text: string }
+
+// Where a submitted note stands, as the practitioner reads it.
+function submitNotice(note: SessionNote): Notice {
+  if (note.icis === "sending") {
+    return {
+      tone: "info",
+      text: `Session note saved. Sending its changes to ICIS…${
+        note.icisError ? ` Not through yet (${note.icisError}) — it keeps trying, and you can leave this page.` : ""
+      }`,
+    }
+  }
+  const results = Object.values(note.committed ?? {}).flatMap((o) => Object.values(o.results))
+  const problems = results.filter((r) => r.status === "conflict" || r.status === "failed").length
+  return {
+    tone: problems > 0 ? "bad" : "good",
+    text:
+      results.length === 0
+        ? "Session note saved. No ICIS data was changed."
+        : problems > 0
+          ? `Session note saved. ${problems} change${problems === 1 ? "" : "s"} couldn't be saved to ICIS — see below.`
+          : `Session note saved, and ${results.length} change${results.length === 1 ? "" : "s"} saved to ICIS.`,
+  }
+}
+
 export function SessionView({ caseNumber, sessionId }: { caseNumber: string; sessionId: string }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -112,8 +137,11 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
   const [note, setNote] = useState<SessionNote | null>(null)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<{ tone: "info" | "good" | "bad"; text: string } | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [active, setActive] = useState<string | null>(null)
+  // Identifies one submit of this note, so resending it after a dropped
+  // connection can't store it twice. A fresh one each time the note opens.
+  const submitId = useRef(crypto.randomUUID())
 
   const key = loaded ? noteKey(loaded.caseContext.caseNumber, loaded.session.subject) : null
 
@@ -123,6 +151,7 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
       load(caseNumber, sessionId).then(
         (l) => {
           const saved = loadNote(noteKey(l.caseContext.caseNumber, l.session.subject))
+          submitId.current = crypto.randomUUID()
           setLoaded(l)
           setNote(saved)
           setAnswers(keepAnswers ?? saved?.answers ?? {})
@@ -165,6 +194,24 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
     return null
   }, [loaded])
 
+  // While the notes server is still sending a submitted note's changes to
+  // ICIS, follow along; once they're all answered, re-read ICIS.
+  useEffect(() => {
+    if (!key || note?.icis !== "sending") return
+    const timer = setInterval(() => {
+      refreshNote(key).then(
+        (latest) => {
+          if (!latest) return
+          setNotice(submitNotice(latest))
+          if (latest.icis === "sending") setNote(latest)
+          else open()
+        },
+        () => undefined,
+      )
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [key, note?.icis, open])
+
   if (error) {
     return (
       <div className="screen">
@@ -194,7 +241,7 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
     Object.fromEntries(groups.map((g) => [g.id, changesFor(g, dictionary, current[g.id] ?? {}, baseline[g.id] ?? {})]))
   const changeCount = Object.values(pendingChanges()).reduce((n, c) => n + Object.keys(c).length, 0)
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     const next: SessionNote = {
       status: "draft",
       savedAt: new Date().toLocaleString("en-AU", { timeZone: "Australia/Perth" }),
@@ -202,7 +249,15 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
       answers,
       pendingBound: pendingChanges(),
     }
-    saveNote(key, next)
+    setBusy(true)
+    try {
+      await saveNote(key, next)
+    } catch (e) {
+      setNotice({ tone: "bad", text: `Draft not saved: ${(e as Error).message}.` })
+      return
+    } finally {
+      setBusy(false)
+    }
     setNote(next)
     setNotice({
       tone: "info",
@@ -220,48 +275,45 @@ export function SessionView({ caseNumber, sessionId }: { caseNumber: string; ses
       return
     }
     setBusy(true)
-    setNotice(null)
-    // The note is the record of what was captured; it's saved whatever
-    // happens to the bound values. Then each group's changes go to the
-    // DBS, which writes them to ICIS -- or says why not.
-    const changes = pendingChanges()
-    const outcome: NonNullable<SessionNote["committed"]> = {}
-    for (const group of groups) {
-      const values = changes[group.id]
-      if (Object.keys(values).length === 0) continue
-      try {
-        const { results } = await dbs.commit(group.anchor, values, baseline[group.id])
-        outcome[group.id] = { values, results }
-      } catch (e) {
-        const message = e instanceof DbsError ? e.message : String(e)
-        outcome[group.id] = {
-          values,
-          results: Object.fromEntries(Object.keys(values).map((k) => [k, { status: "failed" as const, message }])),
-        }
-      }
-    }
-    const next: SessionNote = {
+    setNotice({ tone: "info", text: "Saving…" })
+    // One request: the notes server stores the note and its ICIS changes in
+    // one transaction -- both or neither -- then sends the changes to ICIS
+    // itself, through the DBS, retrying until each is answered.
+    const pending = pendingChanges()
+    const changes: NoteIcisChange[] = groups
+      .filter((g) => Object.keys(pending[g.id]).length > 0)
+      .map((g) => ({ group: g.id, anchor: g.anchor, values: pending[g.id], baseline: baseline[g.id] }))
+    const submitted: SessionNote = {
       status: "submitted",
       savedAt: new Date().toLocaleString("en-AU", { timeZone: "Australia/Perth" }),
       savedBy: PRACTITIONER.name,
       answers,
-      committed: outcome,
     }
-    saveNote(key, next)
-    const results = Object.values(outcome).flatMap((o) => Object.values(o.results))
-    const problems = results.filter((r) => r.status === "conflict" || r.status === "failed").length
-    setNotice({
-      tone: problems > 0 ? "bad" : "good",
-      text:
-        results.length === 0
-          ? "Session note submitted. No ICIS data was changed."
-          : problems > 0
-            ? `Session note submitted. ${problems} change${problems === 1 ? "" : "s"} couldn't be saved to ICIS — see below. The note itself is saved.`
-            : `Session note submitted, and ${results.length} change${results.length === 1 ? "" : "s"} saved to ICIS.`,
-    })
+    let stored: SessionNote
+    try {
+      stored = await submitNote(key, submitId.current, submitted, changes, (attempt) =>
+        setNotice({
+          tone: "info",
+          text: `Connection problem — trying again (attempt ${attempt + 1})… The note isn't saved yet.`,
+        }),
+      )
+    } catch (e) {
+      setNotice({
+        tone: "bad",
+        text: `Not saved: ${(e as Error).message}. Nothing was sent to ICIS, and your answers are still here — try again.`,
+      })
+      setBusy(false)
+      return
+    }
     setBusy(false)
-    // Re-read ICIS so the note now shows what it holds.
-    open(answers)
+    setNotice(submitNotice(stored))
+    if (stored.icis === "sending") {
+      setNote(stored)
+      setEditing(false)
+    } else {
+      // Re-read ICIS so the note now shows what it holds.
+      open()
+    }
   }
 
   const hintFor = (group: string, binding: string) => {

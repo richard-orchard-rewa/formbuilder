@@ -10,6 +10,7 @@ It complements the [data-bound fields demo](databound-fields-demo.md), which cov
 
 ```
  browser ──► practitioner portal (:5180)          stands in for the session-notes system
+                   │  /api/notes ──► Postgres (practitioner_portal_demo): the notes themselves
                    │  /dbs relay — HTTP only, never ICIS
                    ▼
             Data Binding Service (:3100)          anchors, dictionary, rules, identities
@@ -23,7 +24,12 @@ It complements the [data-bound fields demo](databound-fields-demo.md), which cov
 - **The portal** ([`practitioner-portal/`](../../practitioner-portal/)) is a Vite + React mock of the RAWA practitioner portal concept (`designs-practitioner`): home, caseload, case view and session notes.
   - Its session notes are assembled from **modules**, each scoped to a case, a session, a client or a client's attendance. The modules and templates are seeded in [`src/seed/modules.ts`](../../practitioner-portal/src/seed/modules.ts). They stand in for form-builder's modules and session templates until those support bound fields (US-L.4).
   - It holds **no ICIS IDs**: only DBS-issued anchor IDs and option codes.
-  - Narrative answers are stored in the browser, like a session-notes system storing its own submissions. Bound values are never stored there; they live in ICIS.
+  - Session notes are saved to the portal's **own Postgres database** (`practitioner_portal_demo`, table `session_notes`) through `/api/notes`, served by the portal's dev server ([`server/notes-api.ts`](../../practitioner-portal/server/notes-api.ts)). It's created on first use, on the same local Postgres as the others but never their databases. Set `PORTAL_DATABASE_URL` to point it elsewhere.
+  - A note holds the narrative answers, plus a record of what it sent to ICIS and what came back. Bound values themselves live in ICIS.
+  - **Submitting is transactional, and safe on a flaky connection.** The browser sends one request (`POST /api/notes/<key>/submit`) holding the note and its ICIS changes, under a submit ID picked when the note was opened. The server stores the note and one outbox row per ICIS record (`icis_outbox`) in a single Postgres transaction: both or neither. A resend with the same ID (after a dropped connection) is recognised in `note_submits` and never stored twice.
+  - The server, not the browser, then sends the outbox to the DBS, retrying with back-off until each record is answered. It resumes after a restart. The practitioner sees **Saved** once it's all through, or **Saved, sending to ICIS** (with why it hasn't landed yet) while it isn't. The page follows along until it's done.
+  - To show ICIS being unreachable, start the portal with `BINDING_SERVICE_URL` pointing nowhere (the `practitioner-portal-no-dbs` entry in `.claude/launch.json`, on :5182). Submit, then restart it normally, and the waiting change goes through by itself.
+  - Not yet: ICIS changes for different records are still sent one record at a time, not as a single Dataverse `$batch` transaction (US-X.10).
 - **The Data Binding Service** uses the session and participant anchors from the proposal's "Anchors beyond the client" (PR #83), plus a prototype `case` anchor built for this demo. Each resolve and commit is about **exactly one** anchor. Option sets (attendance status, case stage) use the `choice` strategy.
 - **The mock ICIS** now holds cases (`incident`), their clients (`csg_caseclient`), sessions (`wp_session`, regarding the case) and attendance (`csg_attendance`), with the same URL shapes, filters, etags and privilege errors as Dataverse.
 
@@ -45,6 +51,8 @@ npm run demo:portal
 | Mock ICIS | http://localhost:3200 | ICIS admin, ICIS staff, observer |
 | Data Binding Service | http://localhost:3100 | Developer |
 | form-builder | http://localhost:5173 | Data steward (Data bindings page) |
+
+To see a submitted note in Postgres: `docker compose exec db psql -U formbuilder -d practitioner_portal_demo -c "select note_key, status, icis_state, committed from session_notes" -c "select submit_id, group_id, status, attempts, last_error from icis_outbox"`.
 
 Leave the mock's **API log** open on a second screen. In the portal, open **DBS traffic** (bottom right). Between them you see both hops: portal → DBS, and DBS → ICIS.
 
@@ -74,7 +82,7 @@ The clients are `00152096`–`00152101` in the mock's **Clients**, alongside the
 
 - **Mock ICIS:** **Reset demo** in its header restores every record and the read-only privileges. Run `npm run demo:seed` again afterwards.
 - **The DBS's bindings, anchor IDs and option codes:** `npm run demo:reset` empties its demo database. Run the seed again afterwards.
-- **Portal notes:** **Reset portal notes** at the bottom of the portal's side rail puts the seeded notes back.
+- **Portal notes:** **Reset portal notes** at the bottom of the portal's side rail empties `session_notes`, which puts the seeded notes back.
 
 ## The walkthrough
 
